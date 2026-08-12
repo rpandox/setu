@@ -1,0 +1,21 @@
+/* The 24px status bar: quiet mono chips, tabular figures for numbers. */
+
+.statusbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: calc(var(--pad) * 2);
+  height: var(--h-statusbar);
+  padding: 0 var(--pad);
+  background: var(--bg-1);
+  border-top: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.statusbar-chip {
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

@@ -1,0 +1,64 @@
+/* The 38px tab strip; doubles as the window drag region. */
+
+.tabbar {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  gap: calc(var(--pad) / 2);
+  height: var(--h-tabbar);
+  padding: 0 var(--pad);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+  transition: padding-left var(--t-med);
+}
+
+/* With the sidebar collapsed the traffic lights sit over the tab bar. */
+.tabbar--inset {
+  padding-left: var(--w-traffic-lights);
+}
+
+.tab {
+  position: relative;
+  padding: 0 calc(var(--pad) * 2);
+  background: none;
+  border: none;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  transition: color var(--t-fast);
+}
+
+.tab:hover {
+  color: var(--ink-1);
+}
+
+/* Active tab: ink brightens, and the 2px underline takes the neon + glow —
+   one of --glow's three legal uses (§7). */
+.tab--active {
+  color: var(--ink-1);
+}
+
+.tab--active::after {
+  content: "";
+  position: absolute;
+  right: var(--pad);
+  bottom: 0;
+  left: var(--pad);
+  height: 2px;
+  background: var(--neon);
+  box-shadow: var(--glow);
+}
+
+.tab-new {
+  align-self: center;
+  padding: 0 var(--pad);
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  font-size: 16px;
+  transition: color var(--t-fast);
+}
+
+.tab-new:hover {
+  color: var(--ink-1);
+}

@@ -1,0 +1,52 @@
+/*
+ * Base styles: reset, typography, and the global focus treatment.
+ * Consumes tokens only — no literals (PLAN.md §7).
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-0);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+/* Keyboard focus is always visible: the glow ring is one of --glow's three
+   legal uses (LEDs, active-tab underline, focus ring). */
+:focus-visible {
+  outline: 1px solid var(--neon);
+  outline-offset: 1px;
+  box-shadow: var(--glow);
+  border-radius: var(--r-1);
+}
+
+::selection {
+  background: var(--line-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

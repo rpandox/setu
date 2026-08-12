@@ -1,0 +1,37 @@
+/* The terminal viewport; Phase 0 renders only the empty state. */
+
+.terminal-area {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-0);
+}
+
+.terminal-empty {
+  text-align: center;
+}
+
+/* Display moment: Space Grotesk is reserved for empty states, onboarding,
+   and about (§7 typography). */
+.terminal-empty-title {
+  color: var(--ink-2);
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.terminal-empty-hint {
+  margin-top: var(--pad);
+  color: var(--ink-3);
+}
+
+.terminal-empty-hint kbd {
+  padding: 1px calc(var(--pad) / 2);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}

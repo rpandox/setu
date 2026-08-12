@@ -1,0 +1,65 @@
+# The verify suite (PLAN.md §6.4 item 6): every gate the project enforces,
+# in one job. macOS runner because macOS is the only target — no GTK/WebKit
+# system-dependency juggling.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm tsc --noEmit
+
+      - name: Lint (includes documentation rules)
+        run: pnpm lint
+
+      - name: Frontend tests
+        run: pnpm vitest run
+
+      - name: No hardcoded colors outside tokens.css
+        run: bash scripts/check-colors.sh
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Rust format check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml --check
+
+      - name: Doc build (warnings are errors)
+        run: cargo doc --no-deps --manifest-path src-tauri/Cargo.toml
+        env:
+          RUSTDOCFLAGS: -D warnings

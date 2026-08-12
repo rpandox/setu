@@ -1,0 +1,118 @@
+/* The LED patch-bay sidebar. Hollow LEDs only in Phase 0 (no prober yet). */
+
+.sidebar {
+  width: var(--w-sidebar);
+  overflow: hidden;
+  background: var(--bg-1);
+  border-right: 1px solid var(--line);
+  transition: width var(--t-med);
+}
+
+.sidebar--collapsed {
+  width: 0;
+  border-right-width: 0;
+}
+
+.sidebar-inner {
+  display: flex;
+  flex-direction: column;
+  width: var(--w-sidebar);
+  height: 100%;
+}
+
+/* Keeps content clear of the macOS traffic lights; draggable window chrome. */
+.sidebar-titlebar-spacer {
+  flex: none;
+  height: var(--h-tabbar);
+}
+
+.sidebar-search {
+  margin: 0 var(--pad) var(--pad);
+  padding: calc(var(--pad) * 0.75) var(--pad);
+  background: var(--bg-2);
+  color: var(--ink-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.sidebar-search::placeholder {
+  color: var(--ink-3);
+}
+
+.sidebar-groups {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: var(--pad);
+}
+
+.sidebar-group {
+  margin-top: var(--pad);
+}
+
+/* Group eyebrows: small-caps mono labels over a hairline rule (§7). */
+.group-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--pad);
+  margin: 0 var(--pad) calc(var(--pad) / 2);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.group-eyebrow::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.group-hosts {
+  list-style: none;
+}
+
+.host-row {
+  display: flex;
+  align-items: center;
+  gap: var(--pad);
+  width: 100%;
+  padding: calc(var(--pad) * 0.75) var(--pad);
+  background: none;
+  border: none;
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  text-align: left;
+  transition: background var(--t-fast);
+}
+
+.host-row:hover {
+  background: var(--bg-2);
+}
+
+/* Hollow ring = probing / reachability off (§7 LED table). No glow. */
+.host-led {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--ink-3);
+  border-radius: 50%;
+}
+
+.host-label {
+  flex: none;
+}
+
+.host-detail {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
