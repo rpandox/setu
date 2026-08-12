@@ -1,7 +1,8 @@
 # Store
 
 How Setu persists hosts (and later snippets, runbooks, and settings) as
-plain TOML in `~/.config/setu/`, and why that directory is the sync unit.
+plain TOML in `~/.config/setu/`, why that directory is the sync unit — and
+the device-local `state.json` that deliberately lives outside it.
 
 ## The sync unit
 
@@ -76,3 +77,52 @@ Hand-editing is otherwise fully supported: unknown fields are tolerated
 on load (and dropped on the next save), missing fields take their
 defaults, and the file may simply not exist yet — that's an empty list,
 not an error.
+
+## state.json (device-local, not synced)
+
+```
+~/Library/Application Support/dev.pandox.setu/
+  state.json          # Phase 3 — window/session restore + UI prefs
+```
+
+`state.json` describes **this machine's windows** — which sidebar groups
+are collapsed, whether broadcast auto-disarms on tab switch, whether the
+saved layout reopens on launch, and the layout itself (F4). That's why it
+lives in the app-support directory instead of the sync unit: syncing one
+Mac's open tabs onto another would be wrong by design.
+
+The document (camelCase keys, mirrored by `UiState` in
+[`src-tauri/src/ui_state.rs`](../../src-tauri/src/ui_state.rs) and
+`src/ipc/contract.ts`):
+
+```jsonc
+{
+  "version": 1,
+  "sidebar": { "collapsedSections": ["favorites", "group:fleet"] },
+  "broadcastAutoDisarm": true, // disarm broadcast on tab switch (default on)
+  "restoreOnLaunch": false, // reopen the saved layout on launch (opt-in)
+  "savedLayout": [
+    {
+      "layout": {
+        "kind": "split",
+        "dir": "row", // "row" = side by side, "col" = stacked
+        "ratio": 0.5, // share of the rectangle given to "a"
+        "a": { "kind": "leaf", "hostId": "9f2c…" }, // reconnect this host
+        "b": { "kind": "leaf", "hostId": null }, // a fresh local shell
+      },
+    },
+  ],
+}
+```
+
+Leaves save a connection target, never a live session: `hostId` names a
+`hosts.toml` record to reconnect, `null` means a local shell. On restore,
+hosts that no longer exist — or aren't `source = "setu"` — are pruned and
+the layout heals around them.
+
+The same write discipline as `hosts.toml` applies: saves are atomic
+(temp + rename), unknown fields load fine, missing fields take defaults, a
+missing file is the default state, and **a corrupt file is never
+overwritten** — the app runs on defaults and stops persisting until the
+file is fixed or deleted. The frontend debounces changes (~500 ms) and
+writes the whole document via `ui_state_set` ([ipc.md](ipc.md#ui_state_set)).

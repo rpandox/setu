@@ -7,6 +7,30 @@ one entry.
 
 ## [Unreleased]
 
+### Added — Phase 3: splits, broadcast & session restore
+
+- Split panes (F4): ⌘D/⇧⌘D split the focused pane right/down — SSH panes
+  open a second session to the same host, local panes a fresh shell.
+  Panes form a binary tree per tab: drag dividers to resize (240×120
+  minimum), ⌥⌘-arrows move focus with a brief glow, and ⌘W now closes the
+  focused _pane_, healing the layout around it (a tab's last pane closes
+  the tab; the tab strip's × still closes everything).
+- Broadcast (F4): ⇧⌘B arms typing into every selected pane in the tab —
+  the cssh. Panes opt in/out via a badge (also mid-broadcast); armed panes
+  carry a red hairline top border and the status bar counts the sessions.
+  Multi-line pastes always stop at a preview dialog (exact text, editable,
+  session count) before touching any session; dead panes are skipped with
+  a toast; switching tabs disarms by default (`broadcastAutoDisarm`).
+- Session restore (F4, opt-in `restoreOnLaunch`): relaunching reopens the
+  saved tabs and split layouts — Setu-owned SSH panes reconnect, local
+  panes open fresh shells, unreachable hosts open with the normal
+  Reconnect notice instead of blocking launch.
+- `state.json` (device-local UI state, PLAN.md §4) in the app-support
+  directory: sidebar collapse (migrated automatically out of
+  localStorage), the two F4 flags, and the saved layout. Atomic writes;
+  a corrupt file is surfaced and never overwritten. New IPC pair
+  `ui_state_get`/`ui_state_set` (see `docs/dev/ipc.md`).
+
 ### Added — Phase 2: hosts & SSH sessions
 
 - Host management (F1): hosts persist in `~/.config/setu/hosts.toml` —
