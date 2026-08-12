@@ -7,6 +7,8 @@ Phase 4.
 
 ## What is it?
 
+![Quick connect: type a few characters, the top hit connects on Enter](../assets/f11-quick-connect.png)
+
 ⌘T opens a single search field over every known host — Setu hosts and
 `~/.ssh/config` aliases alike — ranked by fuzzy match quality across
 label, hostname, tags, and user (label matches win). Enter connects the

@@ -6,6 +6,8 @@ and its UI: hosts live in a plain TOML file you own, your existing
 of it fuzzily. (The live reachability LEDs land in Phase 4 — until then
 every LED is a hollow ring.)
 
+![The Add host drawer with label, hostname, user, identity, hue, and startup command fields](../assets/f01-hosteditor.png)
+
 ## What is it?
 
 The sidebar is the patch bay: Favorites on top, then your groups, then
