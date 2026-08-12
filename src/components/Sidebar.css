@@ -217,24 +217,19 @@
   color: var(--err);
 }
 
-/* Hollow ring = probing / reachability off (§7 LED table). No glow. */
-.host-led {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border: 1px solid var(--ink-3);
-  border-radius: 50%;
-}
+/* The LED itself lives in HostLed.css (shared with the palette). */
 
 .host-label {
   flex: none;
 }
 
 .host-detail {
+  flex: 1;
   overflow: hidden;
   color: var(--ink-3);
   font-family: var(--font-mono);
   font-size: 11px;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

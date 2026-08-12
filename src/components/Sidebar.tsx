@@ -3,8 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Copy, FolderDown, Pencil, Plus, Trash2 } from "lucide-react";
 import type { Host } from "../ipc/contract";
 import { sidebarSections, sshCommandOf, useHosts } from "../state/hosts";
+import { ledInfoOf, useReach } from "../state/reach";
 import { useSessions } from "../state/sessions";
 import { useUiPrefs } from "../state/uiState";
+import { HostLed, ReachChip } from "./HostLed";
 
 /**
  * Props for the {@link Sidebar} component.
@@ -18,8 +20,9 @@ export interface SidebarProps {
  * The LED patch-bay sidebar (PLAN.md §7, F1): real host rows from the
  * hosts store — Favorites first, then named groups, ungrouped hosts, and
  * the read-only `~/.ssh/config` imports. The search field fuzzy-filters
- * into one ranked list. LEDs stay hollow until the reachability prober
- * lands in Phase 4.
+ * into one ranked list. LEDs are live (Phase 4): the reachability prober
+ * lights them the moment the app opens, with the latency chip at the row's
+ * right edge and a pulse on hosts with a running session.
  *
  * Row actions (hover): connect is the row itself; then Edit / Copy ssh
  * command / Adopt (imported rows) / Delete (two-click confirm). Group
@@ -38,6 +41,9 @@ export function Sidebar({ collapsed }: SidebarProps) {
   const adoptHost = useHosts((s) => s.adoptHost);
   const deleteHost = useHosts((s) => s.deleteHost);
   const openSshTab = useSessions((s) => s.openSshTab);
+  const sessions = useSessions((s) => s.sessions);
+  const reachByHost = useReach((s) => s.byHost);
+  const probing = useReach((s) => s.probing);
 
   const collapsedSections = useUiPrefs((s) => s.collapsedSections);
   const setCollapsedSections = useUiPrefs((s) => s.setCollapsedSections);
@@ -126,7 +132,9 @@ export function Sidebar({ collapsed }: SidebarProps) {
                 </h2>
                 {!sectionCollapsed && (
                   <ul className="group-hosts">
-                    {section.hosts.map((host) => (
+                    {section.hosts.map((host) => {
+                      const led = ledInfoOf(host, reachByHost, sessions, probing);
+                      return (
                       <li className="host-item" key={host.id}>
                         <button
                           className="host-row"
@@ -134,9 +142,10 @@ export function Sidebar({ collapsed }: SidebarProps) {
                           title={`Connect: ${sshCommandOf(host)}`}
                           onClick={() => void openSshTab(host)}
                         >
-                          <span className="host-led" aria-hidden="true" />
+                          <HostLed led={led} />
                           <span className="host-label">{host.label}</span>
                           <span className="host-detail">{rowDetail(host)}</span>
+                          <ReachChip led={led} />
                         </button>
                         <span className="host-actions">
                           {host.source === "ssh_config" ? (
@@ -201,7 +210,8 @@ export function Sidebar({ collapsed }: SidebarProps) {
                           </button>
                         </span>
                       </li>
-                    ))}
+                      );
+                    })}
                   </ul>
                 )}
               </section>

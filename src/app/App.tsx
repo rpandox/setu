@@ -9,6 +9,7 @@ import { PasteGuardDialog } from "../features/broadcast/PasteGuardDialog";
 import { Toast } from "../components/Toast";
 import { useBroadcast, wireBroadcastHousekeeping } from "../state/broadcast";
 import { useHosts } from "../state/hosts";
+import { initReach } from "../state/reach";
 import { activeSessionOf, useSessions } from "../state/sessions";
 import type { FocusDirection } from "../state/splits";
 import { initUiState } from "../state/uiState";
@@ -49,6 +50,9 @@ export function App() {
     // state.json: hydrate prefs, wire persistence, and — when opted in —
     // restore the saved layout (F4).
     void initUiState();
+    // The LED board: start the prober, wire reach:update, follow host CRUD
+    // and window visibility (F1, Phase 4).
+    initReach();
   }, []);
 
   useEffect(() => {
