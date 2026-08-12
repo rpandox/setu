@@ -1,25 +1,10 @@
 import "./Sidebar.css";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Copy, FolderDown, Pencil, Plus, Trash2 } from "lucide-react";
 import type { Host } from "../ipc/contract";
 import { sidebarSections, sshCommandOf, useHosts } from "../state/hosts";
 import { useSessions } from "../state/sessions";
-
-/** localStorage key holding the collapsed section keys (pure view state). */
-const COLLAPSED_KEY = "setu.sidebar.collapsed";
-
-/** Reads the persisted collapse set; malformed storage is an empty set. */
-function loadCollapsed(): Set<string> {
-  try {
-    const raw = window.localStorage.getItem(COLLAPSED_KEY);
-    const parsed: unknown = raw === null ? [] : JSON.parse(raw);
-    return new Set(
-      Array.isArray(parsed) ? parsed.filter((k) => typeof k === "string") : [],
-    );
-  } catch {
-    return new Set();
-  }
-}
+import { useUiPrefs } from "../state/uiState";
 
 /**
  * Props for the {@link Sidebar} component.
@@ -38,7 +23,8 @@ export interface SidebarProps {
  *
  * Row actions (hover): connect is the row itself; then Edit / Copy ssh
  * command / Adopt (imported rows) / Delete (two-click confirm). Group
- * collapse state persists in localStorage.
+ * collapse state persists in `state.json` via the uiState module (Phase 3;
+ * previously localStorage — migrated automatically).
  *
  * @param props - {@link SidebarProps}
  * @returns The sidebar element.
@@ -53,7 +39,9 @@ export function Sidebar({ collapsed }: SidebarProps) {
   const deleteHost = useHosts((s) => s.deleteHost);
   const openSshTab = useSessions((s) => s.openSshTab);
 
-  const [collapsedKeys, setCollapsedKeys] = useState<Set<string>>(loadCollapsed);
+  const collapsedSections = useUiPrefs((s) => s.collapsedSections);
+  const setCollapsedSections = useUiPrefs((s) => s.setCollapsedSections);
+  const collapsedKeys = useMemo(() => new Set(collapsedSections), [collapsedSections]);
   /** Host id whose delete button is armed (second click deletes). */
   const [armedDelete, setArmedDelete] = useState<string | null>(null);
 
@@ -68,16 +56,13 @@ export function Sidebar({ collapsed }: SidebarProps) {
   }, [armedDelete]);
 
   const toggleSection = (key: string): void => {
-    setCollapsedKeys((previous) => {
-      const next = new Set(previous);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      window.localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
-      return next;
-    });
+    const next = new Set(collapsedKeys);
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    setCollapsedSections([...next]);
   };
 
   const rowDetail = (host: Host): string => {

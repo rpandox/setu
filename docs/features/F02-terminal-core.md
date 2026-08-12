@@ -19,7 +19,7 @@ shell process — no orphans.
 | Keys         | Action                                                    |
 | ------------ | --------------------------------------------------------- |
 | ⌘N           | New local shell tab                                       |
-| ⌘W           | Close the active tab                                      |
+| ⌘W           | Close the focused pane (a tab's last pane closes the tab) |
 | ⌘1–9         | Go to tab 1–9                                             |
 | ⌃Tab / ⌃⇧Tab | Cycle tabs forward / backward                             |
 | ⇧⌘F          | Find in terminal (Enter next, ⇧Enter previous, Esc close) |
@@ -27,16 +27,18 @@ shell process — no orphans.
 | ⌘-click      | Open a URL from the terminal in your browser              |
 
 - The `+` button in the tab bar is ⌘N with a mouse; the `×` on each tab
-  is ⌘W.
+  closes the whole tab — every pane in it, since tabs can split
+  ([F04](F04-splits-broadcast.md)).
 - More tabs than fit? The strip scrolls — trackpad swipe or mouse wheel —
   and the active tab always scrolls itself into view.
 - ⇧⌘F with the bar already open refocuses it and selects the query, so a
   second press never closes your search; Esc or ✕ closes.
 - Tab titles follow your shell's title escapes (e.g. `vim` shows itself).
-- A tab whose command exits cleanly closes itself. A non-zero exit keeps
-  the tab (dimmed, with an `exited (code N)` notice) so you can read the
-  output; ⌘W closes it.
-- Scrollback keeps 10 000 lines per tab.
+- A pane whose command exits cleanly closes itself (the layout heals; a
+  tab's last pane takes the tab with it). A non-zero exit keeps the pane
+  (dimmed, with an `exited (code N)` notice) so you can read the output;
+  ⌘W closes it.
+- Scrollback keeps 10 000 lines per pane.
 
 No config keys yet — profile settings (fonts, cursor styles, ligatures)
 arrive with the settings surface in a later phase.

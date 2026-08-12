@@ -8,6 +8,7 @@
 //! Module map (mirrors `PLAN.md` §3):
 //! - [`pty`] — PTY lifecycle: spawning `$SHELL` / `ssh` / `mosh`, I/O, resize, reaping.
 //! - [`store`] — plain-TOML persistence for hosts, snippets, and settings.
+//! - [`ui_state`] — device-local `state.json`: layout restore + UI prefs (F4).
 //! - [`ssh_config`] — the small `~/.ssh/config` reader behind the F1 import.
 //! - [`connect`] — the `Host` → `ssh` argv spawn pipeline (F3).
 //! - [`ipc`] — the Tauri command surface, mirrored by `src/ipc/contract.ts`.
@@ -19,6 +20,7 @@ pub mod ipc;
 pub mod pty;
 pub mod ssh_config;
 pub mod store;
+pub mod ui_state;
 
 /// Builds and runs the Tauri application.
 ///
@@ -46,6 +48,11 @@ pub fn run() {
             let events = Arc::new(ipc::TauriPtyEvents::new(app.handle().clone()));
             app.manage(pty::PtyManager::new(events));
             app.manage(store::HostsStore::new(store::HostsStore::default_path()?));
+            // state.json lives in the app-support dir (PLAN.md §4) — resolved
+            // here so the module itself stays Tauri-free like the others.
+            app.manage(ui_state::UiStateStore::new(
+                app.path().app_data_dir()?.join("state.json"),
+            ));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -57,6 +64,8 @@ pub fn run() {
             ipc::host_upsert,
             ipc::host_delete,
             ipc::host_adopt,
+            ipc::ui_state_get,
+            ipc::ui_state_set,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

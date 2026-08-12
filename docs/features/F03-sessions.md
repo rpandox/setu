@@ -21,20 +21,21 @@ noticed within ~90 seconds instead of hanging forever.
 | ---- | --------------------------------------------- |
 | ⌘T   | Quick connect to a host                       |
 | ⏎    | Reconnect, when the active SSH tab has exited |
-| ⌘W   | Close the tab (always terminates the process) |
+| ⌘W   | Close the focused pane (always terminates it) |
 
 - **Tab identity:** tabs start as the host's label and follow the remote
   shell's title escapes; the active tab's underline takes the host's hue.
 - **Startup command:** set `startup = "tmux new -A -s main"` on a host and
   every connect runs it (appended after `--`), landing you in tmux.
 - **Disconnects:** a non-zero exit (dropped Wi-Fi, killed sshd, rejected
-  auth) keeps the tab with a `connection closed (code N)` notice, a
+  auth) keeps the pane with a `connection closed (code N)` notice, a
   **Reconnect** button, and plain ⏎ as the shortcut. Reconnecting reuses
-  the same terminal — scrollback survives.
+  the same terminal — scrollback survives, and since Phase 3 the pane
+  keeps its place in any split layout ([F04](F04-splits-broadcast.md)).
 - **Right-click a tab** for Duplicate tab (second session to the same
   host), Reconnect, Reconnect all, and Close.
-- **Clean exits** (typing `exit`, code 0) close the tab, same as local
-  shells.
+- **Clean exits** (typing `exit`, code 0) close the pane, same as local
+  shells; the split layout heals around it.
 - **Quitting Setu kills every child process** — ssh included. No orphans,
   verified by `ps` in the acceptance checklist.
 

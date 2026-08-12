@@ -204,10 +204,75 @@ export interface HostIdPayload {
 }
 
 /**
+ * A node in a saved split tree (`state.json`, F4 session restore).
+ *
+ * Leaves carry a connection target, not live session ids: `hostId` names a
+ * host to reconnect on restore, `null` means a fresh local shell. Pane and
+ * session ids are minted anew when the layout is rebuilt.
+ */
+export type SavedSplitNode =
+  | {
+      /** One pane. */
+      kind: "leaf";
+      /** The host to reconnect (`Host.id`), or `null` for a local shell. */
+      hostId: string | null;
+    }
+  | {
+      /** Two children sharing the rectangle at `ratio`. */
+      kind: "split";
+      /** Orientation: `"row"` = side by side, `"col"` = stacked. */
+      dir: "row" | "col";
+      /** Share of the rectangle given to `a` (0–1). */
+      ratio: number;
+      /** First child: left (`row`) or top (`col`). */
+      a: SavedSplitNode;
+      /** Second child: right (`row`) or bottom (`col`). */
+      b: SavedSplitNode;
+    };
+
+/** One saved tab in `state.json`. */
+export interface SavedTab {
+  /** The tab's split tree. */
+  layout: SavedSplitNode;
+}
+
+/** Sidebar view state persisted in `state.json`. */
+export interface SidebarUiState {
+  /** Collapsed section keys (`"favorites"`, `"group:<name>"`, …). */
+  collapsedSections: string[];
+}
+
+/**
+ * The `state.json` document (PLAN.md §4) — device-local UI state, outside
+ * the `~/.config/setu` sync unit: it describes this machine's windows, not
+ * the user's fleet. Mirrored by `UiState` in `ui_state.rs`; both sides use
+ * camelCase, matching the JSON file verbatim.
+ */
+export interface UiState {
+  /** Schema version; currently `1`. */
+  version: number;
+  /** Sidebar view state (migrated out of localStorage in Phase 3). */
+  sidebar: SidebarUiState;
+  /** Disarm broadcast when the active tab changes (F4 safety, default on). */
+  broadcastAutoDisarm: boolean;
+  /** Reopen the saved layout on launch (F4 session restore, default off). */
+  restoreOnLaunch: boolean;
+  /** The saved tab/split layout, kept current as tabs change. */
+  savedLayout: SavedTab[];
+}
+
+/** Payload for `ui_state_set`: the full document (no partial updates). */
+export interface UiStateSetPayload {
+  /** The state to write. */
+  state: UiState;
+}
+
+/**
  * Invokable commands, keyed by command name.
  *
  * Phase 1 shipped the `pty_*` family; Phase 2 adds SSH spawning and the
- * `hosts_*` family over `hosts.toml` and the `~/.ssh/config` import.
+ * `hosts_*` family over `hosts.toml` and the `~/.ssh/config` import;
+ * Phase 3 adds the `ui_state_*` pair over `state.json`.
  */
 export interface IpcCommands {
   /** Spawn a new PTY session — a local login shell or `ssh` to a host. */
@@ -230,6 +295,10 @@ export interface IpcCommands {
   host_delete: { payload: HostIdPayload; result: null };
   /** Copy an `sshcfg:` row into `hosts.toml` as an editable record. */
   host_adopt: { payload: HostIdPayload; result: Host };
+  /** Read `state.json` (a missing file is the default state). */
+  ui_state_get: { payload: Record<string, never>; result: UiState };
+  /** Replace `state.json` atomically (corrupt files are never overwritten). */
+  ui_state_set: { payload: UiStateSetPayload; result: null };
 }
 
 /**
