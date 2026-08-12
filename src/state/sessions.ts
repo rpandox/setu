@@ -1,7 +1,7 @@
 /**
  * Session/tab state (F2, F3) — the Zustand store behind the tab bar and
- * terminal area. State shape maps to PLAN.md §9 F2 (Phase 1 scope: local
- * tabs only).
+ * terminal area. State shape maps to PLAN.md §9 F2/F3 (Phase 2 scope:
+ * local shells and SSH sessions).
  *
  * Terminal instances themselves live in the terminal registry, not here:
  * store state stays serializable metadata, and xterm objects survive React
@@ -9,24 +9,41 @@
  */
 
 import { create } from "zustand";
+import type { Host } from "../ipc/contract";
 import { ipcInvoke, onPtyExit } from "../ipc/client";
 import {
   createSessionTerminal,
   disposeSessionTerminal,
+  getSessionTerminal,
+  rebindSessionTerminal,
 } from "../features/terminal/registry";
 
 /** Metadata for one open session (one tab). */
 export interface SessionMeta {
   /** The PTY session id from `pty_spawn`. */
   sessionId: string;
-  /** Tab title; seeded "local", then follows the shell's title escapes. */
+  /**
+   * Tab title; seeded from the host label (or "local"), then follows the
+   * child's OSC 0/2 title escapes (F3).
+   */
   title: string;
-  /** Session kind. Phase 1: local shells only. */
-  kind: "local";
+  /** Session kind. */
+  kind: "local" | "ssh";
+  /** The connected host's id — `undefined` for local tabs. */
+  hostId?: string;
+  /** The host label at connect time (reconnect/duplicate reuse it). */
+  hostLabel?: string;
+  /** The host's identity hue 0–7 (tab underline); `undefined` for local. */
+  hue?: number;
   /** Whether the child is still running. */
   status: "running" | "exited";
   /** Exit code once exited (`null` = signal death). */
   exitCode: number | null;
+  /**
+   * True when the session's host was deleted mid-session (F1: sessions
+   * stay alive, tabs mark "(orphaned)").
+   */
+  orphaned?: boolean;
 }
 
 /** Store shape + actions for sessions and tab UI state. */
@@ -44,6 +61,19 @@ export interface SessionsState {
   findFocusSeq: number;
   /** Spawns a local shell, wires its terminal, and focuses the new tab. */
   openLocalTab(): Promise<void>;
+  /** Spawns `ssh` to a host, wires its terminal, and focuses the new tab. */
+  openSshTab(host: Host): Promise<void>;
+  /**
+   * Reconnects an exited SSH tab in place: fresh PTY, same xterm (scrollback
+   * survives). No-op for running tabs, local tabs, and unknown ids (F3).
+   */
+  reconnect(sessionId: string): Promise<void>;
+  /** Reconnects every exited SSH tab ("Reconnect all", F3). */
+  reconnectAll(): Promise<void>;
+  /** Opens a second session to the same host ("Duplicate tab", F3). */
+  duplicateTab(sessionId: string): Promise<void>;
+  /** Flags every session on `hostId` as orphaned (its host was deleted). */
+  markOrphaned(hostId: string): void;
   /** Closes a tab: kills the PTY and removes the session immediately. */
   closeTab(sessionId: string): void;
   /** Focuses a tab by session id (no-op for unknown ids). */
@@ -102,7 +132,7 @@ export const useSessions = create<SessionsState>((set, get) => {
       return;
     }
     // Non-zero (or signal) exit: keep the tab so output stays inspectable;
-    // the terminal area shows an exit notice and ⌘W closes.
+    // the terminal area shows an exit notice — with Reconnect for SSH (F3).
     set((state) => ({
       ...state,
       sessions: state.sessions.map((s) =>
@@ -113,6 +143,66 @@ export const useSessions = create<SessionsState>((set, get) => {
     }));
   };
 
+  /**
+   * Shared tail of every spawn: create the terminal, follow title escapes,
+   * subscribe to exit, and append + focus the new tab.
+   *
+   * @param meta - The new session's metadata (already spawned).
+   */
+  const wireSession = async (meta: SessionMeta): Promise<void> => {
+    const { sessionId } = meta;
+    const handle = await createSessionTerminal(sessionId);
+    handle.term.onTitleChange((title) => {
+      set((state) => ({
+        ...state,
+        sessions: state.sessions.map((s) =>
+          s.sessionId === sessionId ? { ...s, title } : s,
+        ),
+      }));
+    });
+    const unlisten = await onPtyExit(sessionId, ({ code }) => {
+      handleExit(sessionId, code);
+    });
+    exitUnsubscribers.set(sessionId, unlisten);
+    set((state) => ({
+      ...state,
+      sessions: [...state.sessions, meta],
+      activeSessionId: sessionId,
+    }));
+  };
+
+  /**
+   * Spawns `ssh` to a host and opens its tab — the shared engine behind
+   * {@link SessionsState.openSshTab} and {@link SessionsState.duplicateTab}.
+   *
+   * @param hostId - The host to connect to.
+   * @param hostLabel - Label to seed the tab title with.
+   * @param hue - The host's identity hue.
+   */
+  const openSsh = async (
+    hostId: string,
+    hostLabel: string,
+    hue: number,
+  ): Promise<void> => {
+    // 80×24 is a placeholder; the pane fits and resizes right after open.
+    const { sessionId } = await ipcInvoke("pty_spawn", {
+      kind: "ssh",
+      hostId,
+      cols: 80,
+      rows: 24,
+    });
+    await wireSession({
+      sessionId,
+      title: hostLabel,
+      kind: "ssh",
+      hostId,
+      hostLabel,
+      hue,
+      status: "running",
+      exitCode: null,
+    });
+  };
+
   return {
     sessions: [],
     activeSessionId: null,
@@ -120,38 +210,84 @@ export const useSessions = create<SessionsState>((set, get) => {
     findFocusSeq: 0,
 
     async openLocalTab(): Promise<void> {
-      // 80×24 is a placeholder; the pane fits and resizes right after open.
       const { sessionId } = await ipcInvoke("pty_spawn", {
         kind: "local",
         cols: 80,
         rows: 24,
       });
-      const handle = await createSessionTerminal(sessionId);
-      handle.term.onTitleChange((title) => {
-        set((state) => ({
-          ...state,
-          sessions: state.sessions.map((s) =>
-            s.sessionId === sessionId ? { ...s, title } : s,
-          ),
-        }));
+      await wireSession({
+        sessionId,
+        title: "local",
+        kind: "local",
+        status: "running",
+        exitCode: null,
       });
-      const unlisten = await onPtyExit(sessionId, ({ code }) => {
-        handleExit(sessionId, code);
+    },
+
+    async openSshTab(host: Host): Promise<void> {
+      await openSsh(host.id, host.label, host.hue);
+    },
+
+    async reconnect(sessionId: string): Promise<void> {
+      const meta = get().sessions.find((s) => s.sessionId === sessionId);
+      if (!meta || meta.status !== "exited" || meta.kind !== "ssh" || !meta.hostId) {
+        return;
+      }
+      const handle = getSessionTerminal(sessionId);
+      const { sessionId: newId } = await ipcInvoke("pty_spawn", {
+        kind: "ssh",
+        hostId: meta.hostId,
+        // Reuse the terminal's real size; the pane refits right after anyway.
+        cols: handle?.term.cols ?? 80,
+        rows: handle?.term.rows ?? 24,
       });
-      exitUnsubscribers.set(sessionId, unlisten);
+      const rebound = await rebindSessionTerminal(sessionId, newId);
+      if (!rebound) return;
+      exitUnsubscribers.get(sessionId)?.();
+      exitUnsubscribers.delete(sessionId);
+      const unlisten = await onPtyExit(newId, ({ code }) => {
+        handleExit(newId, code);
+      });
+      exitUnsubscribers.set(newId, unlisten);
       set((state) => ({
         ...state,
-        sessions: [
-          ...state.sessions,
-          {
-            sessionId,
-            title: "local",
-            kind: "local",
-            status: "running",
-            exitCode: null,
-          },
-        ],
-        activeSessionId: sessionId,
+        sessions: state.sessions.map((s) =>
+          s.sessionId === sessionId
+            ? {
+                ...s,
+                sessionId: newId,
+                status: "running" as const,
+                exitCode: null,
+              }
+            : s,
+        ),
+        activeSessionId:
+          state.activeSessionId === sessionId ? newId : state.activeSessionId,
+      }));
+      rebound.term.focus();
+    },
+
+    async reconnectAll(): Promise<void> {
+      const exited = get()
+        .sessions.filter((s) => s.status === "exited" && s.kind === "ssh")
+        .map((s) => s.sessionId);
+      for (const sessionId of exited) {
+        await get().reconnect(sessionId);
+      }
+    },
+
+    async duplicateTab(sessionId: string): Promise<void> {
+      const meta = get().sessions.find((s) => s.sessionId === sessionId);
+      if (!meta || meta.kind !== "ssh" || !meta.hostId || meta.orphaned) return;
+      await openSsh(meta.hostId, meta.hostLabel ?? meta.title, meta.hue ?? 0);
+    },
+
+    markOrphaned(hostId: string): void {
+      set((state) => ({
+        ...state,
+        sessions: state.sessions.map((s) =>
+          s.hostId === hostId ? { ...s, orphaned: true } : s,
+        ),
       }));
     },
 

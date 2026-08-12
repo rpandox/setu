@@ -1,0 +1,299 @@
+/* The HostEditor drawer (F1): a right-side panel over a dimmed scrim. */
+
+.hosteditor-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: flex-end;
+  background: color-mix(in srgb, var(--bg-0) 60%, transparent);
+}
+
+.hosteditor {
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  max-width: 90vw;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg-1);
+  border-left: 1px solid var(--line-strong);
+}
+
+.hosteditor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--pad) calc(var(--pad) * 2);
+  border-bottom: 1px solid var(--line);
+}
+
+.hosteditor-title {
+  color: var(--ink-1);
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.hosteditor-close {
+  display: flex;
+  align-items: center;
+  padding: calc(var(--pad) / 2);
+  background: none;
+  border: none;
+  color: var(--ink-2);
+  transition: color var(--t-fast);
+}
+
+.hosteditor-close:hover {
+  color: var(--ink-1);
+}
+
+.hosteditor-form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--pad);
+  padding: calc(var(--pad) * 2);
+}
+
+.hosteditor-field {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+}
+
+.hosteditor-row {
+  display: flex;
+  gap: var(--pad);
+}
+
+.hosteditor-row .hosteditor-field {
+  flex: 1;
+}
+
+.hosteditor-field--port {
+  max-width: 90px;
+}
+
+/* Field labels share the eyebrow voice (§7). */
+.hosteditor-label {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hosteditor-input {
+  padding: calc(var(--pad) * 0.75) var(--pad);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.hosteditor-input--mono,
+.hosteditor-chip-input {
+  font-family: var(--font-mono);
+}
+
+.hosteditor-input::placeholder {
+  color: var(--ink-3);
+}
+
+.hosteditor-notes {
+  resize: vertical;
+  line-height: var(--leading);
+}
+
+/* Server-side validation lands under the offending field. */
+.hosteditor-fielderror {
+  color: var(--err);
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+/* Duplicate user@host:port — a warning, never a block (F1). */
+.hosteditor-warning {
+  padding: calc(var(--pad) / 2) var(--pad);
+  border: 1px solid var(--warn);
+  border-radius: var(--r-1);
+  color: var(--warn);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: var(--leading);
+}
+
+/* Tag chips + inline entry. */
+.hosteditor-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+  padding: calc(var(--pad) / 2);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+}
+
+.hosteditor-chip {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  padding: 1px calc(var(--pad) / 2);
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.hosteditor-chip-remove {
+  padding: 0 2px;
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.hosteditor-chip-remove:hover {
+  color: var(--ink-1);
+}
+
+.hosteditor-chip-input {
+  flex: 1;
+  min-width: 80px;
+  padding: 2px;
+  background: none;
+  border: none;
+  color: var(--ink-1);
+  font-size: var(--text-base);
+}
+
+.hosteditor-chip-input:focus {
+  outline: none;
+}
+
+/* The 8 identity hues as swatches (tokens --hue-0…7 only). */
+.hosteditor-hues {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+}
+
+.hosteditor-hue {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  opacity: 0.55;
+  transition: opacity var(--t-fast);
+}
+
+.hosteditor-hue:hover {
+  opacity: 0.85;
+}
+
+.hosteditor-hue--selected {
+  border-color: var(--ink-1);
+  opacity: 1;
+}
+
+.hosteditor-hue[data-hue="0"] {
+  background: var(--hue-0);
+}
+
+.hosteditor-hue[data-hue="1"] {
+  background: var(--hue-1);
+}
+
+.hosteditor-hue[data-hue="2"] {
+  background: var(--hue-2);
+}
+
+.hosteditor-hue[data-hue="3"] {
+  background: var(--hue-3);
+}
+
+.hosteditor-hue[data-hue="4"] {
+  background: var(--hue-4);
+}
+
+.hosteditor-hue[data-hue="5"] {
+  background: var(--hue-5);
+}
+
+.hosteditor-hue[data-hue="6"] {
+  background: var(--hue-6);
+}
+
+.hosteditor-hue[data-hue="7"] {
+  background: var(--hue-7);
+}
+
+.hosteditor-toggles {
+  display: flex;
+  gap: calc(var(--pad) * 2);
+}
+
+.hosteditor-toggle {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.hosteditor-footer {
+  display: flex;
+  gap: var(--pad);
+  justify-content: flex-end;
+  margin-top: auto;
+  padding-top: var(--pad);
+  border-top: 1px solid var(--line);
+}
+
+.hosteditor-cancel {
+  padding: calc(var(--pad) * 0.75) calc(var(--pad) * 1.5);
+  background: none;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  transition: color var(--t-fast);
+}
+
+.hosteditor-cancel:hover {
+  color: var(--ink-1);
+}
+
+/* The one loud action: neon fill with dark ink (§7 button spec). */
+.hosteditor-save {
+  padding: calc(var(--pad) * 0.75) calc(var(--pad) * 2);
+  background: var(--neon);
+  border: none;
+  border-radius: var(--r-1);
+  color: var(--neon-ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 600;
+  transition: background var(--t-fast);
+}
+
+.hosteditor-save:hover {
+  background: var(--neon-hover);
+}
+
+.hosteditor-save:active {
+  background: var(--neon-pressed);
+}
+
+.hosteditor-save:disabled {
+  background: var(--bg-3);
+  color: var(--ink-3);
+}

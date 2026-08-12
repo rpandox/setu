@@ -1,0 +1,94 @@
+/* ⌘T quick connect — the Phase 2 seed of the ⌘K palette (F11). */
+
+.quickconnect-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-0) 55%, transparent);
+}
+
+.quickconnect {
+  display: flex;
+  flex-direction: column;
+  width: 480px;
+  max-width: 90vw;
+  height: fit-content;
+  margin-top: 12vh;
+  overflow: hidden;
+  background: var(--bg-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-2);
+}
+
+.quickconnect-input {
+  padding: var(--pad) calc(var(--pad) * 2);
+  background: var(--bg-2);
+  border: none;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 15px;
+}
+
+.quickconnect-input::placeholder {
+  color: var(--ink-3);
+}
+
+.quickconnect-input:focus {
+  outline: none;
+}
+
+.quickconnect-results {
+  max-height: 320px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.quickconnect-result {
+  display: flex;
+  gap: var(--pad);
+  align-items: center;
+  width: 100%;
+  padding: calc(var(--pad) * 0.75) calc(var(--pad) * 2);
+  background: none;
+  border: none;
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  text-align: left;
+}
+
+.quickconnect-result--selected {
+  background: var(--bg-3);
+}
+
+/* Hollow LED — live states arrive with the prober (Phase 4). */
+.quickconnect-led {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--ink-3);
+  border-radius: 50%;
+}
+
+.quickconnect-label {
+  flex: none;
+}
+
+.quickconnect-detail {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickconnect-none {
+  padding: var(--pad) calc(var(--pad) * 2);
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}

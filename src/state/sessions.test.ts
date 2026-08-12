@@ -8,6 +8,7 @@ let spawnCounter = 0;
 
 const ipcInvoke = vi.hoisted(() => vi.fn());
 const disposeSessionTerminal = vi.hoisted(() => vi.fn());
+const rebindSessionTerminal = vi.hoisted(() => vi.fn());
 
 vi.mock("../ipc/client", () => ({
   ipcInvoke,
@@ -34,10 +35,42 @@ vi.mock("../features/terminal/registry", () => ({
     dispose: vi.fn(),
   })),
   disposeSessionTerminal,
-  getSessionTerminal: vi.fn(),
+  getSessionTerminal: vi.fn(() => ({ term: { cols: 120, rows: 40 } })),
+  rebindSessionTerminal,
 }));
 
+import type { Host } from "../ipc/contract";
 import { useSessions } from "./sessions";
+
+/**
+ * A minimal host fixture for SSH-tab tests.
+ *
+ * @param overrides - Fields to override on the base fixture.
+ * @returns The host.
+ */
+function sshHost(overrides: Partial<Host> = {}): Host {
+  return {
+    id: "host-1",
+    label: "hermes",
+    group: "",
+    tags: [],
+    hue: 4,
+    hostname: "hermes.example.net",
+    user: "pandox",
+    port: 22,
+    identity: "agent",
+    use_mosh: false,
+    startup: "",
+    control_master: false,
+    reachability: true,
+    forwards: [],
+    health: { enabled: false, interval_s: 30 },
+    notes: "",
+    favorite: false,
+    source: "setu",
+    ...overrides,
+  };
+}
 
 beforeEach(() => {
   useSessions.setState({
@@ -50,6 +83,10 @@ beforeEach(() => {
   titleCallbacks.clear();
   ipcInvoke.mockReset();
   disposeSessionTerminal.mockClear();
+  rebindSessionTerminal.mockReset();
+  rebindSessionTerminal.mockImplementation(async () => ({
+    term: { focus: vi.fn(), cols: 120, rows: 40 },
+  }));
   ipcInvoke.mockImplementation(async (command: string) =>
     command === "pty_spawn" ? { sessionId: `s${++spawnCounter}` } : null,
   );
@@ -178,6 +215,135 @@ describe("activation", () => {
     const [id] = await openTabs(1);
     useSessions.getState().setActive("nope");
     expect(useSessions.getState().activeSessionId).toBe(id);
+  });
+});
+
+describe("openSshTab", () => {
+  it("spawns ssh with the host id and seeds title, hue, and host metadata", async () => {
+    await useSessions.getState().openSshTab(sshHost());
+    expect(ipcInvoke).toHaveBeenCalledWith("pty_spawn", {
+      kind: "ssh",
+      hostId: "host-1",
+      cols: 80,
+      rows: 24,
+    });
+    expect(useSessions.getState().sessions[0]).toMatchObject({
+      kind: "ssh",
+      title: "hermes",
+      hostId: "host-1",
+      hostLabel: "hermes",
+      hue: 4,
+      status: "running",
+    });
+  });
+});
+
+describe("reconnect", () => {
+  /** Opens an SSH tab and fails it with exit code 255 (a dropped link). */
+  async function exitedSshTab(): Promise<string> {
+    await useSessions.getState().openSshTab(sshHost());
+    const id =
+      useSessions.getState().sessions[useSessions.getState().sessions.length - 1]
+        .sessionId;
+    exitCallbacks.get(id)?.({ code: 255 });
+    expect(
+      useSessions.getState().sessions[useSessions.getState().sessions.length - 1].status,
+    ).toBe("exited");
+    return id;
+  }
+
+  it("spawns a fresh PTY, rebinds the terminal, and swaps the session id", async () => {
+    const oldId = await exitedSshTab();
+    await useSessions.getState().reconnect(oldId);
+    const state = useSessions.getState();
+    expect(state.sessions).toHaveLength(1);
+    const meta = state.sessions[0];
+    expect(meta.sessionId).not.toBe(oldId);
+    expect(meta).toMatchObject({ status: "running", exitCode: null, kind: "ssh" });
+    expect(rebindSessionTerminal).toHaveBeenCalledWith(oldId, meta.sessionId);
+    expect(state.activeSessionId).toBe(meta.sessionId);
+    // The reconnect spawn reuses the terminal's real size.
+    expect(ipcInvoke).toHaveBeenLastCalledWith("pty_spawn", {
+      kind: "ssh",
+      hostId: "host-1",
+      cols: 120,
+      rows: 40,
+    });
+  });
+
+  it("wires exit handling for the new session id", async () => {
+    const oldId = await exitedSshTab();
+    await useSessions.getState().reconnect(oldId);
+    const newId = useSessions.getState().sessions[0].sessionId;
+    expect(exitCallbacks.has(oldId)).toBe(false);
+    exitCallbacks.get(newId)?.({ code: 255 });
+    expect(useSessions.getState().sessions[0].status).toBe("exited");
+  });
+
+  it("is a no-op for running tabs and local tabs", async () => {
+    await useSessions.getState().openSshTab(sshHost());
+    const running =
+      useSessions.getState().sessions[useSessions.getState().sessions.length - 1]
+        .sessionId;
+    await useSessions.getState().reconnect(running);
+    expect(rebindSessionTerminal).not.toHaveBeenCalled();
+
+    const [local] = await openTabs(1);
+    exitCallbacks.get(local)?.({ code: 1 });
+    await useSessions.getState().reconnect(local);
+    expect(rebindSessionTerminal).not.toHaveBeenCalled();
+  });
+
+  it("reconnectAll revives every exited ssh tab", async () => {
+    const a = await exitedSshTab();
+    const b = await exitedSshTab();
+    await useSessions.getState().reconnectAll();
+    const state = useSessions.getState();
+    expect(state.sessions.every((s) => s.status === "running")).toBe(true);
+    expect(state.sessions.map((s) => s.sessionId)).not.toContain(a);
+    expect(state.sessions.map((s) => s.sessionId)).not.toContain(b);
+  });
+});
+
+describe("duplicateTab", () => {
+  it("opens a second session to the same host", async () => {
+    await useSessions.getState().openSshTab(sshHost());
+    const first = useSessions.getState().sessions[0];
+    await useSessions.getState().duplicateTab(first.sessionId);
+    const state = useSessions.getState();
+    expect(state.sessions).toHaveLength(2);
+    expect(state.sessions[1]).toMatchObject({
+      kind: "ssh",
+      hostId: "host-1",
+      title: "hermes",
+      hue: 4,
+    });
+    expect(state.sessions[1].sessionId).not.toBe(first.sessionId);
+  });
+
+  it("refuses local and orphaned tabs", async () => {
+    const [local] = await openTabs(1);
+    await useSessions.getState().duplicateTab(local);
+    expect(useSessions.getState().sessions).toHaveLength(1);
+
+    await useSessions.getState().openSshTab(sshHost());
+    useSessions.getState().markOrphaned("host-1");
+    const orphan =
+      useSessions.getState().sessions[useSessions.getState().sessions.length - 1]
+        .sessionId;
+    await useSessions.getState().duplicateTab(orphan);
+    expect(useSessions.getState().sessions).toHaveLength(2);
+  });
+});
+
+describe("markOrphaned", () => {
+  it("flags every session on the deleted host and no others", async () => {
+    await useSessions.getState().openSshTab(sshHost());
+    await useSessions.getState().openSshTab(sshHost({ id: "host-2", label: "atlas" }));
+    useSessions.getState().markOrphaned("host-1");
+    const [a, b] = useSessions.getState().sessions;
+    expect(a.orphaned).toBe(true);
+    expect(b.orphaned).toBeUndefined();
   });
 });
 

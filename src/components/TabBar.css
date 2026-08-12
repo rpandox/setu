@@ -79,8 +79,9 @@
   color: var(--ink-1);
 }
 
-/* Active tab: ink brightens, and the 2px underline takes the neon + glow —
-   one of --glow's three legal uses (§7). */
+/* Active tab: ink brightens, and the 2px underline takes the host's
+   identity hue (locals: neon) + glow — one of --glow's three legal uses
+   (§7). --tab-hue is set inline per tab from the session's hue. */
 .tab--active {
   color: var(--ink-1);
 }
@@ -92,7 +93,7 @@
   bottom: 0;
   left: var(--pad);
   height: 2px;
-  background: var(--neon);
+  background: var(--tab-hue, var(--neon));
   box-shadow: var(--glow);
 }
 
@@ -108,4 +109,38 @@
 
 .tab-new:hover {
   color: var(--ink-1);
+}
+
+/* Right-click tab menu (F3: duplicate / reconnect / reconnect all). */
+.tabmenu-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.tabmenu {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: calc(var(--pad) / 2);
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+}
+
+.tabmenu-item {
+  padding: calc(var(--pad) * 0.75) var(--pad);
+  background: none;
+  border: none;
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  text-align: left;
+  transition: background var(--t-fast);
+}
+
+.tabmenu-item:hover {
+  background: var(--bg-3);
 }

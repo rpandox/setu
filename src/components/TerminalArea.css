@@ -55,6 +55,22 @@
   font-family: var(--font-mono);
 }
 
+/* The Reconnect action inside the exit notice (F3). */
+.terminal-reconnect {
+  padding: 1px var(--pad);
+  background: var(--bg-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  transition: border-color var(--t-fast);
+}
+
+.terminal-reconnect:hover {
+  border-color: var(--neon);
+}
+
 /* The ⇧⌘F find bar, floated over the active pane's top-right corner. */
 .findbar {
   position: absolute;

@@ -32,6 +32,12 @@ export interface TerminalHandle {
    * once and stay attached).
    */
   open(container: HTMLElement): void;
+  /**
+   * Moves this terminal to a new PTY session (reconnect, F3): disconnects
+   * the old session's stream and attaches the new one, keeping scrollback.
+   * Use {@link rebindSessionTerminal}, which also re-keys the registry.
+   */
+  rebind(newSessionId: string): Promise<void>;
   /** Detaches IPC listeners and disposes the terminal. */
   dispose(): void;
 }
@@ -78,7 +84,10 @@ export async function createSessionTerminal(sessionId: string): Promise<Terminal
     }),
   );
 
-  const disconnect = await connectPtyStream(sessionId, term);
+  // Both mutate on rebind: the stream disconnect swaps to the new session's,
+  // and the current id keeps dispose() deleting the right map entry.
+  let disconnect = await connectPtyStream(sessionId, term);
+  let currentId = sessionId;
 
   let opened = false;
   const handle: TerminalHandle = {
@@ -102,13 +111,39 @@ export async function createSessionTerminal(sessionId: string): Promise<Terminal
       // deaf to the keyboard until clicked.
       requestAnimationFrame(() => term.focus());
     },
+    async rebind(newSessionId: string): Promise<void> {
+      disconnect();
+      disconnect = await connectPtyStream(newSessionId, term);
+      currentId = newSessionId;
+    },
     dispose(): void {
       disconnect();
       term.dispose();
-      handles.delete(sessionId);
+      handles.delete(currentId);
     },
   };
   handles.set(sessionId, handle);
+  return handle;
+}
+
+/**
+ * Moves a session's terminal to a new PTY session id (reconnect, F3): the
+ * PTY stream is re-wired and the registry re-keyed, while the xterm
+ * instance — scrollback included — stays alive.
+ *
+ * @param oldId - The exited session the terminal currently belongs to.
+ * @param newId - The freshly spawned session to attach.
+ * @returns The moved handle, or `undefined` when `oldId` is unknown.
+ */
+export async function rebindSessionTerminal(
+  oldId: string,
+  newId: string,
+): Promise<TerminalHandle | undefined> {
+  const handle = handles.get(oldId);
+  if (!handle) return undefined;
+  await handle.rebind(newId);
+  handles.delete(oldId);
+  handles.set(newId, handle);
   return handle;
 }
 

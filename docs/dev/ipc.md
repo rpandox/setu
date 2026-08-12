@@ -29,11 +29,11 @@ login shell; `"ssh"` runs system `ssh -tt` to a known host with keepalive
 flags (`ServerAliveInterval=30`, `ServerAliveCountMax=3`). See
 [pty.md](pty.md) for the pipeline behind it.
 
-|            |                                                                                                                                                                  |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Payload    | `{ kind: "local", cols: number, rows: number }` · `{ kind: "ssh", hostId: string, cols: number, rows: number }`                                                  |
-| Result     | `{ sessionId: string }`                                                                                                                                          |
-| Emits      | `pty:data:{sessionId}` from spawn onward; one final `pty:exit:{sessionId}`                                                                                       |
+|            |                                                                                                                                                          |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ kind: "local", cols: number, rows: number }` · `{ kind: "ssh", hostId: string, cols: number, rows: number }`                                          |
+| Result     | `{ sessionId: string }`                                                                                                                                  |
+| Emits      | `pty:data:{sessionId}` from spawn onward; one final `pty:exit:{sessionId}`                                                                               |
 | Fails when | the PTY can't be opened, the child can't be spawned, `kind` is `"ssh"` without a `hostId`, or the host id is unknown. No session exists after a failure. |
 
 The Rust core resolves `hostId` itself (from `hosts.toml`, or a live
@@ -85,11 +85,11 @@ read-only until adopted). An imported alias is hidden once a persisted host
 carries the same label — that's what `host_adopt` creates — so adopted rows
 don't appear twice.
 
-|            |                                                                                                        |
-| ---------- | ------------------------------------------------------------------------------------------------------ |
-| Payload    | `{}`                                                                                                   |
-| Result     | `Host[]` (snake_case fields; the full §4 schema)                                                       |
-| Emits      | nothing                                                                                                |
+|            |                                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------- |
+| Payload    | `{}`                                                                                                    |
+| Result     | `Host[]` (snake_case fields; the full §4 schema)                                                        |
+| Emits      | nothing                                                                                                 |
 | Fails when | `hosts.toml` exists but can't be read or parsed. A missing/unreadable `~/.ssh/config` just adds no rows |
 
 ### `host_upsert`
@@ -112,12 +112,12 @@ rename).
 Delete a host from `hosts.toml`. Unknown ids are a no-op. Live sessions to
 the host keep running — the frontend marks their tabs "(orphaned)" (F1).
 
-|            |                                        |
-| ---------- | -------------------------------------- |
-| Payload    | `{ hostId: string }`                   |
-| Result     | `null`                                 |
-| Emits      | nothing                                |
-| Fails when | the store can't be read or written     |
+|            |                                    |
+| ---------- | ---------------------------------- |
+| Payload    | `{ hostId: string }`               |
+| Result     | `null`                             |
+| Emits      | nothing                            |
+| Fails when | the store can't be read or written |
 
 ### `host_adopt`
 
@@ -126,11 +126,11 @@ Copy an imported `~/.ssh/config` row into `hosts.toml` as an editable
 alias-only row (no `HostName`) adopts with `hostname` set to the alias —
 exactly what ssh would have resolved.
 
-|            |                                                                                                                                            |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Payload    | `{ hostId: string }` (an `sshcfg:` id)                                                                                                     |
-| Result     | the new persisted `Host`                                                                                                                   |
-| Emits      | nothing                                                                                                                                    |
+|            |                                                                                                                                               |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ hostId: string }` (an `sshcfg:` id)                                                                                                        |
+| Result     | the new persisted `Host`                                                                                                                      |
+| Emits      | nothing                                                                                                                                       |
 | Fails when | the id isn't `sshcfg:`, the alias no longer exists in the config, the copy fails validation (e.g. missing `IdentityFile`), or the write fails |
 
 ## Events
