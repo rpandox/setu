@@ -156,7 +156,13 @@ mod tests {
         let mut host = setu_host();
         host.startup = "tmux new -A -s main".into();
         let argv = ssh_argv(&host);
-        let tail: Vec<&str> = argv.iter().rev().take(3).rev().map(String::as_str).collect();
+        let tail: Vec<&str> = argv
+            .iter()
+            .rev()
+            .take(3)
+            .rev()
+            .map(String::as_str)
+            .collect();
         assert_eq!(
             tail,
             vec!["pandox@hermes.example.net", "--", "tmux new -A -s main"]

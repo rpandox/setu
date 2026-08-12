@@ -199,7 +199,8 @@ mod tests {
 
     #[test]
     fn wildcard_patterns_never_become_rows_but_concrete_siblings_do() {
-        let entries = parse("Host * !prod-* web-?\n  User nobody\nHost atlas *.internal\n  User deploy\n");
+        let entries =
+            parse("Host * !prod-* web-?\n  User nobody\nHost atlas *.internal\n  User deploy\n");
         let aliases: Vec<&str> = entries.iter().map(|e| e.alias.as_str()).collect();
         assert_eq!(aliases, vec!["atlas"]);
         assert_eq!(entries[0].user.as_deref(), Some("deploy"));

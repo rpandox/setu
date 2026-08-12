@@ -401,8 +401,8 @@ fn save_atomic(path: &Path, hosts: &[Host]) -> Result<(), String> {
     let file = HostsFile {
         host: hosts.to_vec(),
     };
-    let body = toml::to_string_pretty(&file)
-        .map_err(|e| format!("failed to serialize hosts: {e}"))?;
+    let body =
+        toml::to_string_pretty(&file).map_err(|e| format!("failed to serialize hosts: {e}"))?;
     let parent = path
         .parent()
         .ok_or_else(|| format!("no parent directory for {}", path.display()))?;

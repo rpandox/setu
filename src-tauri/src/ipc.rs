@@ -194,10 +194,7 @@ pub fn hosts_list(hosts: State<'_, HostsStore>) -> Result<Vec<Host>, String> {
 /// matches no record. Validation failures are returned in the result, not
 /// as an error.
 #[tauri::command]
-pub fn host_upsert(
-    hosts: State<'_, HostsStore>,
-    host: Host,
-) -> Result<HostUpsertResult, String> {
+pub fn host_upsert(hosts: State<'_, HostsStore>, host: Host) -> Result<HostUpsertResult, String> {
     Ok(match hosts.upsert(host)? {
         UpsertOutcome::Saved(host) => HostUpsertResult {
             host: Some(*host),
