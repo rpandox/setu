@@ -1,6 +1,6 @@
 import "./TabBar.css";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useSessions } from "../state/sessions";
+import { tabSessionOf, useSessions } from "../state/sessions";
 
 /**
  * Props for the {@link TabBar} component.
@@ -15,8 +15,8 @@ export interface TabBarProps {
 
 /** A right-click context menu anchored to a tab. */
 interface TabMenu {
-  /** The session the menu acts on. */
-  sessionId: string;
+  /** The tab the menu acts on. */
+  tabId: string;
   /** Viewport coordinates of the click. */
   x: number;
   y: number;
@@ -24,11 +24,13 @@ interface TabMenu {
 
 /**
  * The 38px tab strip (PLAN.md §7 wireframe), rendering one tab per open
- * session. The whole bar is a window drag region; the active tab carries
- * the 2px underline with glow — one of the three legal uses of `--glow` —
- * colored by the host's identity hue for SSH tabs (F3), neon for local.
- * `+` (or ⌘N) opens a local shell tab; `×` (or ⌘W) closes one. Tabs whose
- * host was deleted append "(orphaned)" (F1).
+ * tab — since Phase 3 a tab may hold several split panes; its title, hue,
+ * and exit state follow the tab's *active pane*. The whole bar is a window
+ * drag region; the active tab carries the 2px underline with glow — one of
+ * the three legal uses of `--glow` — colored by the host's identity hue for
+ * SSH panes (F3), neon for local. `+` (or ⌘N) opens a local shell tab; `×`
+ * closes the whole tab (every pane; ⌘W closes just the active pane, F4).
+ * Tabs whose host was deleted append "(orphaned)" (F1).
  *
  * Right-click offers the F3 tab actions: Duplicate tab (SSH), Reconnect
  * (exited SSH), and Reconnect all (when anything is disconnected).
@@ -41,7 +43,8 @@ interface TabMenu {
  */
 export function TabBar({ trafficLightInset }: TabBarProps) {
   const sessions = useSessions((s) => s.sessions);
-  const activeSessionId = useSessions((s) => s.activeSessionId);
+  const tabs = useSessions((s) => s.tabs);
+  const activeTabId = useSessions((s) => s.activeTabId);
   const setActive = useSessions((s) => s.setActive);
   const closeTab = useSessions((s) => s.closeTab);
   const openLocalTab = useSessions((s) => s.openLocalTab);
@@ -55,7 +58,7 @@ export function TabBar({ trafficLightInset }: TabBarProps) {
   useEffect(() => {
     // Keep the active tab visible however it was reached (⌘1–9, ⌃Tab, click).
     activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [activeSessionId]);
+  }, [activeTabId]);
 
   useEffect(() => {
     // Mice only scroll vertically; steer that motion along the strip. A
@@ -73,9 +76,8 @@ export function TabBar({ trafficLightInset }: TabBarProps) {
     return () => strip.removeEventListener("wheel", onWheel);
   }, []);
 
-  const menuSession = menu
-    ? sessions.find((s) => s.sessionId === menu.sessionId)
-    : undefined;
+  const menuTab = menu ? tabs.find((t) => t.tabId === menu.tabId) : undefined;
+  const menuSession = menuTab ? tabSessionOf(sessions, menuTab) : undefined;
   const anyExitedSsh = sessions.some((s) => s.status === "exited" && s.kind === "ssh");
 
   return (
@@ -85,43 +87,41 @@ export function TabBar({ trafficLightInset }: TabBarProps) {
       data-tauri-drag-region
       role="tablist"
     >
-      {sessions.map((session) => {
-        const active = session.sessionId === activeSessionId;
+      {tabs.map((tab) => {
+        const meta = tabSessionOf(sessions, tab);
+        if (!meta) return null;
+        const active = tab.tabId === activeTabId;
         const classes = [
           "tab",
           active ? "tab--active" : "",
-          session.status === "exited" ? "tab--exited" : "",
+          meta.status === "exited" ? "tab--exited" : "",
         ]
           .filter(Boolean)
           .join(" ");
         // Per-host identity hue drives the underline (F3); locals stay neon.
         const hueStyle =
-          session.hue !== undefined
-            ? ({ "--tab-hue": `var(--hue-${session.hue})` } as CSSProperties)
+          meta.hue !== undefined
+            ? ({ "--tab-hue": `var(--hue-${meta.hue})` } as CSSProperties)
             : undefined;
-        const title = session.orphaned ? `${session.title} (orphaned)` : session.title;
+        const title = meta.orphaned ? `${meta.title} (orphaned)` : meta.title;
         return (
           <div
-            key={session.sessionId}
+            key={tab.tabId}
             ref={active ? activeTabRef : undefined}
             className={classes}
             style={hueStyle}
             role="tab"
             aria-selected={active}
             tabIndex={0}
-            onClick={() => setActive(session.sessionId)}
+            onClick={() => setActive(tab.tabId)}
             onContextMenu={(event) => {
               event.preventDefault();
-              setMenu({
-                sessionId: session.sessionId,
-                x: event.clientX,
-                y: event.clientY,
-              });
+              setMenu({ tabId: tab.tabId, x: event.clientX, y: event.clientY });
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                setActive(session.sessionId);
+                setActive(tab.tabId);
               }
             }}
           >
@@ -132,7 +132,7 @@ export function TabBar({ trafficLightInset }: TabBarProps) {
               aria-label={`Close ${title}`}
               onClick={(event) => {
                 event.stopPropagation();
-                closeTab(session.sessionId);
+                closeTab(tab.tabId);
               }}
             >
               ×
@@ -148,7 +148,7 @@ export function TabBar({ trafficLightInset }: TabBarProps) {
       >
         +
       </button>
-      {menu && menuSession && (
+      {menu && menuTab && menuSession && (
         <div
           className="tabmenu-scrim"
           onClick={() => setMenu(null)}
@@ -172,7 +172,7 @@ export function TabBar({ trafficLightInset }: TabBarProps) {
                 role="menuitem"
                 onClick={() => {
                   setMenu(null);
-                  void duplicateTab(menuSession.sessionId);
+                  void duplicateTab(menuTab.tabId);
                 }}
               >
                 Duplicate tab
@@ -210,7 +210,7 @@ export function TabBar({ trafficLightInset }: TabBarProps) {
               role="menuitem"
               onClick={() => {
                 setMenu(null);
-                closeTab(menuSession.sessionId);
+                closeTab(menuTab.tabId);
               }}
             >
               Close tab

@@ -13,19 +13,8 @@
   justify-content: center;
 }
 
-/* Every session's pane fills the same box; inactive ones hide via
-   visibility so their measurements stay valid for fitting (never
-   display: none). */
-.terminal-host {
-  position: absolute;
-  inset: 0;
-  padding: var(--pad);
-}
-
-.terminal-host--hidden {
-  visibility: hidden;
-}
-
+/* Pane geometry lives in SplitContainer.css since Phase 3 (F4): tabs are
+   split trees, each pane an absolutely positioned box. */
 .terminal-pane {
   width: 100%;
   height: 100%;

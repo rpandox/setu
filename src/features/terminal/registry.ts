@@ -27,9 +27,10 @@ export interface TerminalHandle {
   /** Search addon backing the find bar (⇧⌘F). */
   search: SearchAddon;
   /**
-   * Attaches the terminal to a container element. Idempotent: the first
-   * call opens and renders; later calls are no-ops (xterm instances attach
-   * once and stay attached).
+   * Attaches the terminal to a container element. The first call opens and
+   * renders; later calls with a *different* container move the terminal's
+   * existing DOM there (React may remount a pane wrapper — e.g. strict-mode
+   * double-mounts — and xterm state must survive the move).
    */
   open(container: HTMLElement): void;
   /**
@@ -95,7 +96,17 @@ export async function createSessionTerminal(sessionId: string): Promise<Terminal
     fit,
     search,
     open(container: HTMLElement): void {
-      if (opened) return;
+      if (opened) {
+        // Re-mounted into a new wrapper: move the existing terminal DOM —
+        // xterm state (scrollback, parser, renderer) lives in memory and
+        // survives the reparent; a refit repaints at the new geometry.
+        const element = term.element;
+        if (element && element.parentElement !== container) {
+          container.appendChild(element);
+          fit.fit();
+        }
+        return;
+      }
       opened = true;
       term.open(container);
       try {

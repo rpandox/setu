@@ -6,19 +6,29 @@ import { TerminalArea } from "../components/TerminalArea";
 import { HostEditor } from "../features/hosts/HostEditor";
 import { QuickConnect } from "../features/palette/QuickConnect";
 import { useHosts } from "../state/hosts";
-import { useSessions } from "../state/sessions";
+import { activeSessionOf, useSessions } from "../state/sessions";
+import type { FocusDirection } from "../state/splits";
 import "./App.css";
+
+/** ⌥⌘-arrow keys → pane focus directions (F4). */
+const ARROW_DIRECTIONS: Record<string, FocusDirection> = {
+  ArrowLeft: "left",
+  ArrowRight: "right",
+  ArrowUp: "up",
+  ArrowDown: "down",
+};
 
 /**
  * The application shell: LED sidebar on the left; tab bar, terminal area, and
  * status bar stacked on the right (PLAN.md §7 wireframe), with the HostEditor
  * drawer and ⌘T quick connect floating above.
  *
- * Owns the global keyboard map (PLAN.md §8) for Phase 2: ⌘/ sidebar,
- * ⌘T quick connect, ⌘N new local tab, ⌘W close tab, ⌘1–9 go to tab,
- * ⌃Tab cycle tabs, ⇧⌘F find, and plain ⏎ to reconnect an exited SSH tab
- * (F3). The listener runs in the capture phase so shortcuts work while the
- * terminal has focus; overlays (palette, editor) suppress the ⏎ shortcut.
+ * Owns the global keyboard map (PLAN.md §8): ⌘/ sidebar, ⌘T quick connect,
+ * ⌘N new local tab, ⌘D/⇧⌘D split right/down, ⌥⌘-arrows move pane focus,
+ * ⌘W close pane, ⌘1–9 go to tab, ⌃Tab cycle tabs, ⇧⌘F find, and plain ⏎
+ * to reconnect an exited SSH pane (F3). The listener runs in the capture
+ * phase so shortcuts work while the terminal has focus; overlays (palette,
+ * editor) suppress the ⏎ shortcut.
  *
  * @returns The root layout element.
  */
@@ -44,8 +54,18 @@ export function App() {
         sessions.cycleActive(event.shiftKey ? -1 : 1);
         return;
       }
+      // ⌥⌘-arrows move pane focus (F4) — checked before the plain-⌘ guard
+      // below, which rejects the alt modifier.
+      if (event.metaKey && event.altKey && !event.ctrlKey) {
+        const direction = ARROW_DIRECTIONS[event.key];
+        if (direction) {
+          event.preventDefault();
+          sessions.movePaneFocus(direction);
+        }
+        return;
+      }
       if (!event.metaKey || event.ctrlKey || event.altKey) {
-        // Plain ⏎ reconnects the active exited SSH tab (F3) — unless an
+        // Plain ⏎ reconnects the active exited SSH pane (F3) — unless an
         // overlay owns the keyboard right now.
         if (
           event.key === "Enter" &&
@@ -56,9 +76,7 @@ export function App() {
           !quickConnectOpen &&
           useHosts.getState().editorTarget === null
         ) {
-          const active = sessions.sessions.find(
-            (s) => s.sessionId === sessions.activeSessionId,
-          );
+          const active = activeSessionOf(sessions);
           if (
             active &&
             active.status === "exited" &&
@@ -81,11 +99,14 @@ export function App() {
       } else if (key === "n" && !event.shiftKey) {
         event.preventDefault();
         void sessions.openLocalTab();
+      } else if (key === "d") {
+        // ⌘D splits right, ⇧⌘D splits down (F4).
+        event.preventDefault();
+        void sessions.splitPane(event.shiftKey ? "col" : "row");
       } else if (key === "w" && !event.shiftKey) {
-        if (sessions.activeSessionId) {
-          event.preventDefault();
-          sessions.closeTab(sessions.activeSessionId);
-        }
+        // ⌘W closes the active pane; a tab's last pane closes the tab (§8).
+        event.preventDefault();
+        sessions.closePane();
       } else if (key === "f" && event.shiftKey) {
         event.preventDefault();
         sessions.openFind();

@@ -1,27 +1,27 @@
 import "./TerminalArea.css";
 import { FindBar } from "../features/terminal/FindBar";
-import { TerminalPane } from "../features/terminal/TerminalPane";
-import { useSessions } from "../state/sessions";
+import { SplitContainer } from "../features/splits/SplitContainer";
+import { activeSessionOf, useSessions } from "../state/sessions";
 
 /**
- * The terminal viewport. With no sessions it shows the empty state — an
- * invitation, not an error (PLAN.md §7 interface writing). With sessions it
- * stacks one {@link TerminalPane} per tab: all panes stay mounted (xterm
- * state survives tab switches) and inactive ones are hidden with
- * `visibility` — never `display: none`, which would zero their measurements
- * and break fitting.
+ * The terminal viewport. With no tabs it shows the empty state — an
+ * invitation, not an error (PLAN.md §7 interface writing). With tabs it
+ * renders one {@link SplitContainer} per tab: all tabs (and every pane in
+ * them) stay mounted so xterm state survives tab switches, and inactive
+ * tabs hide with `visibility` — never `display: none`, which would zero
+ * their measurements and break fitting.
  *
  * @returns The terminal area element.
  */
 export function TerminalArea() {
-  const sessions = useSessions((s) => s.sessions);
-  const activeSessionId = useSessions((s) => s.activeSessionId);
+  const tabs = useSessions((s) => s.tabs);
+  const activeTabId = useSessions((s) => s.activeTabId);
   const findOpen = useSessions((s) => s.findOpen);
   const findFocusSeq = useSessions((s) => s.findFocusSeq);
   const closeFind = useSessions((s) => s.closeFind);
-  const reconnect = useSessions((s) => s.reconnect);
+  const activeSession = useSessions(activeSessionOf);
 
-  if (sessions.length === 0) {
+  if (tabs.length === 0) {
     return (
       <main className="terminal-area terminal-area--empty">
         <div className="terminal-empty">
@@ -36,43 +36,12 @@ export function TerminalArea() {
 
   return (
     <main className="terminal-area">
-      {sessions.map((session) => {
-        const active = session.sessionId === activeSessionId;
-        const reconnectable =
-          session.status === "exited" && session.kind === "ssh" && !session.orphaned;
-        return (
-          <div
-            key={session.sessionId}
-            className={`terminal-host${active ? "" : " terminal-host--hidden"}`}
-          >
-            <TerminalPane sessionId={session.sessionId} active={active} />
-            {session.status === "exited" && (
-              <div className="terminal-exit-notice" role="status">
-                {session.kind === "ssh" ? "connection closed" : "exited"}
-                {session.exitCode !== null ? ` (code ${session.exitCode})` : ""}
-                {reconnectable && (
-                  <>
-                    {" — "}
-                    <button
-                      className="terminal-reconnect"
-                      type="button"
-                      onClick={() => void reconnect(session.sessionId)}
-                    >
-                      Reconnect
-                    </button>{" "}
-                    <kbd>⏎</kbd>
-                  </>
-                )}
-                {" — "}
-                <kbd>⌘W</kbd> to close
-              </div>
-            )}
-          </div>
-        );
-      })}
-      {findOpen && activeSessionId && (
+      {tabs.map((tab) => (
+        <SplitContainer key={tab.tabId} tab={tab} hidden={tab.tabId !== activeTabId} />
+      ))}
+      {findOpen && activeSession && (
         <FindBar
-          sessionId={activeSessionId}
+          sessionId={activeSession.sessionId}
           focusSeq={findFocusSeq}
           onClose={closeFind}
         />
