@@ -11,6 +11,7 @@ import { useBroadcast, wireBroadcastHousekeeping } from "../state/broadcast";
 import { useHosts } from "../state/hosts";
 import { activeSessionOf, useSessions } from "../state/sessions";
 import type { FocusDirection } from "../state/splits";
+import { initUiState } from "../state/uiState";
 import "./App.css";
 
 /** ⌥⌘-arrow keys → pane focus directions (F4). */
@@ -45,6 +46,9 @@ export function App() {
     // Broadcast follows tab lifecycle: auto-disarm on switch, prune closed
     // panes (F4). Wired lazily to avoid a module-evaluation cycle.
     wireBroadcastHousekeeping();
+    // state.json: hydrate prefs, wire persistence, and — when opted in —
+    // restore the saved layout (F4).
+    void initUiState();
   }, []);
 
   useEffect(() => {

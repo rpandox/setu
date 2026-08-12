@@ -19,6 +19,7 @@ import {
   rebindSessionTerminal,
 } from "../features/terminal/registry";
 import {
+  clampRatio,
   findLeaf,
   findLeafBySession,
   leaf,
@@ -33,6 +34,32 @@ import {
   type SplitNode,
   type SplitPath,
 } from "./splits";
+
+/**
+ * A resolved restore plan for one tab (F4 session restore): the saved tree
+ * with every leaf's host already looked up — `null` means a fresh local
+ * shell. Built by the uiState module from `state.json` after pruning hosts
+ * that no longer exist (or aren't `source="setu"`, per the §5 decision log).
+ */
+export type RestoreNode =
+  | {
+      /** One pane to respawn. */
+      kind: "leaf";
+      /** The host to reconnect, or `null` for a local shell. */
+      host: Host | null;
+    }
+  | {
+      /** Two children sharing the rectangle at `ratio`. */
+      kind: "split";
+      /** Orientation of the divide. */
+      dir: SplitDir;
+      /** Share of the rectangle given to `a`. */
+      ratio: number;
+      /** First child. */
+      a: RestoreNode;
+      /** Second child. */
+      b: RestoreNode;
+    };
 
 /** Metadata for one open session (one pane). */
 export interface SessionMeta {
@@ -125,6 +152,13 @@ export interface SessionsState {
   movePaneFocus(direction: FocusDirection): void;
   /** Sets a split's ratio (divider drag). `path` addresses the split. */
   setSplitRatio(tabId: string, path: SplitPath, ratio: number): void;
+  /**
+   * Rebuilds one saved tab (F4 session restore): spawns a session per leaf
+   * and reassembles the split tree with its saved ratios. A pane whose
+   * spawn fails opens exited — showing the normal exit/Reconnect notice —
+   * so one unreachable host never blocks the launch.
+   */
+  restoreTab(spec: RestoreNode): Promise<void>;
   /** Focuses a tab by id (no-op for unknown ids). */
   setActive(tabId: string): void;
   /** Focuses a tab by position (⌘1–9); out-of-range is a no-op. */
@@ -546,6 +580,77 @@ export const useSessions = create<SessionsState>((set, get) => {
       if (!target) return;
       void ipcInvoke("pty_kill", { sessionId: target.sessionId }).catch(() => undefined);
       removePane(target.sessionId);
+    },
+
+    async restoreTab(spec: RestoreNode): Promise<void> {
+      const metas: SessionMeta[] = [];
+      const build = async (node: RestoreNode): Promise<SplitNode> => {
+        if (node.kind === "split") {
+          const a = await build(node.a);
+          const b = await build(node.b);
+          return { kind: "split", dir: node.dir, ratio: clampRatio(node.ratio), a, b };
+        }
+        let meta: SessionMeta;
+        if (node.host) {
+          let sessionId: string;
+          let status: SessionMeta["status"] = "running";
+          try {
+            ({ sessionId } = await ipcInvoke("pty_spawn", {
+              kind: "ssh",
+              hostId: node.host.id,
+              cols: 80,
+              rows: 24,
+            }));
+          } catch {
+            // Spawn failed (host gone, ssh missing…): the pane opens exited
+            // with the normal Reconnect notice instead of blocking launch.
+            sessionId = newId("dead");
+            status = "exited";
+          }
+          meta = {
+            sessionId,
+            title: node.host.label,
+            kind: "ssh",
+            hostId: node.host.id,
+            hostLabel: node.host.label,
+            hue: node.host.hue,
+            status,
+            exitCode: null,
+          };
+        } else {
+          let sessionId: string;
+          let status: SessionMeta["status"] = "running";
+          try {
+            ({ sessionId } = await ipcInvoke("pty_spawn", {
+              kind: "local",
+              cols: 80,
+              rows: 24,
+            }));
+          } catch {
+            sessionId = newId("dead");
+            status = "exited";
+          }
+          meta = { sessionId, title: "local", kind: "local", status, exitCode: null };
+        }
+        await wireSession(meta);
+        metas.push(meta);
+        return leaf(newId("pane"), meta.sessionId);
+      };
+      const layout = await build(spec);
+      set((state) => {
+        const tab: Tab = {
+          tabId: newId("tab"),
+          layout,
+          activePaneId: leavesOf(layout)[0].paneId,
+        };
+        return {
+          ...state,
+          sessions: [...state.sessions, ...metas],
+          tabs: [...state.tabs, tab],
+          // The first restored tab takes focus; later ones stay behind it.
+          activeTabId: state.activeTabId ?? tab.tabId,
+        };
+      });
     },
 
     focusPane(tabId: string, paneId: string): void {

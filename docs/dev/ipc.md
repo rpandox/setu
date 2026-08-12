@@ -133,6 +133,37 @@ exactly what ssh would have resolved.
 | Emits      | nothing                                                                                                                                       |
 | Fails when | the id isn't `sshcfg:`, the alias no longer exists in the config, the copy fails validation (e.g. missing `IdentityFile`), or the write fails |
 
+### `ui_state_get`
+
+Read the device-local UI state from `state.json` in the app-support
+directory (`~/Library/Application Support/dev.pandox.setu/` — outside the
+`~/.config/setu` sync unit, because it describes this machine's windows,
+not your fleet). Phase 3 stores the sidebar collapse set, the broadcast
+auto-disarm flag, the session-restore opt-in, and the saved tab/split
+layout. See [store.md](store.md) for the schema.
+
+|            |                                                                                                                                                |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{}`                                                                                                                                           |
+| Result     | the full `UiState` (camelCase, matches the file verbatim)                                                                                      |
+| Emits      | nothing                                                                                                                                        |
+| Fails when | the file exists but can't be read or parsed. The frontend then runs on defaults and disables persistence — a corrupt file is never overwritten |
+
+A missing file is the default state; first launch needs no setup.
+
+### `ui_state_set`
+
+Replace `state.json` with the given document. The frontend debounces
+layout and preference changes into whole-document writes; there is no
+partial update. Writes are atomic (temp file + rename).
+
+|            |                                                                                                     |
+| ---------- | --------------------------------------------------------------------------------------------------- |
+| Payload    | `{ state: UiState }`                                                                                |
+| Result     | `null`                                                                                              |
+| Emits      | nothing                                                                                             |
+| Fails when | the existing file can't be read or parsed (corrupt files are never overwritten), or the write fails |
+
 ## Events
 
 ### `pty:data:{sessionId}`

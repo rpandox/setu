@@ -62,6 +62,19 @@ export const MIN_PANE_HEIGHT = 120;
 const RATIO_MIN = 0.05;
 const RATIO_MAX = 0.95;
 
+/**
+ * Clamps a split ratio to the hard bounds (drag clamping handles the px
+ * minimums; this guards degenerate values, e.g. from a hand-edited
+ * `state.json`).
+ *
+ * @param ratio - The requested ratio.
+ * @returns The clamped ratio.
+ */
+export function clampRatio(ratio: number): number {
+  if (!Number.isFinite(ratio)) return 0.5;
+  return Math.min(RATIO_MAX, Math.max(RATIO_MIN, ratio));
+}
+
 /** Tolerance for unit-space edge comparisons. */
 const EPS = 1e-6;
 
@@ -170,7 +183,7 @@ export function removeLeaf(node: SplitNode, paneId: string): SplitNode | null {
 export function setRatioAt(node: SplitNode, path: SplitPath, ratio: number): SplitNode {
   if (node.kind === "leaf") return node;
   if (path.length === 0) {
-    return { ...node, ratio: Math.min(RATIO_MAX, Math.max(RATIO_MIN, ratio)) };
+    return { ...node, ratio: clampRatio(ratio) };
   }
   const [head, ...rest] = path;
   const child = setRatioAt(node[head], rest, ratio);

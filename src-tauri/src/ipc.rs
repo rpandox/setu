@@ -19,6 +19,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::pty::{PtyEvents, PtyManager};
 use crate::store::{FieldError, Host, HostsStore, UpsertOutcome};
+use crate::ui_state::{UiState, UiStateStore};
 use crate::{connect, ssh_config};
 
 /// What kind of process a PTY session drives.
@@ -245,6 +246,42 @@ pub fn host_adopt(hosts: State<'_, HostsStore>, host_id: String) -> Result<Host,
             .map(|e| format!("{}: {}", e.field, e.message))
             .unwrap_or_else(|| "validation failed".to_string())),
     }
+}
+
+/// Returns the device-local UI state from `state.json` (PLAN.md §4).
+///
+/// **Payload:** none · **Result:** the full `UiState` (camelCase) ·
+/// **Emits:** nothing.
+///
+/// A missing file is the default state — first launch needs no setup. The
+/// frontend hydrates the sidebar collapse set, the broadcast auto-disarm
+/// flag, and (when `restoreOnLaunch` is set) the saved tab layout from it.
+///
+/// # Errors
+///
+/// Fails when `state.json` exists but cannot be read or parsed. The
+/// frontend treats that as defaults and disables persistence for the run,
+/// so a corrupt file is never overwritten.
+#[tauri::command]
+pub fn ui_state_get(ui: State<'_, UiStateStore>) -> Result<UiState, String> {
+    ui.get()
+}
+
+/// Replaces `state.json` with the given state (atomic write).
+///
+/// **Payload:** `{ state: UiState }` · **Result:** `null` · **Emits:**
+/// nothing.
+///
+/// The frontend debounces layout/preference changes into whole-document
+/// writes; there is no partial update.
+///
+/// # Errors
+///
+/// Fails when the existing file cannot be read or parsed (corrupt files
+/// are never overwritten) or the write fails.
+#[tauri::command]
+pub fn ui_state_set(ui: State<'_, UiStateStore>, state: UiState) -> Result<(), String> {
+    ui.set(state)
 }
 
 /// Writes input (keystrokes, paste text) to a session's stdin.
