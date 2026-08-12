@@ -73,6 +73,19 @@ pub struct SidebarUiState {
     pub collapsed_sections: Vec<String>,
 }
 
+/// One frecency record (mirrors `FrecencyEntry` in `contract.ts`): how
+/// often and how recently a palette subject (`host:<id>`, `action:<id>`)
+/// was used. Phase 4's palette ranks with these; scoring lives in the
+/// frontend (`src/state/frecency.ts`) — this side just persists.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrecencyEntry {
+    /// Total recorded uses.
+    pub uses: u32,
+    /// Epoch milliseconds of the most recent use.
+    pub last_used_at: u64,
+}
+
 /// The `state.json` schema (mirrors `UiState` in `contract.ts`).
 ///
 /// Every field has a serde default, so files written by older builds — or a
@@ -91,6 +104,9 @@ pub struct UiState {
     pub restore_on_launch: bool,
     /// The saved tab/split layout, updated as tabs change.
     pub saved_layout: Vec<SavedTab>,
+    /// Palette frecency records keyed by subject (Phase 4, F11). A `BTreeMap`
+    /// keeps `state.json` diffs stable across saves.
+    pub frecency: std::collections::BTreeMap<String, FrecencyEntry>,
 }
 
 impl Default for UiState {
@@ -101,6 +117,7 @@ impl Default for UiState {
             broadcast_auto_disarm: true,
             restore_on_launch: false,
             saved_layout: Vec::new(),
+            frecency: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -245,7 +262,34 @@ mod tests {
                     b: Box::new(SavedSplitNode::Leaf { host_id: None }),
                 },
             }],
+            frecency: std::collections::BTreeMap::from([(
+                "host:host-1".to_string(),
+                FrecencyEntry {
+                    uses: 3,
+                    last_used_at: 1_700_000_000_000,
+                },
+            )]),
         }
+    }
+
+    #[test]
+    fn frecency_round_trips_and_is_optional_in_old_files() {
+        let t = TempStore::new("frecency");
+        t.store.set(sample_state()).expect("set");
+        let loaded = UiStateStore::new(t.path()).get().expect("reload");
+        assert_eq!(loaded.frecency.len(), 1);
+        assert_eq!(loaded.frecency["host:host-1"].uses, 3);
+
+        // A Phase 3 file (no frecency key) still loads, with an empty map.
+        let t2 = TempStore::new("frecency-legacy");
+        fs::create_dir_all(&t2.dir).expect("mkdir");
+        fs::write(
+            t2.path(),
+            r#"{"version":1,"sidebar":{"collapsedSections":[]},"broadcastAutoDisarm":true,"restoreOnLaunch":false,"savedLayout":[]}"#,
+        )
+        .expect("write legacy");
+        let legacy = t2.store.get().expect("legacy load");
+        assert!(legacy.frecency.is_empty());
     }
 
     #[test]

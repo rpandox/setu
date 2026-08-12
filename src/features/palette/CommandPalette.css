@@ -1,6 +1,7 @@
-/* ⌘T quick connect — the Phase 2 seed of the ⌘K palette (F11). */
+/* The ⌘K / ⌘T command palette (F11) — grown from the Phase 2 quick-connect
+   seed. One overlay, two surfaces; hosts carry their live LEDs. */
 
-.quickconnect-scrim {
+.palette-scrim {
   position: fixed;
   inset: 0;
   z-index: 20;
@@ -9,10 +10,10 @@
   background: color-mix(in srgb, var(--bg-0) 55%, transparent);
 }
 
-.quickconnect {
+.palette {
   display: flex;
   flex-direction: column;
-  width: 480px;
+  width: 520px;
   max-width: 90vw;
   height: fit-content;
   margin-top: 12vh;
@@ -22,7 +23,7 @@
   border-radius: var(--r-2);
 }
 
-.quickconnect-input {
+.palette-input {
   padding: var(--pad) calc(var(--pad) * 2);
   background: var(--bg-2);
   border: none;
@@ -32,21 +33,31 @@
   font-size: 15px;
 }
 
-.quickconnect-input::placeholder {
+.palette-input::placeholder {
   color: var(--ink-3);
 }
 
-.quickconnect-input:focus {
+.palette-input:focus {
   outline: none;
 }
 
-.quickconnect-results {
-  max-height: 320px;
+.palette-results {
+  max-height: 340px;
   overflow-y: auto;
   list-style: none;
 }
 
-.quickconnect-result {
+/* Section eyebrows, same register as the sidebar group headers. */
+.palette-eyebrow {
+  padding: calc(var(--pad) * 0.75) calc(var(--pad) * 2) calc(var(--pad) * 0.25);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.palette-row {
   display: flex;
   gap: var(--pad);
   align-items: center;
@@ -60,24 +71,16 @@
   text-align: left;
 }
 
-.quickconnect-result--selected {
+.palette-row--selected {
   background: var(--bg-3);
 }
 
-/* Hollow LED — live states arrive with the prober (Phase 4). */
-.quickconnect-led {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border: 1px solid var(--ink-3);
-  border-radius: 50%;
-}
-
-.quickconnect-label {
+.palette-title {
   flex: none;
 }
 
-.quickconnect-detail {
+.palette-detail {
+  flex: 1;
   overflow: hidden;
   color: var(--ink-3);
   font-family: var(--font-mono);
@@ -86,9 +89,29 @@
   white-space: nowrap;
 }
 
-.quickconnect-none {
+/* Shortcut labels: quiet mono chips at the row's right edge. */
+.palette-shortcut {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.palette-none {
   padding: var(--pad) calc(var(--pad) * 2);
   color: var(--ink-3);
   font-family: var(--font-ui);
   font-size: var(--text-base);
+}
+
+/* Inline-action hints for the selected host (F11). */
+.palette-hints {
+  display: flex;
+  gap: calc(var(--pad) * 2);
+  padding: calc(var(--pad) * 0.75) calc(var(--pad) * 2);
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }

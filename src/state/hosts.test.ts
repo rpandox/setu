@@ -17,6 +17,7 @@ vi.mock("./sessions", () => ({
 import {
   duplicatesOf,
   emptyHostDraft,
+  rankHosts,
   searchHosts,
   sidebarSections,
   sshCommandOf,
@@ -98,6 +99,50 @@ describe("searchHosts", () => {
   it("tolerates a typo", () => {
     const results = searchHosts([atlas, hermes], "hemres");
     expect(results[0]).toEqual(hermes);
+  });
+});
+
+describe("rankHosts", () => {
+  const now = 1_700_000_000_000;
+
+  it("『her』 puts hermes first — the F11 acceptance flow", () => {
+    const results = rankHosts([atlas, ganymede, hermes], "her", {}, now);
+    expect(results[0]).toEqual(hermes);
+  });
+
+  it("frecency breaks fuzzy near-ties", () => {
+    const herald = host({ id: "4", label: "herald", hostname: "herald.internal" });
+    // Both "her*" labels match; the recently-used one must win either way
+    // the plain fuse scores fall.
+    const results = rankHosts(
+      [herald, hermes],
+      "her",
+      { "host:4": { uses: 6, lastUsedAt: now } },
+      now,
+    );
+    expect(results[0]).toEqual(herald);
+  });
+
+  it("an empty query orders by frecency, then favorites", () => {
+    const results = rankHosts(
+      [atlas, ganymede, hermes],
+      "",
+      { "host:3": { uses: 5, lastUsedAt: now } },
+      now,
+    );
+    expect(results[0]).toEqual(ganymede); // frecency first
+    expect(results[1]).toEqual(hermes); // favorite beats the rest
+    expect(results[2]).toEqual(atlas);
+  });
+
+  it("frecency cannot resurrect a non-match", () => {
+    const results = rankHosts(
+      [atlas, hermes],
+      "hermes",
+      { "host:2": { uses: 50, lastUsedAt: now } },
+      now,
+    );
+    expect(results).toEqual([hermes]);
   });
 });
 

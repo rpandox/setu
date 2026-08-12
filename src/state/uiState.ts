@@ -15,8 +15,9 @@
 
 import { create } from "zustand";
 import { ipcInvoke } from "../ipc/client";
-import type { Host, SavedSplitNode, SavedTab, UiState } from "../ipc/contract";
+import type { FrecencyEntry, Host, SavedSplitNode, SavedTab, UiState } from "../ipc/contract";
 import { useBroadcast } from "./broadcast";
+import { bumpFrecency } from "./frecency";
 import { useSessions, type RestoreNode, type SessionMeta, type Tab } from "./sessions";
 import type { SplitNode } from "./splits";
 
@@ -34,6 +35,7 @@ export function defaultUiState(): UiState {
     broadcastAutoDisarm: true,
     restoreOnLaunch: false,
     savedLayout: [],
+    frecency: {},
   };
 }
 
@@ -43,24 +45,32 @@ export interface UiPrefsState {
   collapsedSections: string[];
   /** Whether the saved layout reopens on launch (F4, default off). */
   restoreOnLaunch: boolean;
+  /** Palette frecency records keyed by subject (F11, Phase 4). */
+  frecency: Record<string, FrecencyEntry>;
   /** True once `state.json` has been loaded and stores are hydrated. */
   hydrated: boolean;
   /** Replaces the collapsed-section set (Sidebar toggles call this). */
   setCollapsedSections(sections: string[]): void;
   /** Sets the restore-on-launch opt-in. */
   setRestoreOnLaunch(value: boolean): void;
+  /** Records one frecency use (`host:<id>` / `action:<id>`, F11). */
+  recordUse(subject: string): void;
 }
 
 /** The UI-preferences store hook. */
 export const useUiPrefs = create<UiPrefsState>((set) => ({
   collapsedSections: [],
   restoreOnLaunch: false,
+  frecency: {},
   hydrated: false,
   setCollapsedSections(sections: string[]): void {
     set((state) => ({ ...state, collapsedSections: sections }));
   },
   setRestoreOnLaunch(value: boolean): void {
     set((state) => ({ ...state, restoreOnLaunch: value }));
+  },
+  recordUse(subject: string): void {
+    set((state) => ({ ...state, frecency: bumpFrecency(state.frecency, subject) }));
   },
 }));
 
@@ -154,6 +164,7 @@ function snapshot(): UiState {
     broadcastAutoDisarm: useBroadcast.getState().autoDisarm,
     restoreOnLaunch: prefs.restoreOnLaunch,
     savedLayout: serializeLayout(sessions.tabs, sessions.sessions),
+    frecency: prefs.frecency,
   };
 }
 
@@ -228,6 +239,7 @@ export async function initUiState(): Promise<void> {
   useUiPrefs.setState({
     collapsedSections: state.sidebar.collapsedSections,
     restoreOnLaunch: state.restoreOnLaunch,
+    frecency: state.frecency ?? {},
     hydrated: true,
   });
 
@@ -244,7 +256,8 @@ export async function initUiState(): Promise<void> {
   useUiPrefs.subscribe((s) => {
     if (
       s.collapsedSections !== prevPrefs.collapsedSections ||
-      s.restoreOnLaunch !== prevPrefs.restoreOnLaunch
+      s.restoreOnLaunch !== prevPrefs.restoreOnLaunch ||
+      s.frecency !== prevPrefs.frecency
     ) {
       prevPrefs = s;
       schedulePersist();

@@ -243,6 +243,18 @@ export interface SidebarUiState {
 }
 
 /**
+ * One frecency record (F11, Phase 4): how often and how recently a palette
+ * subject was used. Keys are `host:<id>` (connects) and `action:<id>`
+ * (palette runs); scoring lives in `src/state/frecency.ts`.
+ */
+export interface FrecencyEntry {
+  /** Total recorded uses. */
+  uses: number;
+  /** Epoch milliseconds of the most recent use. */
+  lastUsedAt: number;
+}
+
+/**
  * The `state.json` document (PLAN.md §4) — device-local UI state, outside
  * the `~/.config/setu` sync unit: it describes this machine's windows, not
  * the user's fleet. Mirrored by `UiState` in `ui_state.rs`; both sides use
@@ -259,6 +271,8 @@ export interface UiState {
   restoreOnLaunch: boolean;
   /** The saved tab/split layout, kept current as tabs change. */
   savedLayout: SavedTab[];
+  /** Palette frecency records keyed by subject (Phase 4, F11). */
+  frecency: Record<string, FrecencyEntry>;
 }
 
 /** Payload for `ui_state_set`: the full document (no partial updates). */

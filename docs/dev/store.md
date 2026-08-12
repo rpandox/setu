@@ -11,7 +11,7 @@ the device-local `state.json` that deliberately lives outside it.
   hosts.toml          # Phase 2 — this page
   snippets.toml       # Phase 6
   runbooks.toml       # Phase 12
-  settings.toml       # Phase 8
+  settings.toml       # Phase 4 (read-only) — settings UI lands in Phase 8
 ```
 
 Plain TOML because it is human-diffable, git-syncable, and
@@ -47,6 +47,26 @@ file written today keeps working as features land.
 Rows parsed from `~/.ssh/config` (`source = "ssh_config"`) are **never**
 written here — they're re-parsed live on every listing. "Adopt" copies one
 into this file with a fresh uuid and `source = "setu"`.
+
+## settings.toml
+
+Read-only in Phase 4 — the file is yours to hand-edit until the Phase 8
+settings window writes it. A missing file (or missing keys) means the
+documented defaults; a corrupt file surfaces as an error and is never
+replaced. Phase 4 reads one table, the reachability prober's knobs
+([ipc.md](ipc.md#reach_start)):
+
+```toml
+[reachability]
+enabled = true        # global kill switch for the LED-board prober
+interval_s = 60       # seconds between probe sweeps
+timeout_ms = 1500     # per-probe TCP connect timeout
+max_concurrent = 6    # probes in flight at once
+```
+
+Implementation: [`src-tauri/src/settings.rs`](../../src-tauri/src/settings.rs)
+(`SettingsStore`). Unknown tables and keys are ignored so future phases
+can add their sections without breaking older builds.
 
 ## Write discipline
 
@@ -112,6 +132,12 @@ The document (camelCase keys, mirrored by `UiState` in
       },
     },
   ],
+  // Phase 4 (F11): palette frecency — how often/recently each host and
+  // action was used on this machine. Capped at 200 entries.
+  "frecency": {
+    "host:9f2c…": { "uses": 12, "lastUsedAt": 1755000000000 },
+    "action:split-right": { "uses": 3, "lastUsedAt": 1755000000000 },
+  },
 }
 ```
 
