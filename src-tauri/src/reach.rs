@@ -122,10 +122,17 @@ pub async fn probe_one(hostname: &str, port: u16, timeout: Duration) -> (ReachSt
 /// Runs one full sweep: every target probed, staggered by jitter and capped
 /// by a `max_concurrent` semaphore. Emits one [`ReachEvents::on_update`]
 /// per target and returns `(up, down)` counts.
+///
+/// `gate` is the prober's running flag: a task checks it before probing and
+/// again before emitting, so [`ReachProber::stop`] mid-sweep means no
+/// further probes start and no further events reach the frontend — exactly
+/// what the `reach_stop` command documents. Skipped targets count in
+/// neither total.
 pub async fn sweep_once(
     targets: Vec<ProbeTarget>,
     config: ReachabilitySettings,
     events: Arc<dyn ReachEvents>,
+    gate: Arc<AtomicBool>,
 ) -> (usize, usize) {
     if targets.is_empty() {
         return (0, 0);
@@ -143,25 +150,32 @@ pub async fn sweep_once(
     for target in targets {
         let semaphore = Arc::clone(&semaphore);
         let events = Arc::clone(&events);
+        let gate = Arc::clone(&gate);
         let jitter = Duration::from_millis(fastrand::u64(0..=JITTER_MS));
         tasks.spawn(async move {
             tokio::time::sleep(jitter).await;
             let _permit = semaphore.acquire().await.expect("semaphore never closed");
+            if !gate.load(Ordering::SeqCst) {
+                return None; // Stopped while queued: probe nothing.
+            }
             let (state, rtt_ms) = probe_one(&target.hostname, target.port, timeout).await;
+            if !gate.load(Ordering::SeqCst) {
+                return None; // Stopped mid-probe: stay silent.
+            }
             match (state, rtt_ms) {
                 (ReachState::Up, Some(ms)) => eprintln!("[reach] {}: up {}ms", target.label, ms),
                 _ => eprintln!("[reach] {}: down", target.label),
             }
             events.on_update(&target.host_id, state, rtt_ms);
-            state
+            Some(state)
         });
     }
     let (mut up, mut down) = (0, 0);
     while let Some(result) = tasks.join_next().await {
         match result {
-            Ok(ReachState::Up) => up += 1,
-            Ok(ReachState::Down) => down += 1,
-            Err(_) => down += 1, // A panicked probe task counts as down.
+            Ok(Some(ReachState::Up)) => up += 1,
+            Ok(Some(ReachState::Down)) | Err(_) => down += 1, // Panics count as down.
+            Ok(None) => {}                                    // Skipped by the gate.
         }
     }
     eprintln!(
@@ -201,8 +215,9 @@ struct Shared {
     events: Arc<dyn ReachEvents>,
     /// Config captured at the latest [`ReachProber::start`] call.
     config: Mutex<ReachabilitySettings>,
-    /// Whether the loop should keep running.
-    running: AtomicBool,
+    /// Whether the loop should keep running — also the per-probe emit gate
+    /// handed to [`sweep_once`], so stop() silences in-flight probes.
+    running: Arc<AtomicBool>,
     /// Visibility for the pause-when-hidden rule.
     visibility: Mutex<Visibility>,
     /// Wakes the loop early: stop, restart-with-fresh-targets, or resume.
@@ -229,7 +244,7 @@ impl ReachProber {
                 source,
                 events,
                 config: Mutex::new(ReachabilitySettings::default()),
-                running: AtomicBool::new(false),
+                running: Arc::new(AtomicBool::new(false)),
                 visibility: Mutex::new(Visibility { hidden_since: None }),
                 notify: Notify::new(),
             }),
@@ -307,7 +322,13 @@ async fn run_loop(shared: Arc<Shared>) {
         }
         let config = *shared.config.lock().expect("reach config poisoned");
         let targets = shared.source.targets();
-        sweep_once(targets, config, Arc::clone(&shared.events)).await;
+        sweep_once(
+            targets,
+            config,
+            Arc::clone(&shared.events),
+            Arc::clone(&shared.running),
+        )
+        .await;
         let interval = {
             let config = shared.config.lock().expect("reach config poisoned");
             Duration::from_secs(u64::from(config.interval_s.max(1)))
@@ -425,7 +446,8 @@ mod tests {
             target("up", "127.0.0.1", up_port),
             target("down", "127.0.0.1", down_port),
         ];
-        let (up, down) = sweep_once(targets, ReachabilitySettings::default(), events).await;
+        let gate = Arc::new(AtomicBool::new(true));
+        let (up, down) = sweep_once(targets, ReachabilitySettings::default(), events, gate).await;
         assert_eq!((up, down), (1, 1));
 
         let mut updates: Vec<_> = rx.try_iter().collect();
@@ -443,9 +465,34 @@ mod tests {
     async fn sweep_once_with_no_targets_is_a_quiet_no_op() {
         let (tx, rx) = mpsc::channel();
         let events: Arc<dyn ReachEvents> = Arc::new(ChannelEvents { tx });
-        let (up, down) = sweep_once(vec![], ReachabilitySettings::default(), events).await;
+        let gate = Arc::new(AtomicBool::new(true));
+        let (up, down) = sweep_once(vec![], ReachabilitySettings::default(), events, gate).await;
         assert_eq!((up, down), (0, 0));
         assert_eq!(rx.try_iter().count(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_cleared_gate_silences_the_sweep() {
+        // The reach_stop contract: once stopped, no further events — even
+        // for probes already queued in a sweep.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let (tx, rx) = mpsc::channel();
+        let events: Arc<dyn ReachEvents> = Arc::new(ChannelEvents { tx });
+        let gate = Arc::new(AtomicBool::new(false));
+        let (up, down) = sweep_once(
+            vec![target("gated", "127.0.0.1", port)],
+            ReachabilitySettings::default(),
+            events,
+            gate,
+        )
+        .await;
+        assert_eq!((up, down), (0, 0));
+        assert_eq!(
+            rx.try_iter().count(),
+            0,
+            "no events may pass a cleared gate"
+        );
     }
 
     #[test]
