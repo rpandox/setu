@@ -137,19 +137,26 @@ export const useHosts = create<HostsState>((set, get) => ({
   },
 
   clearSelection(): void {
-    set((state) => (state.selectedIds.length === 0 ? state : { ...state, selectedIds: [] }));
+    set((state) =>
+      state.selectedIds.length === 0 ? state : { ...state, selectedIds: [] },
+    );
   },
 
   async bulkEdit(edit: BulkEdit): Promise<void> {
     const { hosts, selectedIds } = get();
-    const targets = hosts.filter((h) => selectedIds.includes(h.id) && h.source === "setu");
+    const targets = hosts.filter(
+      (h) => selectedIds.includes(h.id) && h.source === "setu",
+    );
     for (const host of targets) {
       const draft: Host =
         edit.kind === "group"
           ? { ...host, group: edit.group }
           : edit.kind === "hue"
             ? { ...host, hue: edit.hue }
-            : { ...host, tags: host.tags.includes(edit.tag) ? host.tags : [...host.tags, edit.tag] };
+            : {
+                ...host,
+                tags: host.tags.includes(edit.tag) ? host.tags : [...host.tags, edit.tag],
+              };
       await ipcInvoke("host_upsert", { host: draft });
     }
     set((state) => ({ ...state, selectedIds: [] }));
@@ -158,7 +165,9 @@ export const useHosts = create<HostsState>((set, get) => ({
 
   async bulkDelete(): Promise<void> {
     const { hosts, selectedIds } = get();
-    const targets = hosts.filter((h) => selectedIds.includes(h.id) && h.source === "setu");
+    const targets = hosts.filter(
+      (h) => selectedIds.includes(h.id) && h.source === "setu",
+    );
     for (const host of targets) {
       await ipcInvoke("host_delete", { hostId: host.id });
       useSessions.getState().markOrphaned(host.id);
@@ -251,7 +260,8 @@ export function rankHosts(
   frecency: Record<string, FrecencyEntry>,
   now: number = Date.now(),
 ): Host[] {
-  const boostOf = (host: Host): number => frecencyScore(frecency[hostSubject(host.id)], now);
+  const boostOf = (host: Host): number =>
+    frecencyScore(frecency[hostSubject(host.id)], now);
   const trimmed = query.trim();
   if (trimmed === "") {
     return [...hosts].sort((a, b) => {

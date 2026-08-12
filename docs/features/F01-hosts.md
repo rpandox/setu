@@ -1,10 +1,10 @@
-# F1 · Host management
+# F1 · Host management & the LED board
 
-Every machine you touch, one keystroke away. Phase 2 ships the host store
-and its UI: hosts live in a plain TOML file you own, your existing
-`~/.ssh/config` aliases appear automatically, and the sidebar searches all
-of it fuzzily. (The live reachability LEDs land in Phase 4 — until then
-every LED is a hollow ring.)
+Every machine you touch, one keystroke away — and its live status one
+glance away. Phase 2 ships the host store and its UI: hosts live in a
+plain TOML file you own, your existing `~/.ssh/config` aliases appear
+automatically, and the sidebar searches all of it fuzzily. Phase 4 lights
+the board: every LED shows, right now, whether its machine answers.
 
 ![The Add host drawer with label, hostname, user, identity, hue, and startup command fields](../assets/f01-hosteditor.png)
 
@@ -16,12 +16,31 @@ alias from `~/.ssh/config`. Add and edit hosts in a drawer with inline
 validation; everything persists to `~/.config/setu/hosts.toml` — a
 human-diffable file that's safe to git-sync because it never holds secrets.
 
+Each row leads with a status LED, lit by the reachability prober: the
+moment the app opens, every visible host gets a **bare TCP connect** to
+its ssh port — no banner read, no login attempted — and the board lights
+within a few seconds. Hosts re-probe every 60 seconds (configurable).
+
+| LED                | Meaning                                             |
+| ------------------ | --------------------------------------------------- |
+| Hollow ring        | Probing, or probing is off (the tooltip says which) |
+| Solid green + glow | Reachable right now — the latency chip fades in     |
+| Green, slow pulse  | A live session is open on this host                 |
+| Solid red, no glow | Unreachable — hover for when it was last seen up    |
+
+The LED shows **reachability, not auth**: a machine that answers TCP on
+its ssh port but would refuse your login still shows green.
+
 ## How do I use it?
 
-| Keys | Action                                   |
-| ---- | ---------------------------------------- |
-| ⌘T   | Quick connect (fuzzy search, ⏎ connects) |
-| ⌘/   | Toggle the sidebar                       |
+| Keys    | Action                                         |
+| ------- | ---------------------------------------------- |
+| ⌘T      | Quick connect (fuzzy search, ⏎ connects)       |
+| ⌘K      | Command palette (actions + hosts, F11)         |
+| ⌘/      | Toggle the sidebar                             |
+| ⌘-click | Select a row for bulk actions                  |
+| ⇧-click | Extend the selection over the visible rows     |
+| Esc     | Clear the selection (or close a notes popover) |
 
 - **Add a host:** the `+` button beside the search field. Label and
   hostname are required; port must be 1–65535; identity is `agent` (your
@@ -45,10 +64,30 @@ human-diffable file that's safe to git-sync because it never holds secrets.
   behave exactly as they do in your terminal.
 - **Adopt** (hover an imported row): copies the alias into `hosts.toml`
   as an editable Setu host. The config file itself is never touched.
+- **Bulk actions:** ⌘-click rows (⇧-click for a range), then use the bar
+  that appears under the list — set group, add a tag, set hue, or delete
+  (second click confirms). Imported rows can't join a selection; adopt
+  them first.
+- **Notes:** a host with notes gets a note icon on hover; click it for a
+  popover rendering a minimal markdown subset — `**bold**`, `*italic*`,
+  backtick code, `[links](https://…)`, and `- ` bullets. Links open in
+  your system browser.
+- **Turn probing off:** per host with `reachability = false` in the
+  editor's TOML (or `hosts.toml`); globally with `enabled = false` under
+  `[reachability]` in `~/.config/setu/settings.toml`:
 
-Config file: `~/.config/setu/hosts.toml` — schema in
+  ```toml
+  [reachability]
+  enabled = true        # global kill switch
+  interval_s = 60       # seconds between sweeps
+  timeout_ms = 1500     # per-probe connect timeout
+  max_concurrent = 6    # probes in flight at once
+  ```
+
+Config files: `~/.config/setu/hosts.toml` and `settings.toml` — schema in
 [PLAN.md](../../PLAN.md) §4, format details in
-[docs/dev/store.md](../dev/store.md).
+[docs/dev/store.md](../dev/store.md). Probing pauses after the app has
+been hidden for a minute and sweeps immediately when you come back.
 
 ## What can go wrong?
 
@@ -69,3 +108,18 @@ Config file: `~/.config/setu/hosts.toml` — schema in
 - **An imported alias vanished from the ssh config section.** A persisted
   host with the same label hides it (that's what Adopt creates). Rename or
   delete the Setu host to see the raw alias again.
+- **An imported alias's LED never lights.** Alias-only entries (no
+  `HostName` in the config block) are never probed — Setu won't guess what
+  the alias resolves to. The tooltip says so; adopt the host (or add a
+  `HostName`) to probe it.
+- **A host shows green but ssh fails.** The LED is reachability, not
+  auth: something answered TCP on that port. Check the user, key, and the
+  server's `sshd` logs.
+- **The board looks like a port scan to a strict network.** Probes are
+  bare connects — no banners, no auth — staggered, capped at
+  `max_concurrent`, and re-run only once per `interval_s`. If a network
+  still objects, flip the per-host or global kill switch; see the security
+  model in [SECURITY.md](../../SECURITY.md).
+- **Latency looks high on the first probe.** DNS resolution happens
+  inside the probe window, so a cold name adds its lookup time; the next
+  sweep reports steady-state latency.

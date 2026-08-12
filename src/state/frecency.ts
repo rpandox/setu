@@ -51,7 +51,10 @@ export const FRECENCY_CAP = 200;
  * frecencyScore({ uses: 4, lastUsedAt: now - HALF_LIFE }, now); // ≈ 2
  * ```
  */
-export function frecencyScore(entry: FrecencyEntry | undefined, now: number = Date.now()): number {
+export function frecencyScore(
+  entry: FrecencyEntry | undefined,
+  now: number = Date.now(),
+): number {
   if (entry === undefined || entry.uses <= 0) return 0;
   const age = Math.max(0, now - entry.lastUsedAt);
   return entry.uses * 2 ** (-age / HALF_LIFE_MS);

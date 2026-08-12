@@ -210,106 +210,106 @@ export function Sidebar({ collapsed }: SidebarProps) {
                       const led = ledInfoOf(host, reachByHost, sessions, probing);
                       const isSelected = selectedIds.includes(host.id);
                       return (
-                      <li
-                        className={`host-item${isSelected ? " host-item--selected" : ""}`}
-                        key={host.id}
-                      >
-                        <button
-                          className="host-row"
-                          type="button"
-                          title={`Connect: ${sshCommandOf(host)} · ⌘-click to select`}
-                          aria-pressed={isSelected}
-                          onClick={(event) => onRowClick(host, event)}
+                        <li
+                          className={`host-item${isSelected ? " host-item--selected" : ""}`}
+                          key={host.id}
                         >
-                          <HostLed led={led} />
-                          <span className="host-label">{host.label}</span>
-                          <span className="host-detail">{rowDetail(host)}</span>
-                          <ReachChip led={led} />
-                        </button>
-                        <span className="host-actions">
-                          {host.source === "ssh_config" ? (
-                            <button
-                              className="host-action"
-                              type="button"
-                              title="Adopt into hosts.toml"
-                              aria-label={`Adopt ${host.label}`}
-                              onClick={() => void adoptHost(host.id)}
-                            >
-                              <FolderDown size={13} aria-hidden />
-                            </button>
-                          ) : (
-                            <>
+                          <button
+                            className="host-row"
+                            type="button"
+                            title={`Connect: ${sshCommandOf(host)} · ⌘-click to select`}
+                            aria-pressed={isSelected}
+                            onClick={(event) => onRowClick(host, event)}
+                          >
+                            <HostLed led={led} />
+                            <span className="host-label">{host.label}</span>
+                            <span className="host-detail">{rowDetail(host)}</span>
+                            <ReachChip led={led} />
+                          </button>
+                          <span className="host-actions">
+                            {host.source === "ssh_config" ? (
                               <button
                                 className="host-action"
                                 type="button"
-                                title="Edit"
-                                aria-label={`Edit ${host.label}`}
-                                onClick={() => openEditor(host.id)}
+                                title="Adopt into hosts.toml"
+                                aria-label={`Adopt ${host.label}`}
+                                onClick={() => void adoptHost(host.id)}
                               >
-                                <Pencil size={13} aria-hidden />
+                                <FolderDown size={13} aria-hidden />
                               </button>
-                              <button
-                                className={`host-action${armedDelete === host.id ? " host-action--armed" : ""}`}
-                                type="button"
-                                title={
-                                  armedDelete === host.id
-                                    ? "Click again to delete"
-                                    : "Delete"
-                                }
-                                aria-label={
-                                  armedDelete === host.id
-                                    ? `Confirm delete ${host.label}`
-                                    : `Delete ${host.label}`
-                                }
-                                onClick={() => {
-                                  if (armedDelete === host.id) {
-                                    setArmedDelete(null);
-                                    void deleteHost(host.id);
-                                  } else {
-                                    setArmedDelete(host.id);
+                            ) : (
+                              <>
+                                <button
+                                  className="host-action"
+                                  type="button"
+                                  title="Edit"
+                                  aria-label={`Edit ${host.label}`}
+                                  onClick={() => openEditor(host.id)}
+                                >
+                                  <Pencil size={13} aria-hidden />
+                                </button>
+                                <button
+                                  className={`host-action${armedDelete === host.id ? " host-action--armed" : ""}`}
+                                  type="button"
+                                  title={
+                                    armedDelete === host.id
+                                      ? "Click again to delete"
+                                      : "Delete"
                                   }
-                                }}
-                              >
-                                <Trash2 size={13} aria-hidden />
-                              </button>
-                            </>
-                          )}
-                          <button
-                            className="host-action"
-                            type="button"
-                            title={`Copy: ${sshCommandOf(host)}`}
-                            aria-label={`Copy ssh command for ${host.label}`}
-                            onClick={() =>
-                              void navigator.clipboard
-                                .writeText(sshCommandOf(host))
-                                .catch(() => undefined)
-                            }
-                          >
-                            <Copy size={13} aria-hidden />
-                          </button>
-                          {host.notes.trim() !== "" && (
+                                  aria-label={
+                                    armedDelete === host.id
+                                      ? `Confirm delete ${host.label}`
+                                      : `Delete ${host.label}`
+                                  }
+                                  onClick={() => {
+                                    if (armedDelete === host.id) {
+                                      setArmedDelete(null);
+                                      void deleteHost(host.id);
+                                    } else {
+                                      setArmedDelete(host.id);
+                                    }
+                                  }}
+                                >
+                                  <Trash2 size={13} aria-hidden />
+                                </button>
+                              </>
+                            )}
                             <button
-                              className={`host-action${notesOpenId === host.id ? " host-action--open" : ""}`}
+                              className="host-action"
                               type="button"
-                              title="Notes"
-                              aria-label={`Notes for ${host.label}`}
-                              aria-expanded={notesOpenId === host.id}
+                              title={`Copy: ${sshCommandOf(host)}`}
+                              aria-label={`Copy ssh command for ${host.label}`}
                               onClick={() =>
-                                setNotesOpenId((open) =>
-                                  open === host.id ? null : host.id,
-                                )
+                                void navigator.clipboard
+                                  .writeText(sshCommandOf(host))
+                                  .catch(() => undefined)
                               }
                             >
-                              <StickyNote size={13} aria-hidden />
+                              <Copy size={13} aria-hidden />
                             </button>
+                            {host.notes.trim() !== "" && (
+                              <button
+                                className={`host-action${notesOpenId === host.id ? " host-action--open" : ""}`}
+                                type="button"
+                                title="Notes"
+                                aria-label={`Notes for ${host.label}`}
+                                aria-expanded={notesOpenId === host.id}
+                                onClick={() =>
+                                  setNotesOpenId((open) =>
+                                    open === host.id ? null : host.id,
+                                  )
+                                }
+                              >
+                                <StickyNote size={13} aria-hidden />
+                              </button>
+                            )}
+                          </span>
+                          {notesOpenId === host.id && (
+                            <div className="host-notes" role="note">
+                              {renderMiniMarkdown(host.notes)}
+                            </div>
                           )}
-                        </span>
-                        {notesOpenId === host.id && (
-                          <div className="host-notes" role="note">
-                            {renderMiniMarkdown(host.notes)}
-                          </div>
-                        )}
-                      </li>
+                        </li>
                       );
                     })}
                   </ul>

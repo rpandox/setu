@@ -26,7 +26,9 @@ export function HostLed({ led }: HostLedProps) {
         : led.state === "pulsing"
           ? "Live session"
           : led.reason;
-  return <span className={`hostled hostled--${led.state}`} title={title} aria-hidden="true" />;
+  return (
+    <span className={`hostled hostled--${led.state}`} title={title} aria-hidden="true" />
+  );
 }
 
 /**

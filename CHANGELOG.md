@@ -7,6 +7,44 @@ one entry.
 
 ## [Unreleased]
 
+### Added — Phase 4: design polish & the live board
+
+- The live LED board (F1): a Rust reachability prober lights every host
+  row the moment the app opens — bare TCP connects (no banners, no auth),
+  staggered with jitter, at most 6 in flight, 1.5 s timeout, re-probed
+  every 60 s. Green + glow = reachable (latency chip fades in), pulsing =
+  live session, red = unreachable (last-seen on hover), hollow = probing
+  or off. Probing pauses after the app is hidden > 60 s and sweeps
+  immediately on refocus. Kill switches: per host
+  (`reachability = false` in `hosts.toml`) and global
+  (`[reachability] enabled = false` in the new, hand-editable
+  `~/.config/setu/settings.toml`). New IPC: `reach_start`, `reach_stop`,
+  `reach_set_visible`, and the `reach:update` event
+  ([docs](docs/dev/ipc.md)).
+- Command palette complete (F11): ⌘K lists every implemented keyboard
+  action with its shortcut, above a Hosts section; ⌘T stays as the
+  hosts-only quick connect. Host results carry live LEDs and inline
+  actions — ⏎ connect (reuses a running tab), ⌘⏎ always a new tab, ⌘E
+  edit, ⌘C copy ssh command. Ranking blends fuzzy match with frecency
+  (recent, frequent hosts win near-ties; empty-query order is your
+  most-used machines), persisted per machine in `state.json`.
+- Full paste guard (F2): every pane now stops risky pastes at an
+  editable exact-bytes preview with the reasons named — multi-line or
+  trailing-newline pastes, command-position `sudo`, destructive `rm`,
+  downloads piped into shells (`curl … | sh`), and raw-device writes
+  (`dd of=/dev/…`, `mkfs`). Safe single-line pastes go straight through;
+  broadcast pastes keep the "N sessions" warning.
+- Bulk host actions (F1): ⌘-click / ⇧-click select sidebar rows; the
+  selection bar sets group, adds a tag, sets hue, or deletes the lot
+  (two-click confirm). Host notes render minimal markdown in a row
+  popover (bold, italic, code, links, bullets).
+- App icon: the LED bridge — an arch of phosphor LEDs over its
+  reflection (source `assets/app-icon.svg`).
+- Toasts now carry info/success/error variants; the status bar shows only
+  real data (focused pane's host + live latency) instead of placeholder
+  chips; FingerprintDialog ships (presentational) ahead of Phase 5's SFTP
+  host-key flow.
+
 ### Added — Phase 3: splits, broadcast & session restore
 
 - Split panes (F4): ⌘D/⇧⌘D split the focused pane right/down — SSH panes

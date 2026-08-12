@@ -15,7 +15,13 @@
 
 import { create } from "zustand";
 import { ipcInvoke } from "../ipc/client";
-import type { FrecencyEntry, Host, SavedSplitNode, SavedTab, UiState } from "../ipc/contract";
+import type {
+  FrecencyEntry,
+  Host,
+  SavedSplitNode,
+  SavedTab,
+  UiState,
+} from "../ipc/contract";
 import { useBroadcast } from "./broadcast";
 import { bumpFrecency } from "./frecency";
 import { useSessions, type RestoreNode, type SessionMeta, type Tab } from "./sessions";

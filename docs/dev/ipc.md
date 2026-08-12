@@ -144,12 +144,12 @@ the frontend re-invokes after host CRUD so a new host lights up without
 waiting a full interval. Knobs and defaults live in the `[reachability]`
 table of `settings.toml` ([store.md](store.md)).
 
-|            |                                                                                                                     |
-| ---------- | -------------------------------------------------------------------------------------------------------------------- |
-| Payload    | `{}`                                                                                                                 |
+|            |                                                                                                                       |
+| ---------- | --------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{}`                                                                                                                  |
 | Result     | `{ started: boolean }` — `false` means the global kill switch (`reachability.enabled = false`) is off; nothing probes |
-| Emits      | `reach:update` per probed host, every sweep, until `reach_stop`                                                      |
-| Fails when | `settings.toml` exists but can't be read or parsed                                                                  |
+| Emits      | `reach:update` per probed host, every sweep, until `reach_stop`                                                       |
+| Fails when | `settings.toml` exists but can't be read or parsed                                                                    |
 
 Hosts opt out individually with `reachability = false` in `hosts.toml`;
 alias-only `~/.ssh/config` rows (no `HostName`) are never probed and their
@@ -161,11 +161,11 @@ security model in [architecture.md](../architecture.md).
 Stop the prober. In-flight probes finish within their timeout; no further
 `reach:update` events follow.
 
-|            |            |
-| ---------- | ---------- |
-| Payload    | `{}`       |
-| Result     | `null`     |
-| Emits      | nothing    |
+|            |                                            |
+| ---------- | ------------------------------------------ |
+| Payload    | `{}`                                       |
+| Result     | `null`                                     |
+| Emits      | nothing                                    |
 | Fails when | never — stopping an idle prober is a no-op |
 
 ### `reach_set_visible`
@@ -175,12 +175,12 @@ the app has been hidden for more than 60 s, sweeping pauses; becoming
 visible again after such a pause triggers an immediate sweep (F1
 "pause-when-hidden"). Shorter hides don't disturb the probe rhythm.
 
-|            |                                                              |
-| ---------- | ------------------------------------------------------------ |
-| Payload    | `{ visible: boolean }`                                       |
-| Result     | `null`                                                       |
-| Emits      | nothing directly (the resume sweep emits `reach:update`)     |
-| Fails when | never                                                        |
+|            |                                                          |
+| ---------- | -------------------------------------------------------- |
+| Payload    | `{ visible: boolean }`                                   |
+| Result     | `null`                                                   |
+| Emits      | nothing directly (the resume sweep emits `reach:update`) |
+| Fails when | never                                                    |
 
 ### `ui_state_get`
 

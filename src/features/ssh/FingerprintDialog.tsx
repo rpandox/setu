@@ -77,10 +77,10 @@ export function FingerprintDialog({
       >
         <h2 className="fingerprint-title">First connection to {hostLabel}</h2>
         <p className="fingerprint-hint">
-          The host's identity can't be verified yet. Compare this fingerprint
-          with one you got from the machine itself (for example{" "}
-          <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> on the
-          host) before trusting it.
+          The host's identity can't be verified yet. Compare this fingerprint with one you
+          got from the machine itself (for example{" "}
+          <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> on the host)
+          before trusting it.
         </p>
         <dl className="fingerprint-key">
           <dt>Key</dt>

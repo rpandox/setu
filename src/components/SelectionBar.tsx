@@ -57,14 +57,15 @@ export function SelectionBar() {
   const applyText = (kind: "group" | "tag"): void => {
     const trimmed = value.trim();
     if (kind === "tag" && trimmed === "") return; // an empty tag is meaningless
-    void bulkEdit(kind === "group" ? { kind, group: trimmed } : { kind, tag: trimmed }).then(
-      () =>
-        showToast(
-          kind === "group"
-            ? `Moved ${editable} ${editable === 1 ? "host" : "hosts"} to ${trimmed === "" ? "no group" : trimmed}`
-            : `Tagged ${editable} ${editable === 1 ? "host" : "hosts"} with ${trimmed}`,
-          "success",
-        ),
+    void bulkEdit(
+      kind === "group" ? { kind, group: trimmed } : { kind, tag: trimmed },
+    ).then(() =>
+      showToast(
+        kind === "group"
+          ? `Moved ${editable} ${editable === 1 ? "host" : "hosts"} to ${trimmed === "" ? "no group" : trimmed}`
+          : `Tagged ${editable} ${editable === 1 ? "host" : "hosts"} with ${trimmed}`,
+        "success",
+      ),
     );
   };
 
@@ -100,7 +101,10 @@ export function SelectionBar() {
               }
               const count = editable;
               void bulkDelete().then(() =>
-                showToast(`Deleted ${count} ${count === 1 ? "host" : "hosts"}`, "success"),
+                showToast(
+                  `Deleted ${count} ${count === 1 ? "host" : "hosts"}`,
+                  "success",
+                ),
               );
             }}
           >

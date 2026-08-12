@@ -17,7 +17,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
  */
 
 /** Inline tokens: code first (its content is verbatim), then links, bold, italic. */
-const INLINE = /(`[^`]+`)|(\[[^\]\n]+\]\((https?:\/\/[^\s)]+)\))|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)/g;
+const INLINE =
+  /(`[^`]+`)|(\[[^\]\n]+\]\((https?:\/\/[^\s)]+)\))|(\*\*[^*\n]+\*\*)|(\*[^*\n]+\*)/g;
 
 /**
  * Renders one line's inline markdown.

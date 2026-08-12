@@ -134,7 +134,10 @@ export function ledInfoOf(
  * @returns e.g. `"last seen 5m ago"`, `"last seen just now"`, or
  * `"never seen up"` when the host has not answered since launch.
  */
-export function lastSeenLabel(lastUpAt: number | undefined, now: number = Date.now()): string {
+export function lastSeenLabel(
+  lastUpAt: number | undefined,
+  now: number = Date.now(),
+): string {
   if (lastUpAt === undefined) return "never seen up";
   const seconds = Math.max(0, Math.floor((now - lastUpAt) / 1000));
   if (seconds < 10) return "last seen just now";

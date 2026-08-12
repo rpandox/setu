@@ -17,8 +17,7 @@ const MAX_HOSTS = 8;
 
 /** One selectable palette row: a §8 action or a host. */
 type PaletteItem =
-  | { kind: "action"; entry: PaletteActionEntry }
-  | { kind: "host"; host: Host };
+  { kind: "action"; entry: PaletteActionEntry } | { kind: "host"; host: Host };
 
 /**
  * The F11 command palette. One component, two surfaces from the chrome
@@ -191,7 +190,9 @@ export function CommandPalette() {
           ref={inputRef}
           className="palette-input"
           placeholder={mode === "hosts" ? "Connect to…" : "Type a command or host…"}
-          aria-label={mode === "hosts" ? "Search hosts to connect" : "Search commands and hosts"}
+          aria-label={
+            mode === "hosts" ? "Search hosts to connect" : "Search commands and hosts"
+          }
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
@@ -216,7 +217,9 @@ export function CommandPalette() {
                   onClick={() => runItem({ kind: "action", entry })}
                 >
                   <span className="palette-title">{entry.title}</span>
-                  {entry.shortcut && <kbd className="palette-shortcut">{entry.shortcut}</kbd>}
+                  {entry.shortcut && (
+                    <kbd className="palette-shortcut">{entry.shortcut}</kbd>
+                  )}
                 </button>
               </li>
             );
@@ -225,7 +228,9 @@ export function CommandPalette() {
             <li className="palette-eyebrow">Hosts</li>
           )}
           {hostRows.map((host) => {
-            const index = items.findIndex((i) => i.kind === "host" && i.host.id === host.id);
+            const index = items.findIndex(
+              (i) => i.kind === "host" && i.host.id === host.id,
+            );
             const led = ledInfoOf(host, reachByHost, sessions, probing);
             return (
               <li key={`host:${host.id}`}>

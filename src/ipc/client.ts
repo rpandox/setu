@@ -72,7 +72,9 @@ export function onPtyExit(
  * @param onUpdate - Called with each probe result, in arrival order.
  * @returns A promise resolving to the unlisten function.
  */
-export function onReachUpdate(onUpdate: (update: ReachUpdate) => void): Promise<UnlistenFn> {
+export function onReachUpdate(
+  onUpdate: (update: ReachUpdate) => void,
+): Promise<UnlistenFn> {
   return listen<ReachUpdate>("reach:update", (event) => {
     onUpdate(event.payload);
   });

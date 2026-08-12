@@ -132,8 +132,20 @@ describe("paletteEntries", () => {
       tabs: [tab("t1", "s1"), tab("t2", "s2")],
       activeTabId: "t1",
       sessions: [
-        { sessionId: "s1", title: "hermes", kind: "ssh", status: "running", exitCode: null },
-        { sessionId: "s2", title: "local", kind: "local", status: "running", exitCode: null },
+        {
+          sessionId: "s1",
+          title: "hermes",
+          kind: "ssh",
+          status: "running",
+          exitCode: null,
+        },
+        {
+          sessionId: "s2",
+          title: "local",
+          kind: "local",
+          status: "running",
+          exitCode: null,
+        },
       ],
     });
     const rows = paletteEntries().filter((e) => e.id.startsWith("go-to-tab:"));

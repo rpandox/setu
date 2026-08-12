@@ -38,7 +38,9 @@ describe("classifyPaste — danger patterns", () => {
   it("guards downloads piped into shells", () => {
     expect(classifyPaste("curl https://get.example.sh | sh").verdict).toBe("guard");
     expect(classifyPaste("curl -fsSL https://x.io/i.sh | bash").verdict).toBe("guard");
-    expect(classifyPaste("wget -qO- https://x.io/i.sh | sudo bash").verdict).toBe("guard");
+    expect(classifyPaste("wget -qO- https://x.io/i.sh | sudo bash").verdict).toBe(
+      "guard",
+    );
     expect(classifyPaste("curl https://x.io | zsh").verdict).toBe("guard");
   });
 

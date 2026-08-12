@@ -45,6 +45,8 @@ export const useUiChrome = create<UiChromeState>((set) => ({
   },
 
   closePalette(): void {
-    set((state) => (state.paletteMode === null ? state : { ...state, paletteMode: null }));
+    set((state) =>
+      state.paletteMode === null ? state : { ...state, paletteMode: null },
+    );
   },
 }));

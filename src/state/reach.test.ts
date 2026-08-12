@@ -18,7 +18,13 @@ import type { SessionMeta } from "./sessions";
  * @param overrides - Fields to override on the draft.
  */
 function host(overrides: Partial<Host> = {}): Host {
-  return { ...emptyHostDraft(), id: "h1", label: "hermes", hostname: "hermes.example.net", ...overrides };
+  return {
+    ...emptyHostDraft(),
+    id: "h1",
+    label: "hermes",
+    hostname: "hermes.example.net",
+    ...overrides,
+  };
 }
 
 /**
@@ -76,7 +82,12 @@ describe("ledInfoOf", () => {
   });
 
   it("lights up with the latency chip on an up result", () => {
-    const led = ledInfoOf(host(), { h1: { state: "up", rttMs: 12, lastUpAt: 1 } }, [], true);
+    const led = ledInfoOf(
+      host(),
+      { h1: { state: "up", rttMs: 12, lastUpAt: 1 } },
+      [],
+      true,
+    );
     expect(led).toEqual({ state: "up", rttMs: 12, lastUpAt: 1 });
   });
 
