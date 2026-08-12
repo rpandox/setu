@@ -8,12 +8,16 @@
 //! Module map (mirrors `PLAN.md` §3):
 //! - [`pty`] — PTY lifecycle: spawning `$SHELL` / `ssh` / `mosh`, I/O, resize, reaping.
 //! - [`store`] — plain-TOML persistence for hosts, snippets, and settings.
+//! - [`ssh_config`] — the small `~/.ssh/config` reader behind the F1 import.
+//! - [`connect`] — the `Host` → `ssh` argv spawn pipeline (F3).
 //! - [`ipc`] — the Tauri command surface, mirrored by `src/ipc/contract.ts`.
 
 #![deny(missing_docs)]
 
+pub mod connect;
 pub mod ipc;
 pub mod pty;
+pub mod ssh_config;
 pub mod store;
 
 /// Builds and runs the Tauri application.
@@ -41,6 +45,7 @@ pub fn run() {
             app.set_menu(tauri::menu::Menu::default(app.handle())?)?;
             let events = Arc::new(ipc::TauriPtyEvents::new(app.handle().clone()));
             app.manage(pty::PtyManager::new(events));
+            app.manage(store::HostsStore::new(store::HostsStore::default_path()?));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -48,6 +53,10 @@ pub fn run() {
             ipc::pty_write,
             ipc::pty_resize,
             ipc::pty_kill,
+            ipc::hosts_list,
+            ipc::host_upsert,
+            ipc::host_delete,
+            ipc::host_adopt,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
