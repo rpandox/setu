@@ -45,6 +45,29 @@
   --hue-6: #ffa94d;
   --hue-7: #93a89a;
 
+  /* terminal — the "Setu Phosphor" ANSI theme (PLAN.md §7). Background is
+     --bg-0 and the default cursor is --neon; only terminal-specific values
+     live here. Output stays polychrome on purpose — the chrome carries the
+     green. Brights are the base colors lifted ~8% luminance. */
+  --term-fg: #cfe6d4;
+  --term-selection: rgba(59, 255, 126, 0.22);
+  --ansi-black: #16211a;
+  --ansi-red: #ff6b6b;
+  --ansi-green: #3bff7e;
+  --ansi-yellow: #f5d96b;
+  --ansi-blue: #5fa8ff;
+  --ansi-magenta: #c792ea;
+  --ansi-cyan: #5fffe1;
+  --ansi-white: #d9e8dc;
+  --ansi-bright-black: #323c35;
+  --ansi-bright-red: #ff7d7d;
+  --ansi-bright-green: #52ff8d;
+  --ansi-bright-yellow: #f6de7d;
+  --ansi-bright-blue: #72b2ff;
+  --ansi-bright-magenta: #ce9fed;
+  --ansi-bright-cyan: #72ffe5;
+  --ansi-bright-white: #deebe0;
+
   /* typography — bundled variable fonts (see THIRD_PARTY_NOTICES.md) */
   --font-ui: "Inter Variable", system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
