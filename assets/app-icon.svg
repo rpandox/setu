@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Setu app icon — the LED bridge (PLAN.md §10 Phase 4).
+
+  setu (Sanskrit): the bridge you cross to reach the other machine. The
+  glyph is an arch of status LEDs — the sidebar's board bent into a bridge
+  — over its reflection, on the near-black green-cast surface of the
+  Phosphor theme (§7 tokens: bg #060907, neon #3BFF7E, glow at 35%).
+
+  Regenerate the bundle icons with:
+    rsvg-convert -w 1024 -h 1024 assets/app-icon.svg -o assets/app-icon.png
+    pnpm tauri icon assets/app-icon.png
+  (documented in docs/dev/release.md)
+-->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="14" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <filter id="soft" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="6" />
+    </filter>
+  </defs>
+
+  <!-- macOS-style rounded-square canvas: near-black with a green cast and
+       a hairline of the same line token the app chrome uses. -->
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="#060907" />
+  <rect x="102.5" y="102.5" width="819" height="819" rx="184"
+        fill="none" stroke="rgba(120,255,170,0.16)" stroke-width="5" />
+
+  <!-- The glyph, lifted a touch above geometric center for optical balance. -->
+  <g transform="translate(0,-30)">
+  <!-- Faint arc guide the LEDs sit on — barely-there structure. -->
+  <path d="M 262 600 Q 512 320 762 600" fill="none"
+        stroke="rgba(120,255,170,0.08)" stroke-width="10" stroke-linecap="round" />
+  <line x1="262" y1="600" x2="762" y2="600"
+        stroke="rgba(120,255,170,0.08)" stroke-width="10" stroke-linecap="round" />
+
+  <!-- The bridge deck: a row of LEDs. -->
+  <g fill="#3BFF7E" filter="url(#glow)">
+    <circle cx="262" cy="600" r="17" />
+    <circle cx="345" cy="600" r="17" />
+    <circle cx="428" cy="600" r="17" />
+    <circle cx="512" cy="600" r="17" />
+    <circle cx="596" cy="600" r="17" />
+    <circle cx="679" cy="600" r="17" />
+    <circle cx="762" cy="600" r="17" />
+  </g>
+
+  <!-- The arch: LEDs climbing over the span (quadratic arc through
+       (262,600) → (512,320) → (762,600), sampled at 1/6 steps). -->
+  <g fill="#3BFF7E" filter="url(#glow)">
+    <circle cx="345" cy="522" r="17" />
+    <circle cx="428" cy="475" r="17" />
+    <circle cx="512" cy="460" r="19" />
+    <circle cx="596" cy="475" r="17" />
+    <circle cx="679" cy="522" r="17" />
+  </g>
+
+  <!-- The crossing’s far ends anchor slightly brighter. -->
+  <g fill="#6CFFA0" filter="url(#glow)">
+    <circle cx="262" cy="600" r="8" />
+    <circle cx="762" cy="600" r="8" />
+  </g>
+
+  <!-- Reflection in the water the bridge crosses: the same LEDs, dimmed
+       and blurred — phosphor afterglow. -->
+  <g fill="#3BFF7E" opacity="0.18" filter="url(#soft)">
+    <circle cx="345" cy="678" r="13" />
+    <circle cx="428" cy="725" r="13" />
+    <circle cx="512" cy="740" r="14" />
+    <circle cx="596" cy="725" r="13" />
+    <circle cx="679" cy="678" r="13" />
+  </g>
+  </g>
+</svg>
