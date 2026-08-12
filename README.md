@@ -8,9 +8,11 @@ Keychain, config lives in plain files you own, and interactive sessions drive th
 system `ssh` — so your `~/.ssh/config`, agent, jump hosts, and Tailscale keep
 working exactly as they do today.
 
-**Status: pre-alpha, under active construction.** Phase 0 of the
-[build plan](PLAN.md) is complete: the app shell, design system, and project
-spine. The terminal itself lands in Phase 1.
+**Status: pre-alpha, under active construction.** Phases 0–1 of the
+[build plan](PLAN.md) are complete: the app shell and design system, and a
+working local terminal — ⌘N opens your login shell in a native PTY with
+full-screen app support, Unicode-correct rendering, and tabs
+([docs](docs/features/F02-terminal-core.md)). SSH hosts land in Phase 2.
 
 <!-- Hero screenshot lands with Phase 4 (design polish). -->
 

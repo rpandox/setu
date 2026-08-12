@@ -19,16 +19,53 @@
 
 .tab {
   position: relative;
-  padding: 0 calc(var(--pad) * 2);
-  background: none;
-  border: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--pad) / 2);
+  padding: 0 var(--pad) 0 calc(var(--pad) * 2);
   color: var(--ink-2);
   font-family: var(--font-ui);
   font-size: var(--text-base);
   transition: color var(--t-fast);
+  cursor: default;
 }
 
 .tab:hover {
+  color: var(--ink-1);
+}
+
+.tab-title {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A tab whose child exited (non-zero) dims until it's closed. */
+.tab--exited .tab-title {
+  color: var(--ink-3);
+  text-decoration: line-through;
+}
+
+/* The per-tab close button; quiet until hovered. */
+.tab-close {
+  padding: 0 2px;
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  font-size: var(--text-base);
+  opacity: 0;
+  transition:
+    color var(--t-fast),
+    opacity var(--t-fast);
+}
+
+.tab:hover .tab-close,
+.tab:focus-within .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
   color: var(--ink-1);
 }
 

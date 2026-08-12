@@ -1,13 +1,104 @@
-/* The terminal viewport; Phase 0 renders only the empty state. */
+/* The terminal viewport: stacked session panes, find bar, empty state. */
 
 .terminal-area {
-  display: flex;
+  position: relative;
   flex: 1;
-  align-items: center;
-  justify-content: center;
+  min-height: 0;
   background: var(--bg-0);
 }
 
+.terminal-area--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Every session's pane fills the same box; inactive ones hide via
+   visibility so their measurements stay valid for fitting (never
+   display: none). */
+.terminal-host {
+  position: absolute;
+  inset: 0;
+  padding: var(--pad);
+}
+
+.terminal-host--hidden {
+  visibility: hidden;
+}
+
+.terminal-pane {
+  width: 100%;
+  height: 100%;
+}
+
+/* xterm's own scroll viewport fills the pane. */
+.terminal-pane .xterm {
+  height: 100%;
+}
+
+/* Non-zero exit: a quiet notice; the tab stays until ⌘W. */
+.terminal-exit-notice {
+  position: absolute;
+  right: var(--pad);
+  bottom: var(--pad);
+  padding: calc(var(--pad) / 2) var(--pad);
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.terminal-exit-notice kbd {
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+}
+
+/* The ⇧⌘F find bar, floated over the active pane's top-right corner. */
+.findbar {
+  position: absolute;
+  top: var(--pad);
+  right: calc(var(--pad) * 2);
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+  padding: calc(var(--pad) / 2);
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+}
+
+.findbar-input {
+  width: 180px;
+  padding: 2px var(--pad);
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+}
+
+.findbar-input:focus {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}
+
+.findbar-button {
+  padding: 0 calc(var(--pad) / 2);
+  background: none;
+  border: none;
+  color: var(--ink-2);
+  font-size: var(--text-base);
+  transition: color var(--t-fast);
+}
+
+.findbar-button:hover {
+  color: var(--ink-1);
+}
+
+/* The empty state (no sessions yet). */
 .terminal-empty {
   text-align: center;
 }

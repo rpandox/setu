@@ -11,5 +11,6 @@ phase that touches the feature. Pages answer, in order:
 2. How do I use it? (keyboard shortcuts and config keys shown, not described)
 3. What can go wrong?
 
-No pages exist yet — Phase 0 ships no features. Phase 1 adds the first
-(F02, terminal core).
+Pages so far:
+
+- [F02 · Terminal core](F02-terminal-core.md) — local shell tabs (Phase 1)

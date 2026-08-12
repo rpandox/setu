@@ -7,6 +7,24 @@ one entry.
 
 ## [Unreleased]
 
+### Added — Phase 1: local terminal MVP
+
+- Local shell tabs (F2): ⌘N spawns `$SHELL` as a login shell in a native
+  PTY; ⌘W closes (and always terminates the shell — no orphaned
+  processes, including on app quit); ⌘1–9 and ⌃Tab switch tabs.
+- xterm.js terminal with the "Setu Phosphor" ANSI theme derived from the
+  design tokens; WebGL rendering with automatic fallback; Unicode 11
+  widths (emoji and wide scripts measure correctly); 10 000-line
+  scrollback; ⌘-click opens URLs.
+- Find in terminal (⇧⌘F): incremental search, Enter/⇧Enter to step,
+  Esc to close.
+- Batched, backpressured output pipeline: 16 KB PTY reads, frame-coalesced
+  writes with high/low watermarks — a `cat` of a 50 MB file streams
+  without freezing the UI.
+- Clean exits close their tab; failures keep it with the exit code shown.
+- IPC contract v1: the `pty_*` command family and `pty:data`/`pty:exit`
+  events (see `docs/dev/ipc.md`).
+
 ### Added — Phase 0: scaffold, shell & open-source spine
 
 - Tauri 2 + React + TypeScript scaffold, restructured to the planned layout
