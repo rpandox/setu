@@ -7,20 +7,23 @@
 //!
 //! Phase 1 shipped the `pty_*` family for local shell tabs; Phase 2 widens
 //! `pty_spawn` to SSH sessions and adds the `hosts_*` family over the
-//! `hosts.toml` store and the `~/.ssh/config` import. This module also
-//! hosts [`TauriPtyEvents`], the adapter that turns [`PtyEvents`] callbacks
-//! into `pty:data:{sessionId}` / `pty:exit:{sessionId}` events on the
-//! WebView side.
+//! `hosts.toml` store and the `~/.ssh/config` import; Phase 4 adds the
+//! `reach_*` family driving the LED board. This module also hosts the
+//! event bridges — [`TauriPtyEvents`] for `pty:data:{sessionId}` /
+//! `pty:exit:{sessionId}` and [`TauriReachEvents`] for `reach:update` —
+//! plus [`AppTargetSource`], the prober's view of the host list.
 
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager as _, State};
 
 use crate::pty::{PtyEvents, PtyManager};
+use crate::reach::{ProbeTarget, ReachEvents, ReachProber, ReachState, TargetSource};
+use crate::settings::SettingsStore;
 use crate::store::{FieldError, Host, HostsStore, UpsertOutcome};
 use crate::ui_state::{UiState, UiStateStore};
-use crate::{connect, ssh_config};
+use crate::{connect, reach, ssh_config};
 
 /// What kind of process a PTY session drives.
 ///
@@ -79,6 +82,81 @@ impl PtyEvents for TauriPtyEvents {
         let _ = self
             .app
             .emit(&format!("pty:exit:{session_id}"), PtyExitPayload { code });
+    }
+}
+
+/// Payload of a `reach:update` event (mirrors `ReachUpdate` in
+/// `contract.ts`). One event per completed probe, all hosts on one channel
+/// — the reach store is the single consumer (PLAN.md §5, Phase 4 row).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReachUpdatePayload {
+    /// The probed host (`Host.id`).
+    host_id: String,
+    /// `"up"` or `"down"`.
+    state: &'static str,
+    /// Connect latency in ms; present only when `state` is `"up"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rtt_ms: Option<u32>,
+}
+
+/// [`ReachEvents`] sink that forwards probe results to the WebView as
+/// `reach:update` events. Constructed once at app setup and handed to the
+/// [`ReachProber`].
+pub struct TauriReachEvents {
+    /// Handle used to emit events to all windows.
+    app: AppHandle,
+}
+
+impl TauriReachEvents {
+    /// Creates a sink emitting through `app`.
+    pub fn new(app: AppHandle) -> Self {
+        Self { app }
+    }
+}
+
+impl ReachEvents for TauriReachEvents {
+    fn on_update(&self, host_id: &str, state: ReachState, rtt_ms: Option<u32>) {
+        let _ = self.app.emit(
+            "reach:update",
+            ReachUpdatePayload {
+                host_id: host_id.to_string(),
+                state: match state {
+                    ReachState::Up => "up",
+                    ReachState::Down => "down",
+                },
+                rtt_ms,
+            },
+        );
+    }
+}
+
+/// [`TargetSource`] over the app's managed [`HostsStore`]: every sweep
+/// re-derives the same union `hosts_list` returns, so host CRUD since the
+/// last sweep is always reflected.
+pub struct AppTargetSource {
+    /// Handle used to reach the managed [`HostsStore`].
+    app: AppHandle,
+}
+
+impl AppTargetSource {
+    /// Creates a source reading through `app`.
+    pub fn new(app: AppHandle) -> Self {
+        Self { app }
+    }
+}
+
+impl TargetSource for AppTargetSource {
+    fn targets(&self) -> Vec<ProbeTarget> {
+        match all_hosts(&self.app.state::<HostsStore>()) {
+            Ok(hosts) => reach::probe_targets(&hosts),
+            Err(e) => {
+                // A corrupt hosts.toml already surfaces in the sidebar; the
+                // prober just has nothing to probe until it is fixed.
+                eprintln!("[reach] cannot list hosts: {e}");
+                Vec::new()
+            }
+        }
     }
 }
 
@@ -172,6 +250,13 @@ pub struct HostUpsertResult {
 /// or unreadable `~/.ssh/config` contributes no rows and no error.
 #[tauri::command]
 pub fn hosts_list(hosts: State<'_, HostsStore>) -> Result<Vec<Host>, String> {
+    all_hosts(&hosts)
+}
+
+/// The full host union behind [`hosts_list`] — persisted records plus live
+/// `~/.ssh/config` rows — shared with the prober's [`AppTargetSource`] so
+/// the LED board and the sidebar always see the same list.
+fn all_hosts(hosts: &HostsStore) -> Result<Vec<Host>, String> {
     let mut all = hosts.list()?;
     let labels: HashSet<String> = all.iter().map(|h| h.label.clone()).collect();
     all.extend(
@@ -181,6 +266,74 @@ pub fn hosts_list(hosts: State<'_, HostsStore>) -> Result<Vec<Host>, String> {
             .map(ssh_config::to_host),
     );
     Ok(all)
+}
+
+/// Result of [`reach_start`] (mirrors `ReachStartResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReachStartResult {
+    /// `false` when the global kill switch (`settings.reachability.enabled`)
+    /// is off — an expected outcome, not an error.
+    pub started: bool,
+}
+
+/// Starts (or refreshes) the reachability prober behind the LED board (F1).
+///
+/// **Payload:** none · **Result:** `{ started }` · **Emits:** one
+/// `reach:update` per probed host, every sweep, until stopped.
+///
+/// The first call spawns the sweep loop and probes immediately; later calls
+/// re-read `settings.toml` and trigger an immediate fresh sweep (the
+/// frontend re-invokes after host CRUD so new hosts light up right away).
+/// Returns `{ started: false }` without probing when the global kill switch
+/// is off — the per-host switch is `Host.reachability`.
+///
+/// # Errors
+///
+/// Fails when `settings.toml` exists but cannot be read or parsed.
+#[tauri::command]
+pub fn reach_start(
+    prober: State<'_, ReachProber>,
+    settings: State<'_, SettingsStore>,
+) -> Result<ReachStartResult, String> {
+    let config = settings.reachability()?;
+    if !config.enabled {
+        eprintln!("[reach] disabled in settings.toml — not probing");
+        return Ok(ReachStartResult { started: false });
+    }
+    prober.start(config);
+    Ok(ReachStartResult { started: true })
+}
+
+/// Stops the reachability prober; in-flight probes finish within their
+/// timeout and no further `reach:update` events are emitted.
+///
+/// **Payload:** none · **Result:** `null` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Never fails — stopping an idle prober is a no-op.
+#[tauri::command]
+pub fn reach_stop(prober: State<'_, ReachProber>) -> Result<(), String> {
+    prober.stop();
+    Ok(())
+}
+
+/// Reports app visibility so probing can pause when hidden (F1): the
+/// frontend calls this on every `document.visibilitychange`. Hidden longer
+/// than 60s pauses sweeping; becoming visible after such a pause triggers
+/// an immediate sweep.
+///
+/// **Payload:** `{ visible }` · **Result:** `null` · **Emits:** nothing
+/// directly (the resume sweep emits `reach:update` as usual).
+///
+/// # Errors
+///
+/// Never fails.
+#[tauri::command]
+pub fn reach_set_visible(prober: State<'_, ReachProber>, visible: bool) -> Result<(), String> {
+    prober.set_visible(visible);
+    Ok(())
 }
 
 /// Creates or updates a host in `hosts.toml` (empty `id` = create).

@@ -268,11 +268,44 @@ export interface UiStateSetPayload {
 }
 
 /**
+ * Result of `reach_start` — `started: false` means the global kill switch
+ * (`settings.reachability.enabled` in `settings.toml`) is off: an expected
+ * outcome the frontend treats as "LEDs stay hollow", not an error.
+ */
+export interface ReachStartResult {
+  /** Whether the prober is (now) running. */
+  started: boolean;
+}
+
+/** Payload for `reach_set_visible`. */
+export interface ReachSetVisiblePayload {
+  /** `true` when the app is visible, `false` when hidden/minimized. */
+  visible: boolean;
+}
+
+/**
+ * Payload of a `reach:update` event — one per completed probe (F1).
+ *
+ * All hosts share the one channel; the reach store is the event's single
+ * consumer (PLAN.md §5, Phase 4 row). A host that answers TCP but refuses
+ * ssh logins still reports `"up"` — the LED shows reachability, not auth.
+ */
+export interface ReachUpdate {
+  /** The probed host (`Host.id`, including `sshcfg:` ids). */
+  hostId: string;
+  /** `"up"` = TCP connect succeeded; `"down"` = refused or timed out. */
+  state: "up" | "down";
+  /** Connect latency in milliseconds; present only when `state` is `"up"`. */
+  rttMs?: number;
+}
+
+/**
  * Invokable commands, keyed by command name.
  *
  * Phase 1 shipped the `pty_*` family; Phase 2 adds SSH spawning and the
  * `hosts_*` family over `hosts.toml` and the `~/.ssh/config` import;
- * Phase 3 adds the `ui_state_*` pair over `state.json`.
+ * Phase 3 adds the `ui_state_*` pair over `state.json`; Phase 4 adds the
+ * `reach_*` family driving the LED board.
  */
 export interface IpcCommands {
   /** Spawn a new PTY session — a local login shell or `ssh` to a host. */
@@ -295,6 +328,19 @@ export interface IpcCommands {
   host_delete: { payload: HostIdPayload; result: null };
   /** Copy an `sshcfg:` row into `hosts.toml` as an editable record. */
   host_adopt: { payload: HostIdPayload; result: Host };
+  /**
+   * Start (or refresh) the reachability prober: the first call spawns the
+   * sweep loop and probes immediately; later calls trigger a fresh sweep
+   * (invoked again after host CRUD so new hosts light up right away).
+   */
+  reach_start: { payload: Record<string, never>; result: ReachStartResult };
+  /** Stop the prober; no further `reach:update` events follow. */
+  reach_stop: { payload: Record<string, never>; result: null };
+  /**
+   * Report app visibility (`document.visibilitychange`): hidden for over
+   * 60s pauses sweeping; becoming visible again sweeps immediately.
+   */
+  reach_set_visible: { payload: ReachSetVisiblePayload; result: null };
   /** Read `state.json` (a missing file is the default state). */
   ui_state_get: { payload: Record<string, never>; result: UiState };
   /** Replace `state.json` atomically (corrupt files are never overwritten). */
@@ -307,8 +353,11 @@ export interface IpcCommands {
  * - `pty:data:{sessionId}` — a base64-encoded chunk of raw PTY output.
  * - `pty:exit:{sessionId}` — the session's child exited; final event for
  *   that session.
+ * - `reach:update` — one probe result; all hosts share the channel (the
+ *   payload carries the host id).
  */
 export interface IpcEvents {
   [channel: `pty:data:${string}`]: string;
   [channel: `pty:exit:${string}`]: PtyExitEvent;
+  "reach:update": ReachUpdate;
 }
