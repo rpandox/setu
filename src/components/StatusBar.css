@@ -19,3 +19,8 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* The F4 broadcast badge: warning red, matching the pane hairlines. */
+.statusbar-chip--broadcast {
+  color: var(--err);
+}

@@ -13,6 +13,7 @@ import {
   type UnitRect,
 } from "../../state/splits";
 import { useSessions, type Tab } from "../../state/sessions";
+import { useBroadcast } from "../../state/broadcast";
 
 /** Props for {@link SplitContainer}. */
 export interface SplitContainerProps {
@@ -82,6 +83,9 @@ export function SplitContainer({ tab, hidden }: SplitContainerProps) {
   const focusPane = useSessions((s) => s.focusPane);
   const setSplitRatio = useSessions((s) => s.setSplitRatio);
   const reconnect = useSessions((s) => s.reconnect);
+  const broadcastArmed = useBroadcast((s) => s.active[tab.tabId] ?? false);
+  const selectedPanes = useBroadcast((s) => s.selected[tab.tabId]);
+  const togglePaneSelected = useBroadcast((s) => s.togglePaneSelected);
 
   const { panes, dividers } = layoutRects(tab.layout);
   const multiPane = panes.length > 1;
@@ -136,9 +140,15 @@ export function SplitContainer({ tab, hidden }: SplitContainerProps) {
       {panes.map((pane) => {
         const meta = sessions.find((s) => s.sessionId === pane.sessionId);
         const active = pane.paneId === tab.activePaneId;
+        const selected = selectedPanes?.includes(pane.paneId) ?? false;
+        const broadcasting = broadcastArmed && selected;
         const reconnectable =
           meta?.status === "exited" && meta.kind === "ssh" && !meta.orphaned;
-        const classes = ["split-pane", multiPane && active ? "split-pane--active" : ""]
+        const classes = [
+          "split-pane",
+          multiPane && active ? "split-pane--active" : "",
+          broadcasting ? "split-pane--broadcast" : "",
+        ]
           .filter(Boolean)
           .join(" ");
         return (
@@ -155,6 +165,23 @@ export function SplitContainer({ tab, hidden }: SplitContainerProps) {
               // Keyed by pane: re-mounts on every focus move, replaying the
               // brief focus glow (F4). Reduced motion disables it in CSS.
               <div key={tab.activePaneId} className="split-pane-flash" />
+            )}
+            {multiPane && (
+              <button
+                className={`split-pane-toggle${selected ? " split-pane-toggle--on" : ""}`}
+                type="button"
+                aria-pressed={selected}
+                aria-label={
+                  selected ? "Remove pane from broadcast" : "Include pane in broadcast"
+                }
+                title={
+                  selected
+                    ? "In the broadcast set — click to opt out (⇧⌘B arms)"
+                    : "Click to include in broadcast (⇧⌘B arms)"
+                }
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={() => togglePaneSelected(tab.tabId, pane.paneId)}
+              />
             )}
             {meta?.status === "exited" && (
               <div className="terminal-exit-notice" role="status">

@@ -1,0 +1,98 @@
+/* The F4 broadcast paste guard: exact bytes, session count, no surprises. */
+
+.pasteguard-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-0) 65%, transparent);
+}
+
+.pasteguard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pad);
+  width: min(560px, 80vw);
+  padding: calc(var(--pad) * 2);
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-2);
+}
+
+.pasteguard-title {
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.pasteguard-hint {
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+/* The exact paste, editable. Mono, no wrapping surprises. */
+.pasteguard-text {
+  padding: var(--pad);
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  line-height: var(--leading);
+  resize: vertical;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.pasteguard-text:focus {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}
+
+.pasteguard-actions {
+  display: flex;
+  gap: var(--pad);
+  justify-content: flex-end;
+}
+
+.pasteguard-cancel,
+.pasteguard-confirm {
+  padding: calc(var(--pad) / 2) calc(var(--pad) * 2);
+  border-radius: var(--r-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  transition: border-color var(--t-fast);
+}
+
+.pasteguard-cancel {
+  background: var(--bg-3);
+  border: 1px solid var(--line-strong);
+  color: var(--ink-1);
+}
+
+.pasteguard-cancel:hover {
+  border-color: var(--ink-2);
+}
+
+/* Confirm carries the warning color: this lands in N sessions. */
+.pasteguard-confirm {
+  background: var(--bg-3);
+  border: 1px solid var(--err);
+  color: var(--err);
+}
+
+.pasteguard-confirm:hover {
+  border-color: var(--err);
+  background: var(--bg-2);
+}
+
+.pasteguard-confirm:focus-visible,
+.pasteguard-cancel:focus-visible {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}

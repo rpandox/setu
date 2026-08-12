@@ -14,6 +14,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 import { phosphorTheme, terminalTypography } from "./theme";
 import { connectPtyStream } from "./stream";
+import { resolvePtyWriteTargets } from "../../state/broadcast";
 
 /** Scrollback kept per terminal (PLAN.md §3). */
 export const SCROLLBACK_LINES = 10_000;
@@ -87,7 +88,7 @@ export async function createSessionTerminal(sessionId: string): Promise<Terminal
 
   // Both mutate on rebind: the stream disconnect swaps to the new session's,
   // and the current id keeps dispose() deleting the right map entry.
-  let disconnect = await connectPtyStream(sessionId, term);
+  let disconnect = await connectPtyStream(sessionId, term, resolvePtyWriteTargets);
   let currentId = sessionId;
 
   let opened = false;
@@ -124,7 +125,7 @@ export async function createSessionTerminal(sessionId: string): Promise<Terminal
     },
     async rebind(newSessionId: string): Promise<void> {
       disconnect();
-      disconnect = await connectPtyStream(newSessionId, term);
+      disconnect = await connectPtyStream(newSessionId, term, resolvePtyWriteTargets);
       currentId = newSessionId;
     },
     dispose(): void {

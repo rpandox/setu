@@ -145,12 +145,18 @@ export function decodeBase64(chunkBase64: string): Uint8Array {
  *
  * @param sessionId - The PTY session to connect.
  * @param term - The xterm instance rendering it.
+ * @param resolveTargets - Maps input to the sessions it should reach —
+ * `[sessionId]` normally; the broadcast resolver returns every armed pane's
+ * session while broadcasting (F4 fan-out happens here, at the write
+ * boundary, so keystrokes, single-line pastes, and IME commits all fan out
+ * identically).
  * @returns A disposer that detaches all listeners (call before disposing
  * the terminal).
  */
 export async function connectPtyStream(
   sessionId: string,
   term: Terminal,
+  resolveTargets: (sessionId: string) => string[] = (id) => [id],
 ): Promise<() => void> {
   const buffer = createPtyStreamBuffer({
     write: (chunk, onProcessed) => term.write(chunk, onProcessed),
@@ -159,8 +165,10 @@ export async function connectPtyStream(
     buffer.push(decodeBase64(chunkBase64));
   });
   const dataDisposable = term.onData((data) => {
-    // Rejections are benign here: the session may have exited a beat ago.
-    void ipcInvoke("pty_write", { sessionId, data }).catch(() => undefined);
+    for (const target of resolveTargets(sessionId)) {
+      // Rejections are benign here: the session may have exited a beat ago.
+      void ipcInvoke("pty_write", { sessionId: target, data }).catch(() => undefined);
+    }
   });
   const resizeDisposable = term.onResize(({ cols, rows }) => {
     void ipcInvoke("pty_resize", { sessionId, cols, rows }).catch(() => undefined);

@@ -5,6 +5,9 @@ import { TabBar } from "../components/TabBar";
 import { TerminalArea } from "../components/TerminalArea";
 import { HostEditor } from "../features/hosts/HostEditor";
 import { QuickConnect } from "../features/palette/QuickConnect";
+import { PasteGuardDialog } from "../features/broadcast/PasteGuardDialog";
+import { Toast } from "../components/Toast";
+import { useBroadcast, wireBroadcastHousekeeping } from "../state/broadcast";
 import { useHosts } from "../state/hosts";
 import { activeSessionOf, useSessions } from "../state/sessions";
 import type { FocusDirection } from "../state/splits";
@@ -39,6 +42,9 @@ export function App() {
   useEffect(() => {
     // Hosts feed the sidebar and ⌘T; load once at startup.
     void useHosts.getState().load();
+    // Broadcast follows tab lifecycle: auto-disarm on switch, prune closed
+    // panes (F4). Wired lazily to avoid a module-evaluation cycle.
+    wireBroadcastHousekeeping();
   }, []);
 
   useEffect(() => {
@@ -74,7 +80,8 @@ export function App() {
           !event.altKey &&
           !event.shiftKey &&
           !quickConnectOpen &&
-          useHosts.getState().editorTarget === null
+          useHosts.getState().editorTarget === null &&
+          useBroadcast.getState().pendingPaste === null
         ) {
           const active = activeSessionOf(sessions);
           if (
@@ -107,6 +114,10 @@ export function App() {
         // ⌘W closes the active pane; a tab's last pane closes the tab (§8).
         event.preventDefault();
         sessions.closePane();
+      } else if (key === "b" && event.shiftKey) {
+        // ⇧⌘B arms/disarms broadcast for the active tab (F4).
+        event.preventDefault();
+        useBroadcast.getState().toggleBroadcast();
       } else if (key === "f" && event.shiftKey) {
         event.preventDefault();
         sessions.openFind();
@@ -129,6 +140,8 @@ export function App() {
       </div>
       <HostEditor />
       {quickConnectOpen && <QuickConnect onClose={() => setQuickConnectOpen(false)} />}
+      <PasteGuardDialog />
+      <Toast />
     </div>
   );
 }
