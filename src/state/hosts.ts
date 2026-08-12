@@ -28,6 +28,8 @@ export interface HostsState {
   query: string;
   /** What the HostEditor drawer is showing. */
   editorTarget: EditorTarget;
+  /** Multi-selected host ids (F1 bulk actions; editable rows only). */
+  selectedIds: string[];
   /** Loads (or reloads) the host list from the core. */
   load(): Promise<void>;
   /** Sets the sidebar search query. */
@@ -45,7 +47,25 @@ export interface HostsState {
   deleteHost(hostId: string): Promise<void>;
   /** Adopts an `sshcfg:` row into `hosts.toml` and reloads the list. */
   adoptHost(hostId: string): Promise<void>;
+  /** Replaces the multi-selection (⌘-click / ⇧-click build it). */
+  setSelected(ids: string[]): void;
+  /** Clears the multi-selection (Esc, or after a bulk action). */
+  clearSelection(): void;
+  /**
+   * Applies one edit to every selected editable host — set group, set hue,
+   * or add a tag — then reloads. Imported rows are skipped (read-only
+   * until adopted, F1).
+   */
+  bulkEdit(edit: BulkEdit): Promise<void>;
+  /** Deletes every selected editable host, then reloads. */
+  bulkDelete(): Promise<void>;
 }
+
+/** One bulk edit applied to the whole selection (F1 bulk actions). */
+export type BulkEdit =
+  | { kind: "group"; group: string }
+  | { kind: "hue"; hue: number }
+  | { kind: "tag"; tag: string };
 
 /**
  * The hosts store hook. Select narrowly in components
@@ -56,11 +76,18 @@ export const useHosts = create<HostsState>((set, get) => ({
   loadError: null,
   query: "",
   editorTarget: null,
+  selectedIds: [],
 
   async load(): Promise<void> {
     try {
       const hosts = await ipcInvoke("hosts_list", {});
-      set((state) => ({ ...state, hosts, loadError: null }));
+      set((state) => ({
+        ...state,
+        hosts,
+        loadError: null,
+        // Drop selection entries whose hosts vanished (delete, config edit).
+        selectedIds: state.selectedIds.filter((id) => hosts.some((h) => h.id === id)),
+      }));
     } catch (error) {
       set((state) => ({ ...state, loadError: String(error) }));
     }
@@ -102,6 +129,41 @@ export const useHosts = create<HostsState>((set, get) => ({
 
   async adoptHost(hostId: string): Promise<void> {
     await ipcInvoke("host_adopt", { hostId });
+    await get().load();
+  },
+
+  setSelected(ids: string[]): void {
+    set((state) => ({ ...state, selectedIds: ids }));
+  },
+
+  clearSelection(): void {
+    set((state) => (state.selectedIds.length === 0 ? state : { ...state, selectedIds: [] }));
+  },
+
+  async bulkEdit(edit: BulkEdit): Promise<void> {
+    const { hosts, selectedIds } = get();
+    const targets = hosts.filter((h) => selectedIds.includes(h.id) && h.source === "setu");
+    for (const host of targets) {
+      const draft: Host =
+        edit.kind === "group"
+          ? { ...host, group: edit.group }
+          : edit.kind === "hue"
+            ? { ...host, hue: edit.hue }
+            : { ...host, tags: host.tags.includes(edit.tag) ? host.tags : [...host.tags, edit.tag] };
+      await ipcInvoke("host_upsert", { host: draft });
+    }
+    set((state) => ({ ...state, selectedIds: [] }));
+    await get().load();
+  },
+
+  async bulkDelete(): Promise<void> {
+    const { hosts, selectedIds } = get();
+    const targets = hosts.filter((h) => selectedIds.includes(h.id) && h.source === "setu");
+    for (const host of targets) {
+      await ipcInvoke("host_delete", { hostId: host.id });
+      useSessions.getState().markOrphaned(host.id);
+    }
+    set((state) => ({ ...state, selectedIds: [] }));
     await get().load();
   },
 }));
