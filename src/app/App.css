@@ -1,0 +1,14 @@
+/* Root layout: sidebar | (tab bar / terminal / status bar). */
+
+.app {
+  display: flex;
+  height: 100%;
+  background: var(--bg-0);
+}
+
+.app-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}

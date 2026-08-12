@@ -1,0 +1,67 @@
+/*
+ * Phosphor design tokens — the single source of truth for every color, type
+ * choice, spacing value, and motion curve in Setu (PLAN.md §7).
+ *
+ * Rules that keep the aesthetic honest:
+ *  - Green is status and energy, not body text. Reading text is pale mint ink.
+ *  - --glow appears on exactly three things: reachable/active LEDs, the active
+ *    tab's underline, and the keyboard focus ring. Nowhere else, never stacked.
+ *  - No color/type/spacing literals outside this file (CI enforces it).
+ */
+:root {
+  /* surfaces — near-black, green-cast */
+  --bg-0: #060907;
+  --bg-1: #0a0f0c;
+  --bg-2: #0f1611;
+  --bg-3: #152016;
+  --line: rgba(120, 255, 170, 0.08);
+  --line-strong: rgba(120, 255, 170, 0.16);
+
+  /* ink — pale mint, never pure white, never neon */
+  --ink-1: #d9e8dc;
+  --ink-2: #93a89a;
+  --ink-3: #5c6f62; /* large labels only (≥11px small-caps) */
+
+  /* the neon — hover #6CFFA0, pressed #2ED96A */
+  --neon: #3bff7e;
+  --neon-hover: #6cffa0;
+  --neon-pressed: #2ed96a;
+  --neon-ink: #04140a;
+  --glow: 0 0 12px rgba(59, 255, 126, 0.35); /* LEDs, active-tab underline, focus ring ONLY */
+
+  /* state */
+  --ok: #3bff7e;
+  --warn: #f5d96b;
+  --err: #ff6b6b;
+  --info: #5fd3ff;
+
+  /* per-host identity hues (tab underline, terminal cursor), hue 0–7 */
+  --hue-0: #3bff7e;
+  --hue-1: #5fd3ff;
+  --hue-2: #c792ea;
+  --hue-3: #f5d96b;
+  --hue-4: #ff6b6b;
+  --hue-5: #5fffe1;
+  --hue-6: #ffa94d;
+  --hue-7: #93a89a;
+
+  /* typography — bundled variable fonts (see THIRD_PARTY_NOTICES.md) */
+  --font-ui: "Inter Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --font-display: "Space Grotesk Variable", var(--font-ui);
+  --text-base: 13px;
+  --leading: 1.45;
+
+  /* geometry & motion */
+  --r-1: 6px;
+  --r-2: 10px;
+  --pad: 8px;
+  --t-fast: 120ms cubic-bezier(0.3, 0.7, 0.4, 1);
+  --t-med: 180ms cubic-bezier(0.3, 0.7, 0.4, 1);
+
+  /* layout dimensions (PLAN.md §7 wireframe) */
+  --w-sidebar: 260px;
+  --h-tabbar: 38px;
+  --h-statusbar: 24px;
+  --w-traffic-lights: 76px; /* clearance for the macOS window buttons */
+}

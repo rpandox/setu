@@ -1,0 +1,9 @@
+# The build spec and agent config are hand-formatted documents, not app code.
+PLAN.md
+CLAUDE.md
+.claude/
+LICENSE
+pnpm-lock.yaml
+src-tauri/target/
+src-tauri/gen/
+dist/
