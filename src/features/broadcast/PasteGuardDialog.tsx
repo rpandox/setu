@@ -3,14 +3,14 @@ import { useEffect, useRef, useState } from "react";
 import { useBroadcast } from "../../state/broadcast";
 
 /**
- * The broadcast paste guard (F4): a multi-line paste while broadcasting
- * never reaches any session silently. The dialog shows the exact text —
- * editable in place — with the session count in the confirm button, so
- * what lands where is never a surprise. Esc or the scrim cancels.
+ * The paste guard (F2): a risky paste — multi-line, or matching a
+ * dangerous command pattern — never reaches any session silently. The
+ * dialog shows the exact text, editable in place, with the reasons it was
+ * stopped; a paste that would broadcast (F4) says how many sessions it
+ * will hit in the confirm button. Esc or the scrim cancels.
  *
- * This is the minimal Phase 3 version scoped to the broadcast path; the
- * full F2 paste guard (dangerous-pattern detection, single-pane pastes)
- * extends it in Phase 4 (§5 decision log).
+ * Phase 3 shipped this scoped to broadcast; Phase 4 replaced the detection
+ * (`src/features/terminal/pasteGuard.ts`) and kept the dialog (§5 log).
  *
  * @returns The dialog, or nothing when no paste is pending.
  */
@@ -29,13 +29,20 @@ export function PasteGuardDialog() {
   }, [pending]);
 
   if (!pending) return null;
+  const broadcasting = pending.targetCount > 1;
+  const title = broadcasting
+    ? `Paste to ${pending.targetCount} sessions?`
+    : "Review this paste";
+  const confirmLabel = broadcasting
+    ? `Paste to ${pending.targetCount} sessions`
+    : "Paste";
   return (
     <div className="pasteguard-scrim" onMouseDown={cancel}>
       <div
         className="pasteguard"
         role="dialog"
         aria-modal="true"
-        aria-label={`Paste to ${pending.targetCount} sessions`}
+        aria-label={title}
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
@@ -44,10 +51,18 @@ export function PasteGuardDialog() {
           }
         }}
       >
-        <h2 className="pasteguard-title">Paste to {pending.targetCount} sessions?</h2>
+        <h2 className="pasteguard-title">{title}</h2>
+        {pending.reasons.length > 0 && (
+          <ul className="pasteguard-reasons">
+            {pending.reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        )}
         <p className="pasteguard-hint">
-          Broadcast is armed — every line below goes to every armed pane. Edit it here
-          first if needed.
+          {broadcasting
+            ? "Broadcast is armed — every line below goes to every armed pane. Edit it here first if needed."
+            : "Exactly this text will be pasted. Edit it here first if needed."}
         </p>
         <textarea
           className="pasteguard-text"
@@ -66,7 +81,7 @@ export function PasteGuardDialog() {
             type="button"
             onClick={() => confirm(text)}
           >
-            Paste to {pending.targetCount} sessions
+            {confirmLabel}
           </button>
         </div>
       </div>

@@ -36,7 +36,6 @@ vi.mock("../features/terminal/registry", () => ({
 
 import {
   countBroadcastTargets,
-  pasteNeedsGuard,
   resolvePtyWriteTargets,
   useBroadcast,
   wireBroadcastHousekeeping,
@@ -91,20 +90,6 @@ async function tabWithPanes(count: number): Promise<{
     sessionIds: leaves.map((l) => l.sessionId),
   };
 }
-
-describe("pasteNeedsGuard", () => {
-  it("passes true single-line pastes", () => {
-    expect(pasteNeedsGuard("uptime")).toBe(false);
-    expect(pasteNeedsGuard("")).toBe(false);
-  });
-
-  it("guards any newline — internal or trailing (it would execute)", () => {
-    expect(pasteNeedsGuard("uptime\n")).toBe(true);
-    expect(pasteNeedsGuard("a\nb")).toBe(true);
-    expect(pasteNeedsGuard("a\r\nb")).toBe(true);
-    expect(pasteNeedsGuard("a\rb")).toBe(true);
-  });
-});
 
 describe("resolvePtyWriteTargets", () => {
   it("returns just the source when broadcast is off", async () => {
@@ -233,6 +218,7 @@ describe("paste guard", () => {
       sessionId: sessionIds[0],
       text: "line1\nline2\n",
       targetCount: 2,
+      reasons: ["Pastes more than one line"],
     });
     expect(useBroadcast.getState().pendingPaste?.targetCount).toBe(2);
     useBroadcast.getState().confirmPasteGuard("edited\n");
@@ -246,6 +232,7 @@ describe("paste guard", () => {
       sessionId: sessionIds[0],
       text: "rm -rf /tmp/x\n",
       targetCount: 2,
+      reasons: ["Pastes more than one line", "Contains a destructive rm"],
     });
     useBroadcast.getState().cancelPasteGuard();
     expect(pasteSpy).not.toHaveBeenCalled();

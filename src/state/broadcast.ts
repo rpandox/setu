@@ -7,11 +7,12 @@
  * frontend at the pty-write boundary (PLAN.md §5: broadcast is frontend
  * fan-out). Typing into a deselected pane stays normal input.
  *
- * Multi-line pastes while broadcasting never fan out silently: the paste
- * is intercepted at the DOM level (xterm normalizes newlines before
- * `onData`, so detection must happen before xterm sees it) and routed
- * through the {@link PendingPaste} guard dialog. Phase 4 extends this
- * minimal guard to all pastes with dangerous-pattern detection (§5 log).
+ * Risky pastes never land silently: they are intercepted at the DOM level
+ * (xterm normalizes newlines before `onData`, so detection must happen
+ * before xterm sees it) and routed through the {@link PendingPaste} guard
+ * dialog. Detection lives in `src/features/terminal/pasteGuard.ts` (F2,
+ * Phase 4) and covers every pane — broadcast pastes add the "N sessions"
+ * warning on top.
  */
 
 import { create } from "zustand";
@@ -21,14 +22,16 @@ import { getSessionTerminal } from "../features/terminal/registry";
 import { useToast } from "./toast";
 import type { SessionMeta, Tab } from "./sessions";
 
-/** A multi-line paste awaiting confirmation in the guard dialog (F4). */
+/** A guarded paste awaiting confirmation in the dialog (F2/F4). */
 export interface PendingPaste {
   /** The pane the paste landed in (fan-out re-resolves from it). */
   sessionId: string;
   /** The exact clipboard text. */
   text: string;
-  /** How many sessions the paste will reach ("N sessions" warning). */
+  /** How many sessions the paste will reach (1 = single pane). */
   targetCount: number;
+  /** Why the paste was guarded (from `classifyPaste`, F2). */
+  reasons: string[];
 }
 
 /** Store shape + actions for broadcast selection, arming, and paste guard. */
@@ -164,17 +167,6 @@ export const useBroadcast = create<BroadcastState>((set, get) => ({
 const DEAD_SKIP_TOAST_MS = 2000;
 
 let lastDeadToastAt = 0;
-
-/**
- * Whether pasted text needs the broadcast guard: any newline counts —
- * even a trailing one, since that would *execute* in every armed pane.
- *
- * @param text - The raw clipboard text (before xterm normalizes it).
- * @returns True when the paste is multi-line.
- */
-export function pasteNeedsGuard(text: string): boolean {
-  return /[\r\n]/.test(text);
-}
 
 /**
  * Resolves where a pane's input goes (the F4 fan-out): the pane itself
