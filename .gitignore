@@ -1,0 +1,27 @@
+# Node / pnpm
+node_modules/
+dist/
+.pnpm-store/
+
+# Rust / Tauri
+src-tauri/target/
+target/
+**/*.rs.bk
+
+# macOS
+.DS_Store
+
+# Secrets — never commit key material or env files
+.env
+.env.*
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# Machine-specific tool state
+.gbrain-source
+
+# Logs & scratch
+logs/
+*.log
