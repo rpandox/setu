@@ -8,11 +8,16 @@ Keychain, config lives in plain files you own, and interactive sessions drive th
 system `ssh` — so your `~/.ssh/config`, agent, jump hosts, and Tailscale keep
 working exactly as they do today.
 
-**Status: pre-alpha, under active construction.** Phases 0–1 of the
-[build plan](PLAN.md) are complete: the app shell and design system, and a
-working local terminal — ⌘N opens your login shell in a native PTY with
-full-screen app support, Unicode-correct rendering, and tabs
-([docs](docs/features/F02-terminal-core.md)). SSH hosts land in Phase 2.
+**Status: pre-alpha, under active construction.** Phases 0–2 of the
+[build plan](PLAN.md) are complete: the app shell and design system, a
+working local terminal ([docs](docs/features/F02-terminal-core.md)), and
+now hosts & SSH — a `hosts.toml` store with an editor drawer, automatic
+`~/.ssh/config` import with an Adopt flow
+([docs](docs/features/F01-hosts.md)), ⌘T quick connect
+([docs](docs/features/F11-command-palette.md)), and sessions that spawn the
+system `ssh` with keepalives, in-terminal host-key prompts, and one-key
+reconnect ([docs](docs/features/F03-sessions.md)). The live LED board lands
+in Phase 4.
 
 <!-- Hero screenshot lands with Phase 4 (design polish). -->
 

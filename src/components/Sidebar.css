@@ -26,8 +26,16 @@
   height: var(--h-tabbar);
 }
 
-.sidebar-search {
+.sidebar-toolbar {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
   margin: 0 var(--pad) var(--pad);
+}
+
+.sidebar-search {
+  flex: 1;
+  min-width: 0;
   padding: calc(var(--pad) * 0.75) var(--pad);
   background: var(--bg-2);
   color: var(--ink-1);
@@ -35,6 +43,45 @@
   border-radius: var(--r-1);
   font-family: var(--font-ui);
   font-size: var(--text-base);
+}
+
+/* The "+ add host" button beside search; quiet until hovered. */
+.sidebar-add {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  transition: color var(--t-fast);
+}
+
+.sidebar-add:hover {
+  color: var(--ink-1);
+}
+
+/* Load failures (e.g. a corrupt hosts.toml) surface, never disappear. */
+.sidebar-error {
+  margin: 0 var(--pad) var(--pad);
+  padding: calc(var(--pad) / 2) var(--pad);
+  border: 1px solid var(--err);
+  border-radius: var(--r-1);
+  color: var(--err);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  overflow-wrap: break-word;
+}
+
+.sidebar-empty {
+  margin: var(--pad);
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading);
 }
 
 .sidebar-search::placeholder {
@@ -65,6 +112,29 @@
   text-transform: uppercase;
 }
 
+/* The eyebrow doubles as the collapse toggle (F1: groups persist). */
+.group-toggle {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  transition: color var(--t-fast);
+}
+
+.group-toggle:hover {
+  color: var(--ink-2);
+}
+
+.group-chevron {
+  font-size: 9px;
+}
+
 .group-eyebrow::after {
   content: "";
   flex: 1;
@@ -74,6 +144,11 @@
 
 .group-hosts {
   list-style: none;
+}
+
+/* A host line: the connect row plus its hover actions. */
+.host-item {
+  position: relative;
 }
 
 .host-row {
@@ -91,8 +166,55 @@
   transition: background var(--t-fast);
 }
 
-.host-row:hover {
+.host-item:hover .host-row,
+.host-item:focus-within .host-row {
   background: var(--bg-2);
+}
+
+/* Row actions (edit / adopt / copy / delete) fade in on hover, floating
+   over the row's right edge. */
+.host-actions {
+  position: absolute;
+  top: 0;
+  right: var(--pad);
+  bottom: 0;
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+
+.host-item:hover .host-actions,
+.host-item:focus-within .host-actions {
+  opacity: 1;
+}
+
+.host-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  transition: color var(--t-fast);
+}
+
+.host-action:hover {
+  color: var(--ink-1);
+}
+
+/* Armed delete: one more click is destructive — say so in red. */
+.host-action--armed {
+  border-color: var(--err);
+  color: var(--err);
+}
+
+.host-action--armed:hover {
+  color: var(--err);
 }
 
 /* Hollow ring = probing / reachability off (§7 LED table). No glow. */

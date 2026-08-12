@@ -23,7 +23,10 @@ kernel PTY buffer ──► pty:data:{id} events ──► stream buffer (WebVie
 ### Spawning
 
 `pty_spawn` runs `$SHELL` (fallback `/bin/zsh`) with `-l` — a login shell, so
-`~/.zprofile` and friends run exactly as in Terminal.app. The child gets:
+`~/.zprofile` and friends run exactly as in Terminal.app — or, for
+`kind: "ssh"`, the system `ssh` with an argv built by
+[`src-tauri/src/connect.rs`](../../src-tauri/src/connect.rs) (see
+[ipc.md](ipc.md#pty_spawn)). Either way the child gets:
 
 - `TERM=xterm-256color`, `COLORTERM=truecolor`
 - `LANG=en_US.UTF-8` **only if unset** — GUI-launched apps inherit no locale,

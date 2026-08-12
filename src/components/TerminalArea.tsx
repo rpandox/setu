@@ -19,6 +19,7 @@ export function TerminalArea() {
   const findOpen = useSessions((s) => s.findOpen);
   const findFocusSeq = useSessions((s) => s.findFocusSeq);
   const closeFind = useSessions((s) => s.closeFind);
+  const reconnect = useSessions((s) => s.reconnect);
 
   if (sessions.length === 0) {
     return (
@@ -26,7 +27,7 @@ export function TerminalArea() {
         <div className="terminal-empty">
           <h1 className="terminal-empty-title">No hosts yet</h1>
           <p className="terminal-empty-hint">
-            Press <kbd>⌘N</kbd> for a local shell
+            Press <kbd>⌘T</kbd> to connect, or <kbd>⌘N</kbd> for a local shell
           </p>
         </div>
       </main>
@@ -37,6 +38,8 @@ export function TerminalArea() {
     <main className="terminal-area">
       {sessions.map((session) => {
         const active = session.sessionId === activeSessionId;
+        const reconnectable =
+          session.status === "exited" && session.kind === "ssh" && !session.orphaned;
         return (
           <div
             key={session.sessionId}
@@ -45,8 +48,21 @@ export function TerminalArea() {
             <TerminalPane sessionId={session.sessionId} active={active} />
             {session.status === "exited" && (
               <div className="terminal-exit-notice" role="status">
-                exited
+                {session.kind === "ssh" ? "connection closed" : "exited"}
                 {session.exitCode !== null ? ` (code ${session.exitCode})` : ""}
+                {reconnectable && (
+                  <>
+                    {" — "}
+                    <button
+                      className="terminal-reconnect"
+                      type="button"
+                      onClick={() => void reconnect(session.sessionId)}
+                    >
+                      Reconnect
+                    </button>{" "}
+                    <kbd>⏎</kbd>
+                  </>
+                )}
                 {" — "}
                 <kbd>⌘W</kbd> to close
               </div>

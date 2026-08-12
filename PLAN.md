@@ -295,6 +295,7 @@ history rows `ts, host_id, cwd, cmd, exit, duration_ms, session_id`.
 | tmux control mode | **Experimental, feature-flagged** | Genuinely hard; niche until proven | Attach-only window mapping ships first |
 | Sync | **git in config dir** | You already run a git-spine; zero new services | chezmoi users can just manage the dir |
 | Broadcast (cssh) | **Frontend fan-out** | Keystrokes duplicated to N sessions in the store layer; trivial and robust | — |
+| F1/F3/F11 phase split (Phase 2 kickoff) | **Phase 2 ships the CRUD/connect core; untagged spec behaviors land later** — frecency boost, bulk multi-select, notes-markdown popover, fuse tuning → Phase 4 (with the prober/palette); auto-reconnect countdown + ad-hoc `user@host` quick connect → Phase 11. Phase 2 does include duplicate-tab/reconnect-all and the reconnect prompt. Group collapse state persists in localStorage until `state.json` lands (Phase 3) | The specs span two phases without tagging every behavior; the split keeps Phase 2 at its acceptance surface | Pull any deferred behavior forward if a phase lands early |
 
 ---
 

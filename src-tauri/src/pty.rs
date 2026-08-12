@@ -308,6 +308,15 @@ fn login_shell_command() -> CommandBuilder {
         .unwrap_or_else(|| "/bin/zsh".to_string());
     let mut cmd = CommandBuilder::new(shell);
     cmd.arg("-l");
+    apply_terminal_env(&mut cmd);
+    cmd
+}
+
+/// Applies the environment every Setu PTY child gets: `TERM=xterm-256color`,
+/// `COLORTERM=truecolor`, a UTF-8 `LANG` when none is set (GUI-launched apps
+/// inherit no locale, which would break wide-character handling), and `$HOME`
+/// as the working directory. Used by local shells and `ssh` spawns alike.
+pub fn apply_terminal_env(cmd: &mut CommandBuilder) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     if std::env::var_os("LANG").is_none() {
@@ -316,7 +325,6 @@ fn login_shell_command() -> CommandBuilder {
     if let Some(home) = std::env::var_os("HOME") {
         cmd.cwd(home);
     }
-    cmd
 }
 
 #[cfg(test)]

@@ -7,6 +7,29 @@ one entry.
 
 ## [Unreleased]
 
+### Added — Phase 2: hosts & SSH sessions
+
+- Host management (F1): hosts persist in `~/.config/setu/hosts.toml` —
+  human-diffable TOML, atomic writes, and a corrupt file is surfaced,
+  never overwritten. The HostEditor drawer validates inline (label,
+  hostname, port, identity path) and warns on duplicate `user@host:port`.
+- `~/.ssh/config` import (F1): every concrete alias appears automatically
+  in the sidebar's "ssh config" section, read-only; connecting uses the
+  bare alias so ProxyJump/IdentityFile/Match/Include behave exactly as in
+  your terminal. "Adopt" copies an alias into `hosts.toml` for editing.
+- SSH sessions (F3): connect spawns system `ssh -tt` in a native PTY with
+  keepalives (ServerAlive 30s×3); first-connect host-key prompts happen in
+  the terminal; per-host `startup` commands run via `-- <cmd>`; tab titles
+  seed from the host label and the active tab's underline takes the host's
+  identity hue. Disconnects surface `connection closed (code N)` with a
+  Reconnect button and plain-⏎ reconnect that keeps scrollback; tabs
+  right-click for Duplicate tab / Reconnect all; deleting a host keeps its
+  live sessions ("(orphaned)").
+- ⌘T quick connect (F11): fuzzy search over every known host — typo
+  tolerant, ranked label \> hostname \> tags \> user — ⏎ connects the top
+  hit. The sidebar search uses the same ranking; groups collapse and
+  favorites pin to the top.
+
 ### Fixed — Phase 1 review
 
 - Tab strip now scrolls when tabs overflow (trackpad or mouse wheel), and

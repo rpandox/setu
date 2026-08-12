@@ -3,26 +3,37 @@ import { Sidebar } from "../components/Sidebar";
 import { StatusBar } from "../components/StatusBar";
 import { TabBar } from "../components/TabBar";
 import { TerminalArea } from "../components/TerminalArea";
+import { HostEditor } from "../features/hosts/HostEditor";
+import { QuickConnect } from "../features/palette/QuickConnect";
+import { useHosts } from "../state/hosts";
 import { useSessions } from "../state/sessions";
 import "./App.css";
 
 /**
  * The application shell: LED sidebar on the left; tab bar, terminal area, and
- * status bar stacked on the right (PLAN.md §7 wireframe).
+ * status bar stacked on the right (PLAN.md §7 wireframe), with the HostEditor
+ * drawer and ⌘T quick connect floating above.
  *
- * Owns the global keyboard map (PLAN.md §8) for Phase 1: ⌘/ sidebar,
- * ⌘N new local tab, ⌘W close tab, ⌘1–9 go to tab, ⌃Tab cycle tabs,
- * ⇧⌘F find. The listener runs in the capture phase so shortcuts work while
- * the terminal has focus.
+ * Owns the global keyboard map (PLAN.md §8) for Phase 2: ⌘/ sidebar,
+ * ⌘T quick connect, ⌘N new local tab, ⌘W close tab, ⌘1–9 go to tab,
+ * ⌃Tab cycle tabs, ⇧⌘F find, and plain ⏎ to reconnect an exited SSH tab
+ * (F3). The listener runs in the capture phase so shortcuts work while the
+ * terminal has focus; overlays (palette, editor) suppress the ⏎ shortcut.
  *
  * @returns The root layout element.
  */
 export function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [quickConnectOpen, setQuickConnectOpen] = useState(false);
+
+  useEffect(() => {
+    // Hosts feed the sidebar and ⌘T; load once at startup.
+    void useHosts.getState().load();
+  }, []);
 
   useEffect(() => {
     /**
-     * Dispatches the §8 keyboard map (Phase 1 subset).
+     * Dispatches the §8 keyboard map (Phase 2 subset).
      *
      * @param event - The keydown event from the window (capture phase).
      */
@@ -33,11 +44,40 @@ export function App() {
         sessions.cycleActive(event.shiftKey ? -1 : 1);
         return;
       }
-      if (!event.metaKey || event.ctrlKey || event.altKey) return;
+      if (!event.metaKey || event.ctrlKey || event.altKey) {
+        // Plain ⏎ reconnects the active exited SSH tab (F3) — unless an
+        // overlay owns the keyboard right now.
+        if (
+          event.key === "Enter" &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          !event.shiftKey &&
+          !quickConnectOpen &&
+          useHosts.getState().editorTarget === null
+        ) {
+          const active = sessions.sessions.find(
+            (s) => s.sessionId === sessions.activeSessionId,
+          );
+          if (
+            active &&
+            active.status === "exited" &&
+            active.kind === "ssh" &&
+            !active.orphaned
+          ) {
+            event.preventDefault();
+            void sessions.reconnect(active.sessionId);
+          }
+        }
+        return;
+      }
       const key = event.key.toLowerCase();
       if (key === "/") {
         event.preventDefault();
         setSidebarCollapsed((collapsed) => !collapsed);
+      } else if (key === "t" && !event.shiftKey) {
+        event.preventDefault();
+        setQuickConnectOpen((open) => !open);
       } else if (key === "n" && !event.shiftKey) {
         event.preventDefault();
         void sessions.openLocalTab();
@@ -56,7 +96,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, []);
+  }, [quickConnectOpen]);
 
   return (
     <div className={`app${sidebarCollapsed ? " app--sidebar-collapsed" : ""}`}>
@@ -66,6 +106,8 @@ export function App() {
         <TerminalArea />
         <StatusBar />
       </div>
+      <HostEditor />
+      {quickConnectOpen && <QuickConnect onClose={() => setQuickConnectOpen(false)} />}
     </div>
   );
 }
