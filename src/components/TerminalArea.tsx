@@ -17,7 +17,8 @@ export function TerminalArea() {
   const sessions = useSessions((s) => s.sessions);
   const activeSessionId = useSessions((s) => s.activeSessionId);
   const findOpen = useSessions((s) => s.findOpen);
-  const toggleFind = useSessions((s) => s.toggleFind);
+  const findFocusSeq = useSessions((s) => s.findFocusSeq);
+  const closeFind = useSessions((s) => s.closeFind);
 
   if (sessions.length === 0) {
     return (
@@ -54,7 +55,11 @@ export function TerminalArea() {
         );
       })}
       {findOpen && activeSessionId && (
-        <FindBar sessionId={activeSessionId} onClose={toggleFind} />
+        <FindBar
+          sessionId={activeSessionId}
+          focusSeq={findFocusSeq}
+          onClose={closeFind}
+        />
       )}
     </main>
   );

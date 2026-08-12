@@ -48,7 +48,7 @@ export function App() {
         }
       } else if (key === "f" && event.shiftKey) {
         event.preventDefault();
-        sessions.toggleFind();
+        sessions.openFind();
       } else if (/^[1-9]$/.test(event.key) && !event.shiftKey) {
         event.preventDefault();
         sessions.activateByIndex(Number(event.key) - 1);

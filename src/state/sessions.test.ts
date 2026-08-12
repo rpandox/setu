@@ -1,4 +1,4 @@
-// Store behavior: tab lifecycle, exit handling, activation, find toggle.
+// Store behavior: tab lifecycle, exit handling, activation, find bar.
 // IPC and the terminal registry are mocked — this tests the state machine.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -40,7 +40,12 @@ vi.mock("../features/terminal/registry", () => ({
 import { useSessions } from "./sessions";
 
 beforeEach(() => {
-  useSessions.setState({ sessions: [], activeSessionId: null, findOpen: false });
+  useSessions.setState({
+    sessions: [],
+    activeSessionId: null,
+    findOpen: false,
+    findFocusSeq: 0,
+  });
   exitCallbacks.clear();
   titleCallbacks.clear();
   ipcInvoke.mockReset();
@@ -176,12 +181,26 @@ describe("activation", () => {
   });
 });
 
-describe("toggleFind", () => {
-  it("flips the find bar", () => {
+describe("find bar", () => {
+  it("opens on the first ⇧⌘F", () => {
     expect(useSessions.getState().findOpen).toBe(false);
-    useSessions.getState().toggleFind();
+    useSessions.getState().openFind();
     expect(useSessions.getState().findOpen).toBe(true);
-    useSessions.getState().toggleFind();
+    expect(useSessions.getState().findFocusSeq).toBe(1);
+  });
+
+  it("stays open and bumps the focus sequence on repeat ⇧⌘F", () => {
+    useSessions.getState().openFind();
+    useSessions.getState().openFind();
+    expect(useSessions.getState().findOpen).toBe(true);
+    expect(useSessions.getState().findFocusSeq).toBe(2);
+  });
+
+  it("closes on closeFind and reopens cleanly", () => {
+    useSessions.getState().openFind();
+    useSessions.getState().closeFind();
     expect(useSessions.getState().findOpen).toBe(false);
+    useSessions.getState().openFind();
+    expect(useSessions.getState().findOpen).toBe(true);
   });
 });

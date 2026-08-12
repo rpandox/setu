@@ -5,6 +5,12 @@ import { getSessionTerminal } from "./registry";
 export interface FindBarProps {
   /** The session whose terminal is searched. */
   sessionId: string;
+  /**
+   * Focus sequence from the store: every change (each ⇧⌘F press) refocuses
+   * the input and selects its text, so repeat presses re-enter the search
+   * instead of doing nothing.
+   */
+  focusSeq: number;
   /** Called when the bar should close (Esc or the ✕ button). */
   onClose: () => void;
 }
@@ -17,13 +23,16 @@ export interface FindBarProps {
  * @param props - {@link FindBarProps}
  * @returns The find bar overlay element.
  */
-export function FindBar({ sessionId, onClose }: FindBarProps) {
+export function FindBar({ sessionId, focusSeq, onClose }: FindBarProps) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
 
+  // Runs on mount and again on every ⇧⌘F while open — select the previous
+  // query so typing replaces it, the way every other find field behaves.
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
+    inputRef.current?.select();
+  }, [focusSeq]);
 
   /**
    * Runs a search step in the terminal.
@@ -44,7 +53,11 @@ export function FindBar({ sessionId, onClose }: FindBarProps) {
   /** Closes the bar and hands focus back to the terminal. */
   const close = (): void => {
     onClose();
-    getSessionTerminal(sessionId)?.term.focus();
+    const handle = getSessionTerminal(sessionId);
+    // Drop the last match's selection — otherwise it lingers as a stray
+    // reverse-video patch in the scrollback after the bar is gone.
+    handle?.term.clearSelection();
+    handle?.term.focus();
   };
 
   return (

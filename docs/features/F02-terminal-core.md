@@ -28,6 +28,10 @@ shell process — no orphans.
 
 - The `+` button in the tab bar is ⌘N with a mouse; the `×` on each tab
   is ⌘W.
+- More tabs than fit? The strip scrolls — trackpad swipe or mouse wheel —
+  and the active tab always scrolls itself into view.
+- ⇧⌘F with the bar already open refocuses it and selects the query, so a
+  second press never closes your search; Esc or ✕ closes.
 - Tab titles follow your shell's title escapes (e.g. `vim` shows itself).
 - A tab whose command exits cleanly closes itself. A non-zero exit keeps
   the tab (dimmed, with an `exited (code N)` notice) so you can read the

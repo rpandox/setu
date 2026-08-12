@@ -1,4 +1,5 @@
 import "./TabBar.css";
+import { useEffect, useRef } from "react";
 import { useSessions } from "../state/sessions";
 
 /**
@@ -18,6 +19,9 @@ export interface TabBarProps {
  * the 2px neon underline with glow — one of the three legal uses of
  * `--glow`. `+` (or ⌘N) opens a local shell tab; `×` (or ⌘W) closes one.
  *
+ * Overflowing tabs scroll horizontally (trackpad swipe, or a plain mouse
+ * wheel mapped sideways); activating a tab always scrolls it into view.
+ *
  * @param props - {@link TabBarProps}
  * @returns The tab bar element.
  */
@@ -27,9 +31,33 @@ export function TabBar({ trafficLightInset }: TabBarProps) {
   const setActive = useSessions((s) => s.setActive);
   const closeTab = useSessions((s) => s.closeTab);
   const openLocalTab = useSessions((s) => s.openLocalTab);
+  const activeTabRef = useRef<HTMLDivElement | null>(null);
+  const stripRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    // Keep the active tab visible however it was reached (⌘1–9, ⌃Tab, click).
+    activeTabRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    // Mice only scroll vertically; steer that motion along the strip. A
+    // native non-passive listener because React's delegated wheel handlers
+    // are passive — preventDefault there is a no-op, and without it the
+    // gesture would also feed whatever scrollable picks it up beneath.
+    const strip = stripRef.current;
+    if (!strip) return;
+    const onWheel = (event: WheelEvent) => {
+      if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+      event.preventDefault();
+      strip.scrollLeft += event.deltaY;
+    };
+    strip.addEventListener("wheel", onWheel, { passive: false });
+    return () => strip.removeEventListener("wheel", onWheel);
+  }, []);
 
   return (
     <header
+      ref={stripRef}
       className={`tabbar${trafficLightInset ? " tabbar--inset" : ""}`}
       data-tauri-drag-region
       role="tablist"
@@ -46,6 +74,7 @@ export function TabBar({ trafficLightInset }: TabBarProps) {
         return (
           <div
             key={session.sessionId}
+            ref={active ? activeTabRef : undefined}
             className={classes}
             role="tab"
             aria-selected={active}

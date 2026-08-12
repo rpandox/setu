@@ -37,6 +37,11 @@ export interface SessionsState {
   activeSessionId: string | null;
   /** Whether the find bar (⇧⌘F) is showing for the active tab. */
   findOpen: boolean;
+  /**
+   * Bumped every time ⇧⌘F fires — including while the bar is already open,
+   * where the bar refocuses and reselects instead of closing.
+   */
+  findFocusSeq: number;
   /** Spawns a local shell, wires its terminal, and focuses the new tab. */
   openLocalTab(): Promise<void>;
   /** Closes a tab: kills the PTY and removes the session immediately. */
@@ -47,8 +52,10 @@ export interface SessionsState {
   activateByIndex(index: number): void;
   /** Cycles the active tab (⌃Tab / ⌃⇧Tab). */
   cycleActive(direction: 1 | -1): void;
-  /** Shows/hides the find bar. */
-  toggleFind(): void;
+  /** Opens the find bar — or, when already open, refocuses it (⇧⌘F). */
+  openFind(): void;
+  /** Closes the find bar (Esc or the ✕ button). */
+  closeFind(): void;
 }
 
 /** Exit unsubscribers by session — imperative handles, kept out of state. */
@@ -110,6 +117,7 @@ export const useSessions = create<SessionsState>((set, get) => {
     sessions: [],
     activeSessionId: null,
     findOpen: false,
+    findFocusSeq: 0,
 
     async openLocalTab(): Promise<void> {
       // 80×24 is a placeholder; the pane fits and resizes right after open.
@@ -175,8 +183,18 @@ export const useSessions = create<SessionsState>((set, get) => {
       set((state) => ({ ...state, activeSessionId: sessions[next].sessionId }));
     },
 
-    toggleFind(): void {
-      set((state) => ({ ...state, findOpen: !state.findOpen }));
+    openFind(): void {
+      // Always bump the sequence: a bar that is already open refocuses on
+      // the change instead of toggling closed (matching every other find UI).
+      set((state) => ({
+        ...state,
+        findOpen: true,
+        findFocusSeq: state.findFocusSeq + 1,
+      }));
+    },
+
+    closeFind(): void {
+      set((state) => ({ ...state, findOpen: false }));
     },
   };
 });

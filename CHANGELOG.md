@@ -7,6 +7,15 @@ one entry.
 
 ## [Unreleased]
 
+### Fixed — Phase 1 review
+
+- Tab strip now scrolls when tabs overflow (trackpad or mouse wheel), and
+  the active tab scrolls into view on ⌘1–9/⌃Tab/click — previously
+  overflowing tabs were crushed and unreachable.
+- ⇧⌘F while the find bar is open refocuses it and selects the query
+  instead of closing the bar; closing find clears the last match's
+  selection so no reverse-video patch lingers in the scrollback.
+
 ### Added — Phase 1: local terminal MVP
 
 - Local shell tabs (F2): ⌘N spawns `$SHELL` as a login shell in a native
