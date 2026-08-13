@@ -43,7 +43,14 @@ vi.mock("./hosts", () => ({
 }));
 
 import type { ForwardStatus } from "../ipc/contract";
-import { activeForwardCount, ruleKeyOf, useForwards, wireForwards } from "./forwards";
+import {
+  activeForwardCount,
+  ruleFromKey,
+  ruleKeyOf,
+  useForwards,
+  wireForwards,
+  withBindPort,
+} from "./forwards";
 
 /**
  * A status fixture.
@@ -82,6 +89,46 @@ describe("ruleKeyOf", () => {
     expect(ruleKeyOf("h1", { type: "L", spec: "8080:localhost:8080", auto: true })).toBe(
       "h1:L:8080:localhost:8080",
     );
+  });
+});
+
+describe("withBindPort", () => {
+  it("rewrites the bind port in every spec shape", () => {
+    expect(
+      withBindPort({ type: "L", spec: "8080:localhost:8080", auto: true }, 8081).spec,
+    ).toBe("8081:localhost:8080");
+    expect(
+      withBindPort({ type: "L", spec: "0.0.0.0:8080:web:80", auto: false }, 8081).spec,
+    ).toBe("0.0.0.0:8081:web:80");
+    expect(withBindPort({ type: "D", spec: "1080", auto: false }, 1081).spec).toBe(
+      "1081",
+    );
+    expect(
+      withBindPort({ type: "D", spec: "127.0.0.1:1080", auto: false }, 1081).spec,
+    ).toBe("127.0.0.1:1081");
+  });
+
+  it("never marks the override auto", () => {
+    expect(
+      withBindPort({ type: "L", spec: "8080:localhost:8080", auto: true }, 8081).auto,
+    ).toBe(false);
+  });
+});
+
+describe("ruleFromKey", () => {
+  it("reconstructs rules, including for colon-bearing host ids", () => {
+    expect(ruleFromKey("sshcfg:hermes:L:8080:localhost:8080", "sshcfg:hermes")).toEqual({
+      type: "L",
+      spec: "8080:localhost:8080",
+      auto: false,
+    });
+    expect(ruleFromKey("h1:D:1080", "h1")).toEqual({
+      type: "D",
+      spec: "1080",
+      auto: false,
+    });
+    expect(ruleFromKey("h1:L:8080:localhost:8080", "other")).toBeNull();
+    expect(ruleFromKey("h1:X:8080", "h1")).toBeNull();
   });
 });
 

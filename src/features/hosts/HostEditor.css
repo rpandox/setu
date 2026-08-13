@@ -297,3 +297,72 @@
   background: var(--bg-3);
   color: var(--ink-3);
 }
+
+/* The F7 forwards section: one compact row per rule. */
+.hosteditor-forward {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+  margin-bottom: calc(var(--pad) / 2);
+}
+
+.hosteditor-forward-kind {
+  flex: none;
+  width: 52px;
+}
+
+.hosteditor-forward-spec {
+  flex: 1;
+  min-width: 0;
+}
+
+.hosteditor-forward-auto {
+  display: flex;
+  flex: none;
+  gap: calc(var(--pad) / 4);
+  align-items: center;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.hosteditor-forward-remove {
+  flex: none;
+  padding: 0 calc(var(--pad) / 2);
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  font-size: 14px;
+  transition: color var(--t-fast);
+}
+
+.hosteditor-forward-remove:hover:not(:disabled) {
+  color: var(--err);
+}
+
+.hosteditor-forward-remove:disabled,
+.hosteditor-forward .hosteditor-input:disabled {
+  opacity: 0.5;
+}
+
+.hosteditor-forward-add {
+  align-self: flex-start;
+  padding: calc(var(--pad) / 4) var(--pad);
+  background: var(--bg-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  transition: border-color var(--t-fast);
+}
+
+.hosteditor-forward-add:hover {
+  border-color: var(--ink-2);
+}
+
+.hosteditor-forward-add:focus-visible,
+.hosteditor-forward-remove:focus-visible {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}

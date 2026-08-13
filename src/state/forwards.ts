@@ -86,6 +86,44 @@ export function activeForwardCount(byRuleKey: Record<string, ForwardStatus>): nu
   return Object.values(byRuleKey).filter((s) => s.state !== "red").length;
 }
 
+/**
+ * A copy of `rule` with its bind port replaced — the popover's "Use N"
+ * one-shot retry after a port conflict (never persisted; PLAN.md §5).
+ * Handles the optional `bind-addr:` prefix on every kind.
+ *
+ * @param rule - The conflicting rule.
+ * @param port - The suggested free port.
+ * @returns The rewritten rule, marked `auto: false`.
+ */
+export function withBindPort(rule: HostForward, port: number): HostForward {
+  const parts = rule.spec.split(":");
+  // The bind port's position: D is [bind:]port (last-1 or last), L/R are
+  // [bind:]port:host:port (index 1 with a bind prefix, 0 without).
+  const index = rule.type === "D" ? parts.length - 1 : parts.length === 4 ? 1 : 0;
+  parts[index] = String(port);
+  return { type: rule.type, spec: parts.join(":"), auto: false };
+}
+
+/**
+ * Splits a rule key back into its rule half — `{hostId}:{kind}:{spec}`
+ * with the host id known (ids may contain `:`, e.g. `sshcfg:hermes`, so
+ * the caller supplies it rather than parsing blind).
+ *
+ * @param ruleKey - The registry key.
+ * @param hostId - The owning host's id (from the status payload).
+ * @returns The reconstructed rule, or `null` for a foreign key.
+ */
+export function ruleFromKey(ruleKey: string, hostId: string): HostForward | null {
+  const prefix = `${hostId}:`;
+  if (!ruleKey.startsWith(prefix)) return null;
+  const rest = ruleKey.slice(prefix.length);
+  const separator = rest.indexOf(":");
+  if (separator === -1) return null;
+  const type = rest.slice(0, separator);
+  if (type !== "L" && type !== "R" && type !== "D") return null;
+  return { type, spec: rest.slice(separator + 1), auto: false };
+}
+
 let wired = false;
 
 /**
