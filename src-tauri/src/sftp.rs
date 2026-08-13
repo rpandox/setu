@@ -1048,6 +1048,14 @@ fn halt_from_sftp(error: &russh_sftp::client::error::Error) -> TransferHalt {
         ),
         // Channel-level I/O and timeouts are the connection misbehaving.
         Error::IO(_) | Error::Timeout => true,
+        // russh-sftp reports a torn-down session as UnexpectedBehavior:
+        // "session closed" when the request channel is already gone,
+        // "sender dropped" when the reply loop dies mid-request. Both mean
+        // the link died — retryable, unlike its parse/protocol cases.
+        // (Message strings are stable for the §11-pinned crate version.)
+        Error::UnexpectedBehavior(msg) => {
+            matches!(msg.as_str(), "session closed" | "sender dropped")
+        }
         _ => false,
     };
     TransferHalt::Failed {
@@ -1344,6 +1352,15 @@ mod tests {
         assert!(is_retryable(&halt_from_sftp(&Error::Timeout)));
         assert!(is_retryable(&halt_from_sftp(&Error::IO(
             "broken pipe".into()
+        ))));
+        assert!(is_retryable(&halt_from_sftp(&Error::UnexpectedBehavior(
+            "session closed".into()
+        ))));
+        assert!(is_retryable(&halt_from_sftp(&Error::UnexpectedBehavior(
+            "sender dropped".into()
+        ))));
+        assert!(!is_retryable(&halt_from_sftp(&Error::UnexpectedBehavior(
+            "Duplicate version".into()
         ))));
         assert!(!is_retryable(&halt_from_sftp(&status(
             StatusCode::PermissionDenied
