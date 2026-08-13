@@ -1,6 +1,7 @@
 import "./KeysPanel.css";
 import { useState } from "react";
 import { KeyRound, RefreshCw, X } from "lucide-react";
+import { Checkbox, Select } from "../../components/controls";
 import type { Host } from "../../ipc/contract";
 import { useHosts } from "../../state/hosts";
 import { isHardwareKey, useKeys } from "../../state/keys";
@@ -233,19 +234,16 @@ export function KeysPanel() {
                 spellCheck={false}
                 onChange={(event) => setCopyIdPath(event.target.value)}
               />
-              <select
-                className="keyspanel-input"
+              <Select
                 value={copyIdHostId}
                 aria-label="Target host"
-                onChange={(event) => setCopyIdHostId(event.target.value)}
-              >
-                <option value="">Pick a host…</option>
-                {copyIdTargets.map((host) => (
-                  <option key={host.id} value={host.id}>
-                    {host.label}
-                  </option>
-                ))}
-              </select>
+                placeholder="Pick a host…"
+                options={copyIdTargets.map((host) => ({
+                  value: host.id,
+                  label: host.label,
+                }))}
+                onChange={setCopyIdHostId}
+              />
               <button
                 className="keyspanel-copyid-run"
                 type="button"
@@ -300,11 +298,7 @@ export function KeysPanel() {
                 )}
               </label>
               <label className="keyspanel-toggle">
-                <input
-                  type="checkbox"
-                  checked={vaultSecrets}
-                  onChange={(event) => setVaultSecrets(event.target.checked)}
-                />
+                <Checkbox checked={vaultSecrets} onChange={setVaultSecrets} />
                 Include Keychain secrets (passwords & passphrases) in the vault
               </label>
               <button

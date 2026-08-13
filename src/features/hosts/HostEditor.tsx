@@ -1,6 +1,7 @@
 import "./HostEditor.css";
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
+import { Checkbox, Select } from "../../components/controls";
 import { ipcInvoke } from "../../ipc/client";
 import type { Host, HostFieldError, HostForward } from "../../ipc/contract";
 import { ruleKeyOf, useForwards } from "../../state/forwards";
@@ -429,23 +430,21 @@ export function HostEditor() {
                     key={index}
                     title={locked ? "Toggle the forward off first to edit it" : undefined}
                   >
-                    <select
-                      className="hosteditor-input hosteditor-forward-kind"
+                    <Select
+                      className="hosteditor-forward-kind"
                       value={rule.type}
                       disabled={locked}
                       aria-label={`Forward ${index + 1} type`}
-                      onChange={(event) =>
+                      options={FORWARD_KINDS.map((kind) => ({
+                        value: kind,
+                        label: kind,
+                      }))}
+                      onChange={(kind) =>
                         patchForward(index, {
-                          type: event.target.value as HostForward["type"],
+                          type: kind as HostForward["type"],
                         })
                       }
-                    >
-                      {FORWARD_KINDS.map((kind) => (
-                        <option key={kind} value={kind}>
-                          {kind}
-                        </option>
-                      ))}
-                    </select>
+                    />
                     <input
                       className="hosteditor-input hosteditor-input--mono hosteditor-forward-spec"
                       value={rule.spec}
@@ -457,13 +456,10 @@ export function HostEditor() {
                       }
                     />
                     <label className="hosteditor-forward-auto">
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={rule.auto}
                         disabled={locked}
-                        onChange={(event) =>
-                          patchForward(index, { auto: event.target.checked })
-                        }
+                        onChange={(auto) => patchForward(index, { auto })}
                       />
                       auto
                     </label>
@@ -512,27 +508,23 @@ export function HostEditor() {
 
           <div className="hosteditor-toggles">
             <label className="hosteditor-toggle">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={draft.favorite}
-                onChange={(event) => patch({ favorite: event.target.checked })}
+                onChange={(favorite) => patch({ favorite })}
               />
               Favorite
             </label>
             <label className="hosteditor-toggle">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={draft.reachability}
-                onChange={(event) => patch({ reachability: event.target.checked })}
+                onChange={(reachability) => patch({ reachability })}
               />
               Reachability LED (Phase 4)
             </label>
             <label className="hosteditor-toggle">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={draft.use_mosh}
-                onChange={(event) => {
-                  const useMosh = event.target.checked;
+                onChange={(useMosh) => {
                   patch({ use_mosh: useMosh });
                   if (!useMosh) {
                     setMoshMissing(false);

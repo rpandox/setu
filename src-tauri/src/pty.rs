@@ -316,11 +316,21 @@ fn login_shell_command() -> CommandBuilder {
 /// `COLORTERM=truecolor`, a UTF-8 `LANG` when none is set (GUI-launched apps
 /// inherit no locale, which would break wide-character handling), and `$HOME`
 /// as the working directory. Used by local shells and `ssh` spawns alike.
+///
+/// macOS hands GUI apps the bare-charset `LC_CTYPE=UTF-8` — valid on
+/// Darwin, but sshd forwards it (`AcceptEnv LC_*`) and Linux resolves it
+/// to US-ASCII, which makes `mosh-server` refuse to start (F3's mosh row).
+/// Bare charsets are rewritten to the full `en_US.UTF-8` locale.
 pub fn apply_terminal_env(cmd: &mut CommandBuilder) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     if std::env::var_os("LANG").is_none() {
         cmd.env("LANG", "en_US.UTF-8");
+    }
+    for key in ["LC_ALL", "LC_CTYPE"] {
+        if std::env::var(key).is_ok_and(|value| value == "UTF-8") {
+            cmd.env(key, "en_US.UTF-8");
+        }
     }
     if let Some(home) = std::env::var_os("HOME") {
         cmd.cwd(home);

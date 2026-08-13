@@ -1,5 +1,6 @@
 import "./SnippetRunDialog.css";
 import { useEffect, useMemo, useState } from "react";
+import { Checkbox, Radio, Select } from "../../components/controls";
 import type { SnippetRunTarget } from "../../state/snippets";
 import { useSnippets } from "../../state/snippets";
 import { countBroadcastTargets, useBroadcast } from "../../state/broadcast";
@@ -110,21 +111,16 @@ export function SnippetRunDialog() {
           <label className="snippetrun-field" key={prompt.name}>
             <span className="snippetrun-label">{prompt.name}</span>
             {prompt.choices ? (
-              <select
-                className="snippetrun-input"
+              <Select
                 value={values[prompt.name] ?? ""}
+                aria-label={prompt.name}
                 autoFocus={index === 0}
-                onChange={(event) =>
-                  setValues((v) => ({ ...v, [prompt.name]: event.target.value }))
-                }
-              >
-                {(values[prompt.name] ?? "") === "" && <option value="">Choose…</option>}
-                {prompt.choices.map((choice) => (
-                  <option key={choice} value={choice}>
-                    {choice}
-                  </option>
-                ))}
-              </select>
+                options={prompt.choices.map((choice) => ({
+                  value: choice,
+                  label: choice,
+                }))}
+                onChange={(choice) => setValues((v) => ({ ...v, [prompt.name]: choice }))}
+              />
             ) : (
               <input
                 className="snippetrun-input"
@@ -142,8 +138,7 @@ export function SnippetRunDialog() {
         <fieldset className="snippetrun-targets">
           <legend className="snippetrun-label">Run in</legend>
           <label className="snippetrun-target">
-            <input
-              type="radio"
+            <Radio
               name="snippetrun-target"
               checked={target === "current-pane"}
               disabled={!paneReady}
@@ -153,8 +148,7 @@ export function SnippetRunDialog() {
             {!paneReady && <span className="snippetrun-why">no running pane</span>}
           </label>
           <label className="snippetrun-target">
-            <input
-              type="radio"
+            <Radio
               name="snippetrun-target"
               checked={target === "new-tabs"}
               onChange={() => setTarget("new-tabs")}
@@ -165,8 +159,7 @@ export function SnippetRunDialog() {
             <div className="snippetrun-hosts" role="group" aria-label="Hosts">
               {hosts.map((host) => (
                 <label className="snippetrun-host" key={host.id}>
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={hostIds.includes(host.id)}
                     onChange={() => toggleHost(host.id)}
                   />
@@ -177,8 +170,7 @@ export function SnippetRunDialog() {
             </div>
           )}
           <label className="snippetrun-target">
-            <input
-              type="radio"
+            <Radio
               name="snippetrun-target"
               checked={target === "broadcast"}
               disabled={broadcastCount === 0}

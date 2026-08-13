@@ -139,7 +139,12 @@ impl SettingsStore {
         Ok(cache.as_ref().expect("loaded above").reachability)
     }
 
-    /// Returns the tailnet settings (loading the file on first call).
+    /// Returns the tailnet settings, fresh-parsed on every call — the F9
+    /// poll is 30s apart and the file is tiny, so re-reading keeps a
+    /// hand-edited `[tailnet] default_user` live without an app restart
+    /// (the Settings window only lands in Phase 8). The launch-time cache
+    /// stays untouched for the reachability path, which snapshots its
+    /// config when the prober starts.
     ///
     /// A missing file — or a file without a `[tailnet]` table — is the
     /// defaults, not an error.
@@ -148,11 +153,7 @@ impl SettingsStore {
     ///
     /// Fails when the file exists but cannot be read or parsed.
     pub fn tailnet(&self) -> Result<TailnetSettings, String> {
-        let mut cache = self.cache.lock().expect("settings cache poisoned");
-        if cache.is_none() {
-            *cache = Some(self.load()?);
-        }
-        Ok(cache.as_ref().expect("loaded above").tailnet.clone())
+        Ok(self.load()?.tailnet)
     }
 
     /// Reads and parses the file; a missing file is the default document.

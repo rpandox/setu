@@ -42,6 +42,12 @@ one entry.
   promotes a peer into `hosts.toml`, "Ping to wake" warms the path, and
   peers rank in ⌘T quick-connect. Section hides without the binary
   ([docs](docs/features/F09-tailscale.md)).
+- Custom form controls (§7): dropdowns, checkboxes, and radio buttons
+  are now drawn by the app (`Checkbox`/`Radio`/`Select` in
+  `src/components/controls.tsx`) — no native OS widget breaks the
+  Phosphor chrome. The select is a keyboard-first ARIA combobox
+  (arrows, Enter, Escape, type-ahead); checkbox and radio keep a real
+  hidden input so labels and screen readers work unchanged.
 
 ### Added — Phase 6: snippets & port forwards
 

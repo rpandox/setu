@@ -42,40 +42,14 @@ body {
   background: var(--line-strong);
 }
 
-/* Form controls are drawn by the app, never the OS. Checkboxes: a quiet
-   token box; checked flips to the neon/neon-ink pairing the primary
-   buttons use. The focus ring comes from the global :focus-visible. */
-input[type="checkbox"] {
-  appearance: none;
-  display: inline-grid;
-  place-content: center;
-  width: 14px;
-  height: 14px;
-  flex: none;
-  background: var(--bg-1);
-  border: 1px solid var(--line-strong);
-  border-radius: calc(var(--r-1) / 2);
-  cursor: pointer;
-  transition:
-    background var(--t-fast),
-    border-color var(--t-fast);
-}
-
-input[type="checkbox"]:hover {
-  border-color: var(--ink-3);
-}
-
-input[type="checkbox"]:checked {
-  background: var(--neon);
-  border-color: var(--neon);
-}
-
-input[type="checkbox"]:checked::after {
-  content: "";
-  width: 8px;
-  height: 8px;
-  background: var(--neon-ink);
-  clip-path: polygon(14% 44%, 0 65%, 40% 100%, 100% 16%, 80% 0%, 38% 62%);
+/* Form controls are drawn by the app, never the OS — see the Checkbox,
+   Radio, and Select components in src/components/controls.tsx, which own
+   all form-control painting (controls.css). Number inputs edit as plain
+   text: the OS stepper arrows are hidden here for the same reason. */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }
 
 /* Scrollbars are part of the instrument: a quiet token-drawn thumb on a

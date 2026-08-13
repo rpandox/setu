@@ -24,7 +24,10 @@ the remote and UDP 60000–61000 open. If mosh isn't installed locally, a
 connect says so plainly (`brew install mosh`) and **nothing opens** —
 Setu never silently falls back to ssh, because a session that claims to
 be roaming-proof had better be one. Mosh sessions never use
-ControlMaster (Phase 11) — mosh has its own transport.
+ControlMaster (Phase 11) — mosh has its own transport. One locale quirk
+is handled for you: macOS hands GUI apps the bare `LC_CTYPE=UTF-8`,
+which a Linux server reads as US-ASCII and `mosh-server` then refuses
+to start — Setu rewrites it to the full `en_US.UTF-8` before spawning.
 
 ## How do I use it?
 

@@ -328,6 +328,8 @@ history rows `ts, host_id, cwd, cmd, exit, duration_ms, session_id`.
 | Mosh preflight (Phase 7 kickoff) | **Editor-time inline hint + connect-time toast when the binary is missing; no silent fallback to ssh** | A mosh toggle that silently opens ssh sessions lies about what's running; explicit failure with a `brew install mosh` hint is honest and one click from fixed | Offer an explicit "connect with ssh instead" toast action if users ask for it |
 | Tailnet resolution (Phase 7 kickoff) | **Peers get `ts:{stableId}` host ids resolved by a fresh `tailscale status --json` at spawn time** (the `sshcfg:` mirror); the default tailnet user rides inside the `tailscale_peers` result; F9's "hint in settings" line waits for the Phase 8 Settings window | Stateless fresh-parse has no cache to invalidate and spawns are rare; embedding the setting avoids a one-field settings IPC a phase early | Cache peers Rust-side if `status --json` latency ever bothers spawn; `settings_get` lands with Phase 8 anyway |
 | Vault export deps (Phase 7 kickoff) | **`age` + `tar` crates join §11** for the F8 vault export (passphrase/scrypt recipient, `.tar.age` output); secrets excluded unless the second explicit toggle walks known Keychain accounts into the encrypted tarball | F8 mandates an age-encrypted tarball; the `age` binary isn't in §11's system-tools list and a pure-Rust path avoids a runtime dependency | Shell out to a user-installed `age` binary if the crate ever blocks an upgrade |
+| Custom form controls (Phase 7 review) | **All form controls are app-drawn**: `Checkbox`/`Radio`/`Select` components (`src/components/controls.tsx`) replace every native `<select>`, checkbox, and radio; the select is an ARIA combobox with a listbox popover, checkbox/radio keep a hidden real input for a11y. The global `input[type="checkbox"]` styling moved out of base.css into the components | Live review of the Phase 7 GUI walk showed stock macOS selects (host picker, forward kind, snippet choices) and radios breaking the Phosphor chrome; §7 already required OS-free form controls and base.css only covered checkboxes | Adopt a headless-UI library if the select's edge cases (virtualized lists, grouped options) ever outgrow the hand-rolled combobox |
+| Live-walk fixes (Phase 7 review) | **Two findings from the acceptance walk**: (1) `apply_terminal_env` rewrites macOS's bare-charset `LC_CTYPE=UTF-8` to the full `en_US.UTF-8` — Linux resolves the bare form to US-ASCII and `mosh-server` refuses to start; (2) `SettingsStore::tailnet()` fresh-parses settings.toml on every call instead of caching at first read, so `[tailnet] default_user` applies within one poll — no restart, no Settings window needed | Both broke the F3/F9 acceptance items live: mosh died with a locale error against a real Ubuntu host, and a hand-edited default_user kept falling back to `$USER` because the launch-time cache never saw the file | Revisit if a future settings write-path needs the cache back — an mtime check beats "cache forever" |
 
 ---
 
@@ -502,7 +504,9 @@ TabBar/Tab, TerminalPane, SplitContainer, StatusBar, CommandPalette (⌘K, also
 powers quick-connect ⌘T), SnippetDrawer, SftpPanel (dual-pane + transfer queue),
 ForwardsPopover, HostEditor (right drawer), KeysPanel (right panel: agent list,
 generate, copy-id, vault export — Phase 7), Settings (window), Toast, ConfirmDialog,
-FingerprintDialog, BroadcastBar (red hairline on broadcasting panes + status badge).
+FingerprintDialog, BroadcastBar (red hairline on broadcasting panes + status badge),
+Checkbox/Radio/Select (custom-drawn form controls, `src/components/controls.tsx` —
+no native OS widget appears in the chrome; Phase 7).
 Advanced: PromptGutter (✓ `--ok` / ✗ `--err` ticks + duration on hover),
 HistorySearch (palette section), HealthSparkline + HostHealthPopover (mem/disk
 gauges), TriggerEditor, RunbookRunner (step list with live per-step status),

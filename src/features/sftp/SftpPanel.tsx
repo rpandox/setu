@@ -13,6 +13,7 @@ import "./SftpPanel.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef } from "react";
 
+import { Checkbox } from "../../components/controls";
 import { onOsFileDrop } from "../../ipc/client";
 import { useHosts } from "../../state/hosts";
 import { useSftp } from "../../state/sftp";
@@ -112,11 +113,7 @@ export function SftpPanel() {
         </h2>
         <div className="sftp-panel-tools">
           <label className="sftp-panel-hidden">
-            <input
-              type="checkbox"
-              checked={showHidden}
-              onChange={() => store.toggleHidden()}
-            />
+            <Checkbox checked={showHidden} onChange={() => store.toggleHidden()} />
             Hidden files
           </label>
           {duckUrl !== null && (
