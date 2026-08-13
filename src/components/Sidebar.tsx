@@ -7,6 +7,7 @@ import { sidebarSections, sshCommandOf, useHosts } from "../state/hosts";
 import { ledInfoOf, useReach } from "../state/reach";
 import { useSessions } from "../state/sessions";
 import { splitPeersAgainstHosts, useTailnet } from "../state/tailnet";
+import { useToast } from "../state/toast";
 import { useUiPrefs } from "../state/uiState";
 import { HostLed, ReachChip } from "./HostLed";
 import { SelectionBar } from "./SelectionBar";
@@ -143,7 +144,12 @@ export function Sidebar({ collapsed }: SidebarProps) {
       clearSelection();
       return;
     }
-    void openSshTab(host);
+    // A rejected spawn (host gone, tailnet down, ssh missing) toasts
+    // instead of dying as an unhandled rejection; a blocked mosh
+    // preflight already toasted and resolves null.
+    openSshTab(host).catch((error: unknown) => {
+      useToast.getState().show(String(error), "error");
+    });
   };
 
   const toggleSection = (key: string): void => {

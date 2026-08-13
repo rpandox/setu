@@ -11,6 +11,7 @@ import type { TailscalePeer } from "../ipc/contract";
 import { useHosts } from "../state/hosts";
 import { useSessions } from "../state/sessions";
 import { peerAsHost, peerLedInfo, peerOfflineLabel, useTailnet } from "../state/tailnet";
+import { useToast } from "../state/toast";
 import { HostLed } from "./HostLed";
 
 /** Props for {@link TailnetSection}. */
@@ -89,7 +90,13 @@ export function TailnetSection({ peers, query }: TailnetSectionProps) {
                     ? `Connect: ssh ${defaultUser}@${peer.dnsName}`
                     : peerOfflineLabel(peer.lastSeen)
                 }
-                onClick={() => void openSshTab(peerAsHost(peer, defaultUser))}
+                onClick={() =>
+                  // A gone/offline peer rejects at resolve time — toast it
+                  // (a blocked mosh preflight resolves null and has toasted).
+                  openSshTab(peerAsHost(peer, defaultUser)).catch((error: unknown) => {
+                    useToast.getState().show(String(error), "error");
+                  })
+                }
               >
                 <HostLed led={led} />
                 <span className="host-label">{peer.hostName}</span>

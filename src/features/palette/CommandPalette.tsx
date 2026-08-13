@@ -13,6 +13,7 @@ import {
   splitPeersAgainstHosts,
   useTailnet,
 } from "../../state/tailnet";
+import { useToast } from "../../state/toast";
 import { rankSnippets, useSnippets } from "../../state/snippets";
 import { findLeafBySession } from "../../state/splits";
 import { useSessions } from "../../state/sessions";
@@ -153,10 +154,22 @@ export function CommandPalette() {
   };
 
   const connectHost = (host: Host, alwaysNewTab: boolean): void => {
-    recordUse(hostSubject(host.id));
     closePalette();
-    if (!alwaysNewTab && focusExistingTab(host)) return;
-    void openSshTab(host);
+    if (!alwaysNewTab && focusExistingTab(host)) {
+      recordUse(hostSubject(host.id));
+      return;
+    }
+    // Frecency records only on a real spawn: a blocked mosh preflight
+    // returns null (Phase 7) and must not teach the ranking that the
+    // failed host is popular. Rejections (host gone, tailnet down) toast
+    // instead of dying as unhandled rejections.
+    openSshTab(host)
+      .then((sessionId) => {
+        if (sessionId !== null) recordUse(hostSubject(host.id));
+      })
+      .catch((error: unknown) => {
+        useToast.getState().show(String(error), "error");
+      });
   };
 
   const runItem = (item: PaletteItem, event?: { metaKey: boolean }): void => {
