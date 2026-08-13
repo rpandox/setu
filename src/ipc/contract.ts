@@ -841,6 +841,27 @@ export interface TailscalePeersResult {
   peers: TailscalePeer[];
 }
 
+/** Payload for `vault_export` (F8). */
+export interface VaultExportPayload {
+  /** Where the `.tar.age` file goes (from the save dialog). */
+  destPath: string;
+  /** The age passphrase. Crosses IPC once; never stored or logged. */
+  passphrase: string;
+  /**
+   * The second, explicit toggle (F8): bundle known Keychain entries as
+   * `keychain-secrets.toml` inside the encrypted tarball. Default-off.
+   */
+  includeSecrets: boolean;
+}
+
+/** Result of `vault_export`. */
+export interface VaultExportResult {
+  /** Size of the encrypted vault file, in bytes. */
+  bytes: number;
+  /** How many Keychain entries rode along (0 without the toggle). */
+  secretsIncluded: number;
+}
+
 /** Payload for `tailscale_ping` — F9's "ping to wake path". */
 export interface TailscalePingPayload {
   /** The peer's MagicDNS name. */
@@ -1003,6 +1024,11 @@ export interface IpcCommands {
   tailscale_peers: { payload: Record<string, never>; result: TailscalePeersResult };
   /** Warm the path to a dozing peer (`tailscale ping`) — toast the result. */
   tailscale_ping: { payload: TailscalePingPayload; result: TailscalePingResult };
+  /**
+   * Export `~/.config/setu` as an age-encrypted tarball (F8). Secrets
+   * stay out unless the explicit `includeSecrets` toggle is on.
+   */
+  vault_export: { payload: VaultExportPayload; result: VaultExportResult };
 }
 
 /**

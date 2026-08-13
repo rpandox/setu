@@ -32,7 +32,9 @@ use crate::sftp::{HostTarget, SftpEntry, SftpEvents, SftpManager};
 use crate::snippets::{ImportOutcome, Snippet, SnippetUpsertOutcome, SnippetsStore};
 use crate::store::{FieldError, Forward, Host, HostSource, HostsStore, UpsertOutcome};
 use crate::ui_state::{UiState, UiStateStore};
-use crate::{agent, binaries, connect, keychain, keygen, reach, sftp, ssh_config, tailscale};
+use crate::{
+    agent, binaries, connect, keychain, keygen, reach, sftp, ssh_config, tailscale, vault,
+};
 
 /// What kind of process a PTY session drives (mirrors `PtyKind` in
 /// `contract.ts`).
@@ -1768,6 +1770,98 @@ pub async fn tailscale_ping(target: String) -> Result<TailscalePingResult, Strin
     Ok(TailscalePingResult {
         ok: output.status.success(),
         summary,
+    })
+}
+
+/// Result of [`vault_export`] (mirrors `VaultExportResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultExportResult {
+    /// Size of the encrypted vault file, in bytes.
+    pub bytes: u64,
+    /// How many Keychain entries rode along (0 unless the explicit
+    /// include-secrets toggle was on).
+    pub secrets_included: usize,
+}
+
+/// Collects the known Keychain entries for an include-secrets export:
+/// every persisted host's SFTP password, plus the passphrase of every
+/// configured identity file. Only called behind the explicit toggle.
+fn collect_secret_entries(hosts: &HostsStore) -> Result<Vec<vault::SecretEntry>, String> {
+    let mut entries = Vec::new();
+    let mut seen_paths = std::collections::BTreeSet::new();
+    for host in hosts.list()? {
+        let reference = keychain::SecretRef::Password {
+            host_id: host.id.clone(),
+        };
+        if let Some(secret) = keychain::get(&reference)? {
+            entries.push(vault::SecretEntry {
+                account: reference.account(),
+                secret,
+            });
+        }
+        let identity = host.identity.trim();
+        if identity != "agent" && !identity.is_empty() && seen_paths.insert(identity.to_string()) {
+            let reference = keychain::SecretRef::Passphrase {
+                key_path: identity.to_string(),
+            };
+            if let Some(secret) = keychain::get(&reference)? {
+                entries.push(vault::SecretEntry {
+                    account: reference.account(),
+                    secret,
+                });
+            }
+        }
+    }
+    Ok(entries)
+}
+
+/// Exports the config dir (`~/.config/setu`) as an age-encrypted tarball
+/// (F8): `age -d vault.tar.age | tar -x` restores it anywhere. Secrets
+/// are **excluded by default**; `includeSecrets` — the second, explicit
+/// toggle — bundles the known Keychain entries inside the encrypted
+/// stream as `keychain-secrets.toml`. The passphrase crosses IPC one way
+/// and is never stored or logged.
+///
+/// **Payload:** `{ destPath, passphrase, includeSecrets }` · **Result:**
+/// `{ bytes, secretsIncluded }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the passphrase is empty, the config dir doesn't exist, the
+/// Keychain refuses a read (include-secrets only), or any IO/encryption
+/// step fails — a partial destination file is removed.
+#[tauri::command]
+pub async fn vault_export(
+    hosts: State<'_, HostsStore>,
+    dest_path: String,
+    passphrase: String,
+    include_secrets: bool,
+) -> Result<VaultExportResult, String> {
+    let config_dir = dirs::home_dir()
+        .ok_or("cannot determine home directory")?
+        .join(".config/setu");
+    let secrets = if include_secrets {
+        Some(collect_secret_entries(&hosts)?)
+    } else {
+        None
+    };
+    let secrets_included = secrets.as_ref().map(Vec::len).unwrap_or(0);
+    // scrypt is deliberately slow — run the whole export off the async
+    // pool so a vault never stalls other commands.
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        vault::export(
+            &config_dir,
+            std::path::Path::new(&dest_path),
+            &passphrase,
+            secrets,
+        )
+    })
+    .await
+    .map_err(|e| format!("the export task died: {e}"))??;
+    Ok(VaultExportResult {
+        bytes,
+        secrets_included,
     })
 }
 

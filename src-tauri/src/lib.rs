@@ -19,6 +19,7 @@
 //! - [`snippets`] — plain-TOML persistence for snippets + packs (F6).
 //! - [`keychain`] — the Keychain doorway: SFTP passwords & key passphrases (F8).
 //! - [`keygen`] — `ssh-keygen` driven through a hidden PTY (F8).
+//! - [`vault`] — the age-encrypted config-dir export (F8).
 //! - [`agent`] — ssh-agent introspection via `ssh-add -l` (F8).
 //! - [`binaries`] — locating optional tools (mosh, tailscale, claude).
 //! - [`tailscale`] — the tailnet as a host source: peers, ping, adopt (F9).
@@ -43,6 +44,7 @@ pub mod ssh_config;
 pub mod store;
 pub mod tailscale;
 pub mod ui_state;
+pub mod vault;
 
 /// Builds and runs the Tauri application.
 ///
@@ -144,6 +146,7 @@ pub fn run() {
             ipc::binary_check,
             ipc::tailscale_peers,
             ipc::tailscale_ping,
+            ipc::vault_export,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

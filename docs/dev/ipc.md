@@ -630,6 +630,26 @@ execution; the frontend toasts the summary line.
 | Emits      | nothing                                                             |
 | Fails when | tailscale isn't installed, or the command can't run at all          |
 
+### `vault_export`
+
+Export `~/.config/setu` — hosts, snippets, settings, themes — as an
+age-encrypted tarball (F8). Pure-Rust age with a passphrase (scrypt)
+recipient; restore anywhere with `age -d setu-vault.tar.age | tar -x`.
+The `.git` directory (the Phase 8 sync spine) never rides along.
+
+**Secrets are excluded by default.** The `includeSecrets` toggle — the
+second, explicit consent step F8 requires — bundles the known Keychain
+entries (every persisted host's SFTP password, every configured identity
+file's passphrase) as `keychain-secrets.toml` _inside_ the encrypted
+stream. The passphrase crosses IPC once and is never stored or logged.
+
+|            |                                                                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ destPath: string, passphrase: string, includeSecrets: boolean }`                                                                |
+| Result     | `{ bytes: number, secretsIncluded: number }`                                                                                       |
+| Emits      | nothing                                                                                                                            |
+| Fails when | the passphrase is empty, the config dir is missing, a Keychain read is refused, or IO/encryption fails (partial files are removed) |
+
 ## Events
 
 ### `pty:data:{sessionId}`

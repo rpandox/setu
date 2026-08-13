@@ -296,3 +296,12 @@
   gap: calc(var(--pad) / 2);
   margin-top: calc(var(--pad) / 2);
 }
+
+.keyspanel-toggle {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}

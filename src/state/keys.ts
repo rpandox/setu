@@ -8,6 +8,7 @@
  * typed into a fresh pane exactly like a snippet run, never hidden.
  */
 
+import { save } from "@tauri-apps/plugin-dialog";
 import { create } from "zustand";
 
 import { ipcInvoke } from "../ipc/client";
@@ -102,6 +103,15 @@ export interface KeysState {
    * @param publicKeyPath - The `.pub` file to install.
    */
   runCopyId(host: Host, publicKeyPath: string): Promise<void>;
+  /**
+   * Exports the config dir as an age-encrypted vault: save dialog →
+   * `vault_export` → toast. The passphrase passes straight through.
+   *
+   * @param passphrase - The age passphrase (never kept here).
+   * @param includeSecrets - The explicit F8 secrets toggle.
+   * @returns `true` when a vault file was written.
+   */
+  exportVault(passphrase: string, includeSecrets: boolean): Promise<boolean>;
 }
 
 /** The Keys panel store hook. */
@@ -183,6 +193,35 @@ export const useKeys = create<KeysState>((set, get) => ({
       set({ panelOpen: false });
     } catch (error) {
       set({ keysError: String(error) });
+    }
+  },
+
+  async exportVault(passphrase: string, includeSecrets: boolean): Promise<boolean> {
+    set({ keysError: null });
+    const destPath = await save({
+      defaultPath: "setu-vault.tar.age",
+      filters: [{ name: "age-encrypted tar", extensions: ["age"] }],
+    });
+    if (destPath === null) return false;
+    try {
+      const { bytes, secretsIncluded } = await ipcInvoke("vault_export", {
+        destPath,
+        passphrase,
+        includeSecrets,
+      });
+      const size = bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`;
+      useToast
+        .getState()
+        .show(
+          includeSecrets
+            ? `Vault exported (${size}, ${secretsIncluded} Keychain entries)`
+            : `Vault exported (${size})`,
+          "success",
+        );
+      return true;
+    } catch (error) {
+      set({ keysError: String(error) });
+      return false;
     }
   },
 }));

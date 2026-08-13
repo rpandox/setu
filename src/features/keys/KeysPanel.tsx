@@ -35,6 +35,11 @@ export function KeysPanel() {
   const [comment, setComment] = useState("");
   const [copyIdHostId, setCopyIdHostId] = useState("");
   const [copyIdPath, setCopyIdPath] = useState("");
+  // Vault form (F8): the passphrase lives here only until export fires.
+  const [vaultPassphrase, setVaultPassphrase] = useState("");
+  const [vaultConfirm, setVaultConfirm] = useState("");
+  const [vaultSecrets, setVaultSecrets] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   if (!panelOpen) return null;
 
@@ -51,6 +56,22 @@ export function KeysPanel() {
   const submitGenerate = async (): Promise<void> => {
     const created = await store.generate(path.trim(), passphrase, comment.trim());
     if (created) setPassphrase("");
+  };
+
+  const vaultReady = vaultPassphrase !== "" && vaultPassphrase === vaultConfirm;
+
+  const submitVault = async (): Promise<void> => {
+    setExporting(true);
+    try {
+      const wrote = await store.exportVault(vaultPassphrase, vaultSecrets);
+      if (wrote) {
+        setVaultPassphrase("");
+        setVaultConfirm("");
+        setVaultSecrets(false);
+      }
+    } finally {
+      setExporting(false);
+    }
   };
 
   return (
@@ -238,6 +259,62 @@ export function KeysPanel() {
                 Run in terminal
               </button>
             </div>
+          </section>
+
+          <section aria-label="Vault export">
+            <span className="keyspanel-eyebrow">Vault</span>
+            <p className="keyspanel-hint">
+              Encrypted backup of ~/.config/setu (hosts, snippets, settings) as a{" "}
+              <code>.tar.age</code> file — restore anywhere with{" "}
+              <code>age -d vault.tar.age | tar -x</code>. Secrets stay out unless you say
+              otherwise.
+            </p>
+            <form
+              className="keyspanel-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (vaultReady && !exporting) void submitVault();
+              }}
+            >
+              <label className="keyspanel-field">
+                <span className="keyspanel-label">Vault passphrase</span>
+                <input
+                  className="keyspanel-input"
+                  type="password"
+                  value={vaultPassphrase}
+                  autoComplete="new-password"
+                  onChange={(event) => setVaultPassphrase(event.target.value)}
+                />
+              </label>
+              <label className="keyspanel-field">
+                <span className="keyspanel-label">Repeat passphrase</span>
+                <input
+                  className="keyspanel-input"
+                  type="password"
+                  value={vaultConfirm}
+                  autoComplete="new-password"
+                  onChange={(event) => setVaultConfirm(event.target.value)}
+                />
+                {vaultConfirm !== "" && vaultPassphrase !== vaultConfirm && (
+                  <span className="keyspanel-error">Passphrases don't match.</span>
+                )}
+              </label>
+              <label className="keyspanel-toggle">
+                <input
+                  type="checkbox"
+                  checked={vaultSecrets}
+                  onChange={(event) => setVaultSecrets(event.target.checked)}
+                />
+                Include Keychain secrets (passwords & passphrases) in the vault
+              </label>
+              <button
+                className="keyspanel-generate"
+                type="submit"
+                disabled={!vaultReady || exporting}
+              >
+                {exporting ? "Exporting…" : "Export vault…"}
+              </button>
+            </form>
           </section>
 
           <p className="keyspanel-footnote">

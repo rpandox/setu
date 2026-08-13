@@ -13,7 +13,11 @@ vi.mock("./sessions", () => ({
     getState: () => ({ openLocalTab: vi.fn().mockResolvedValue("sess-1") }),
   },
 }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  save: vi.fn(),
+}));
 
+import { save } from "@tauri-apps/plugin-dialog";
 import type { Host } from "../ipc/contract";
 import { ipcInvoke } from "../ipc/client";
 import { copyIdCommandOf, isHardwareKey, resetKeysForTests, useKeys } from "./keys";
@@ -50,6 +54,7 @@ function host(overrides: Partial<Host> = {}): Host {
 beforeEach(() => {
   resetKeysForTests();
   vi.mocked(ipcInvoke).mockReset();
+  vi.mocked(save).mockReset();
 });
 
 describe("isHardwareKey", () => {
@@ -129,5 +134,34 @@ describe("generate", () => {
       passphrase: undefined,
       comment: undefined,
     });
+  });
+});
+
+describe("exportVault", () => {
+  it("does nothing when the save dialog is cancelled", async () => {
+    vi.mocked(save).mockResolvedValueOnce(null);
+    const wrote = await useKeys.getState().exportVault("pw", false);
+    expect(wrote).toBe(false);
+    expect(vi.mocked(ipcInvoke)).not.toHaveBeenCalled();
+  });
+
+  it("passes the picked path and toggles through", async () => {
+    vi.mocked(save).mockResolvedValueOnce("/tmp/setu-vault.tar.age");
+    vi.mocked(ipcInvoke).mockResolvedValueOnce({ bytes: 4096, secretsIncluded: 2 });
+    const wrote = await useKeys.getState().exportVault("pw", true);
+    expect(wrote).toBe(true);
+    expect(vi.mocked(ipcInvoke)).toHaveBeenCalledWith("vault_export", {
+      destPath: "/tmp/setu-vault.tar.age",
+      passphrase: "pw",
+      includeSecrets: true,
+    });
+  });
+
+  it("surfaces export failures inline", async () => {
+    vi.mocked(save).mockResolvedValueOnce("/tmp/v.tar.age");
+    vi.mocked(ipcInvoke).mockRejectedValueOnce(new Error("disk full"));
+    const wrote = await useKeys.getState().exportVault("pw", false);
+    expect(wrote).toBe(false);
+    expect(useKeys.getState().keysError).toContain("disk full");
   });
 });
