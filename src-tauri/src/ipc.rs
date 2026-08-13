@@ -9,7 +9,8 @@
 //! `pty_spawn` to SSH sessions and adds the `hosts_*` family over the
 //! `hosts.toml` store and the `~/.ssh/config` import; Phase 4 adds the
 //! `reach_*` family driving the LED board; Phase 5 adds the `sftp_*` family
-//! (dual-pane browser + transfers) and `hostkey_trust`. This module also
+//! (dual-pane browser + transfers) and `hostkey_trust`; Phase 6 adds the
+//! `snippet_*` family over `snippets.toml` (CRUD + packs). This module also
 //! hosts the event bridges — [`TauriPtyEvents`] for `pty:data:{sessionId}` /
 //! `pty:exit:{sessionId}`, [`TauriReachEvents`] for `reach:update`, and
 //! [`TauriSftpEvents`] for `hostkey:prompt` / `sftp:progress:{transferId}` —
@@ -20,11 +21,13 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager as _, State};
 
+use crate::forwards::{ForwardEvents, ForwardManager, ForwardUpdate, StartOutcome};
 use crate::pty::{PtyEvents, PtyManager};
 use crate::reach::{ProbeTarget, ReachEvents, ReachProber, ReachState, TargetSource};
 use crate::settings::SettingsStore;
 use crate::sftp::{HostTarget, SftpEntry, SftpEvents, SftpManager};
-use crate::store::{FieldError, Host, HostsStore, UpsertOutcome};
+use crate::snippets::{ImportOutcome, Snippet, SnippetUpsertOutcome, SnippetsStore};
+use crate::store::{FieldError, Forward, Host, HostsStore, UpsertOutcome};
 use crate::ui_state::{UiState, UiStateStore};
 use crate::{connect, reach, sftp, ssh_config};
 
@@ -260,6 +263,56 @@ impl SftpEvents for TauriSftpEvents {
                 state: "cancelled",
                 error: None,
                 retryable: None,
+            },
+        );
+    }
+}
+
+/// Payload of a `forward:update` event (mirrors `ForwardStatus` in
+/// `contract.ts`). One channel for all rules; the payload carries the rule
+/// key (PLAN.md §5, Phase 6 row — the `reach:update` precedent).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ForwardUpdatePayload {
+    /// The rule's registry key (`{hostId}:{kind}:{spec}`).
+    rule_key: String,
+    /// The owning host's id.
+    host_id: String,
+    /// `"starting"`, `"amber"`, `"green"`, or `"red"`.
+    state: &'static str,
+    /// Why the rule is red; red only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    /// The copyable SOCKS string for `D` rules.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    proxy_string: Option<String>,
+}
+
+/// [`ForwardEvents`] sink that forwards health transitions to the WebView
+/// as `forward:update` events. Constructed once at app setup and handed to
+/// the [`ForwardManager`].
+pub struct TauriForwardEvents {
+    /// Handle used to emit events to all windows.
+    app: AppHandle,
+}
+
+impl TauriForwardEvents {
+    /// Creates a sink emitting through `app`.
+    pub fn new(app: AppHandle) -> Self {
+        Self { app }
+    }
+}
+
+impl ForwardEvents for TauriForwardEvents {
+    fn on_update(&self, update: &ForwardUpdate) {
+        let _ = self.app.emit(
+            "forward:update",
+            ForwardUpdatePayload {
+                rule_key: update.rule_key.clone(),
+                host_id: update.host_id.clone(),
+                state: update.state.as_str(),
+                reason: update.reason.clone(),
+                proxy_string: update.proxy.clone(),
             },
         );
     }
@@ -533,6 +586,243 @@ pub fn host_adopt(hosts: State<'_, HostsStore>, host_id: String) -> Result<Host,
             .map(|e| format!("{}: {}", e.field, e.message))
             .unwrap_or_else(|| "validation failed".to_string())),
     }
+}
+
+/// Result of [`snippet_upsert`] (mirrors `SnippetUpsertResult`): exactly one
+/// of `snippet` (saved) or `errors` (validation failed) is populated —
+/// validation failures are expected editor outcomes, not command errors.
+#[derive(Debug, Serialize)]
+pub struct SnippetUpsertResult {
+    /// The saved record (with its assigned id), when validation passed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<Snippet>,
+    /// Field-level validation failures, when it did not.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<FieldError>,
+}
+
+/// Lists every snippet in `snippets.toml`, in file order (F6).
+///
+/// **Payload:** none · **Result:** `Snippet[]` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when `snippets.toml` exists but cannot be read or parsed.
+#[tauri::command]
+pub fn snippet_list(snippets: State<'_, SnippetsStore>) -> Result<Vec<Snippet>, String> {
+    snippets.list()
+}
+
+/// Creates or updates a snippet in `snippets.toml` (empty `id` = create).
+///
+/// **Payload:** `{ snippet }` · **Result:** `{ snippet }` on success,
+/// `{ errors: [{field, message}] }` on validation failure · **Emits:**
+/// nothing.
+///
+/// Validation (F6): label and command non-empty; every `{{token}}` in the
+/// command declared in `variables` and vice versa; names
+/// `[A-Za-z_][A-Za-z0-9_]*` with no duplicates; `choices` non-empty; a
+/// `default` alongside `choices` must be one of them.
+///
+/// # Errors
+///
+/// Fails when the store cannot be read or written, or when a non-empty `id`
+/// matches no record. Validation failures are returned in the result, not
+/// as an error.
+#[tauri::command]
+pub fn snippet_upsert(
+    snippets: State<'_, SnippetsStore>,
+    snippet: Snippet,
+) -> Result<SnippetUpsertResult, String> {
+    Ok(match snippets.upsert(snippet)? {
+        SnippetUpsertOutcome::Saved(snippet) => SnippetUpsertResult {
+            snippet: Some(*snippet),
+            errors: Vec::new(),
+        },
+        SnippetUpsertOutcome::Invalid(errors) => SnippetUpsertResult {
+            snippet: None,
+            errors,
+        },
+    })
+}
+
+/// Deletes a snippet from `snippets.toml`. Unknown ids are a no-op.
+///
+/// **Payload:** `{ snippetId }` · **Result:** `null` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the store cannot be read or written.
+#[tauri::command]
+pub fn snippet_delete(
+    snippets: State<'_, SnippetsStore>,
+    snippet_id: String,
+) -> Result<(), String> {
+    snippets.delete(&snippet_id)
+}
+
+/// Imports a snippet pack from a file the user picked in the native open
+/// dialog — `[[snippet]]` TOML in the same shape as the store file.
+///
+/// **Payload:** `{ path, mergeStrategy: "replace" | "keep" }` ·
+/// **Result:** `{ imported, skipped }` · **Emits:** nothing.
+///
+/// The path comes from the dialog plugin, so it always carries explicit
+/// user consent; the core does the read (no fs plugin, no broad scopes).
+/// Merging is by id: `"replace"` overwrites an existing record, `"keep"`
+/// skips the incoming row. Pack rows without an id always import under a
+/// fresh UUID. The import is atomic — a pack with any invalid snippet
+/// imports nothing.
+///
+/// # Errors
+///
+/// Fails when the file cannot be read, the pack cannot be parsed, is
+/// empty, contains an invalid snippet (the message names it),
+/// `mergeStrategy` is unknown, or the store cannot be read or written.
+#[tauri::command]
+pub fn snippet_import(
+    snippets: State<'_, SnippetsStore>,
+    path: String,
+    merge_strategy: String,
+) -> Result<ImportOutcome, String> {
+    let replace = match merge_strategy.as_str() {
+        "replace" => true,
+        "keep" => false,
+        other => return Err(format!("unknown merge strategy: {other}")),
+    };
+    let toml_text =
+        std::fs::read_to_string(&path).map_err(|e| format!("failed to read {path}: {e}"))?;
+    snippets.import(&toml_text, replace)
+}
+
+/// Exports the given snippets as a pack file at a path the user picked in
+/// the native save dialog.
+///
+/// **Payload:** `{ ids, path }` · **Result:** `null` · **Emits:** nothing.
+///
+/// The path comes from the dialog plugin (explicit user consent); the core
+/// does the write. Packs hold commands and variables only — the schema has
+/// no secret fields.
+///
+/// # Errors
+///
+/// Fails when the store cannot be read or parsed, no id matches (there is
+/// nothing to export), or the file cannot be written. Unknown ids among
+/// valid ones are ignored.
+#[tauri::command]
+pub fn snippet_export(
+    snippets: State<'_, SnippetsStore>,
+    ids: Vec<String>,
+    path: String,
+) -> Result<(), String> {
+    let toml_text = snippets.export(&ids)?;
+    std::fs::write(&path, toml_text).map_err(|e| format!("failed to write {path}: {e}"))
+}
+
+/// The error half of [`ForwardStartResult`] (mirrors the `contract.ts`
+/// shape): an expected start failure with enough detail for the popover's
+/// conflict helper.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForwardStartError {
+    /// `"port_in_use"` or `"spawn_failed"`.
+    pub kind: &'static str,
+    /// Human-readable message (names the owning process when known).
+    pub message: String,
+    /// The next free local port, for the "Use N" one-shot retry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_port: Option<u16>,
+}
+
+/// Result of [`forward_start`] (mirrors `ForwardStartResult`): expected
+/// failures — port in use, spawn failure — ride the result, hosts-family
+/// style; only infrastructure errors reject the promise.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForwardStartResult {
+    /// Whether the child is (now) running.
+    pub started: bool,
+    /// The rule's registry key, when started.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_key: Option<String>,
+    /// The expected failure, when not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<ForwardStartError>,
+}
+
+/// Starts a forward rule's managed `ssh -N` child (F7).
+///
+/// **Payload:** `{ hostId, rule: { type, spec, auto } }` · **Result:**
+/// `{ started: true, ruleKey }` or `{ started: false, error: { kind,
+/// message, suggestedPort? } }` · **Emits:** `forward:update` transitions
+/// (`starting` → `amber` → `green`/`red`) until the child dies or is
+/// stopped.
+///
+/// `L`/`D` rules pre-flight their local bind port: a conflict names the
+/// owning process (`lsof`, 2 s budget) and suggests the next free port —
+/// the F7 conflict helper. Starting an already-running rule is a no-op
+/// reported as started. Children run in their own process group and die
+/// with the app (no orphans).
+///
+/// # Errors
+///
+/// Fails when the host id is unknown, the store can't be read, or the
+/// rule's spec is malformed (hand-edited `hosts.toml` — the editor
+/// validates on save). Port conflicts and spawn failures are result-side.
+#[tauri::command]
+pub async fn forward_start(
+    manager: State<'_, ForwardManager>,
+    hosts: State<'_, HostsStore>,
+    host_id: String,
+    rule: Forward,
+) -> Result<ForwardStartResult, String> {
+    let host = resolve_host(&hosts, &host_id)?;
+    Ok(match manager.start(&host, &rule).await? {
+        StartOutcome::Started { rule_key } | StartOutcome::AlreadyRunning { rule_key } => {
+            ForwardStartResult {
+                started: true,
+                rule_key: Some(rule_key),
+                error: None,
+            }
+        }
+        StartOutcome::PortInUse {
+            message,
+            suggested_port,
+        } => ForwardStartResult {
+            started: false,
+            rule_key: None,
+            error: Some(ForwardStartError {
+                kind: "port_in_use",
+                message,
+                suggested_port,
+            }),
+        },
+        StartOutcome::SpawnFailed { message } => ForwardStartResult {
+            started: false,
+            rule_key: None,
+            error: Some(ForwardStartError {
+                kind: "spawn_failed",
+                message,
+                suggested_port: None,
+            }),
+        },
+    })
+}
+
+/// Stops a forward rule: SIGTERMs its whole process group and ends its
+/// monitor. Unknown keys are a no-op (idempotent toggle-off).
+///
+/// **Payload:** `{ ruleKey }` · **Result:** `null` · **Emits:** nothing
+/// (the frontend drops the rule's status itself; a stop never races a
+/// red — the monitor goes quiet instead).
+///
+/// # Errors
+///
+/// Never fails.
+#[tauri::command]
+pub fn forward_stop(manager: State<'_, ForwardManager>, rule_key: String) -> Result<(), String> {
+    manager.stop(&rule_key);
+    Ok(())
 }
 
 /// Returns the device-local UI state from `state.json` (PLAN.md §4).

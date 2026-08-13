@@ -34,6 +34,16 @@ export function actionSubject(actionId: string): string {
   return `action:${actionId}`;
 }
 
+/**
+ * Frecency subject for a snippet (F6 palette section).
+ *
+ * @param snippetId - The snippet's id.
+ * @returns The `snippet:<id>` subject key.
+ */
+export function snippetSubject(snippetId: string): string {
+  return `snippet:${snippetId}`;
+}
+
 /** Score half-life: one idle week halves a subject's weight. */
 const HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000;
 

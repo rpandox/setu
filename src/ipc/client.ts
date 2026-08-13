@@ -9,6 +9,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type {
+  ForwardStatus,
   HostkeyPromptEvent,
   IpcCommands,
   PtyExitEvent,
@@ -120,6 +121,22 @@ export function onSftpProgress(
 ): Promise<UnlistenFn> {
   return listen<SftpProgressEvent>(`sftp:progress:${transferId}`, (event) => {
     onProgress(event.payload);
+  });
+}
+
+/**
+ * Subscribes to `forward:update` — one health transition per event, every
+ * forward rule on the one channel (F7). Wired once at app start by the
+ * forwards store; the payload's `ruleKey` routes it.
+ *
+ * @param onUpdate - Called with each transition, in arrival order.
+ * @returns A promise resolving to the unlisten function.
+ */
+export function onForwardUpdate(
+  onUpdate: (status: ForwardStatus) => void,
+): Promise<UnlistenFn> {
+  return listen<ForwardStatus>("forward:update", (event) => {
+    onUpdate(event.payload);
   });
 }
 

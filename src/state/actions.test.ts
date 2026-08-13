@@ -78,6 +78,7 @@ describe("actionRegistry", () => {
       "toggle-broadcast", // ⇧⌘B
       "find-in-terminal", // ⇧⌘F
       "toggle-sftp", // ⇧⌘S (Phase 5)
+      "toggle-snippet-drawer", // ⌘J (Phase 6)
       "toggle-sidebar", // ⌘/
     ];
     const ids = actionRegistry().map((a) => a.id);

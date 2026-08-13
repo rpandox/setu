@@ -204,6 +204,157 @@ export interface HostIdPayload {
 }
 
 /**
+ * One `{{var}}` declaration on a snippet (F6). `default` pre-fills the run
+ * prompt; `choices` turns it into a select (a `default` alongside `choices`
+ * must be one of them).
+ */
+export interface SnippetVariable {
+  /** The token name as it appears inside `{{…}}` — `[A-Za-z_][A-Za-z0-9_]*`. */
+  name: string;
+  /** Pre-filled value for the run prompt; absent means an empty input. */
+  default?: string;
+  /** Fixed values rendered as a select instead of a free text input. */
+  choices?: string[];
+}
+
+/**
+ * One snippet record — the PLAN.md §4 `[[snippet]]` schema, mirrored
+ * verbatim from `snippets.toml` on both sides of IPC (like {@link Host}).
+ */
+export interface Snippet {
+  /** Stable UUID. Empty on a create draft. */
+  id: string;
+  /** Display label, the row's identity in the drawer and palette. */
+  label: string;
+  /** The command template; may contain `{{var}}` tokens. */
+  command: string;
+  /** Free-form tag chips (searchable in the drawer and palette). */
+  tags: string[];
+  /** Variable declarations — one per distinct `{{var}}` token. */
+  variables: SnippetVariable[];
+}
+
+/** One field-level validation failure from `snippet_upsert`. */
+export interface SnippetFieldError {
+  /** The {@link Snippet} field the message belongs to, e.g. `"command"`. */
+  field: string;
+  /** Human-readable problem statement, shown inline in the SnippetDrawer. */
+  message: string;
+}
+
+/** Payload for `snippet_upsert`: the full record (empty `id` = create). */
+export interface SnippetUpsertPayload {
+  /** The draft to validate and save. */
+  snippet: Snippet;
+}
+
+/**
+ * Result of `snippet_upsert` — exactly one side is present: `snippet` when
+ * the draft was saved, `errors` when validation rejected it (an expected
+ * editor outcome, not a command failure).
+ */
+export interface SnippetUpsertResult {
+  /** The saved record, with its assigned id. */
+  snippet?: Snippet;
+  /** Field-level validation failures. */
+  errors?: SnippetFieldError[];
+}
+
+/** Payload for `snippet_delete`. */
+export interface SnippetDeletePayload {
+  /** The snippet to delete (`Snippet.id`). Unknown ids are a no-op. */
+  snippetId: string;
+}
+
+/**
+ * Payload for `snippet_import` — the pack file's path from the native open
+ * dialog (explicit user consent; the Rust core does the read). Merging is
+ * by id: `"replace"` overwrites an existing record, `"keep"` skips the
+ * incoming row; pack rows without an id always import under a fresh UUID.
+ */
+export interface SnippetImportPayload {
+  /** Absolute path of the pack file (`[[snippet]]` TOML). */
+  path: string;
+  /** What to do when an incoming id already exists. */
+  mergeStrategy: "replace" | "keep";
+}
+
+/** Result of `snippet_import`. */
+export interface SnippetImportResult {
+  /** Rows written (created or overwritten, per the merge strategy). */
+  imported: number;
+  /** Rows skipped because their id already existed (strategy `"keep"`). */
+  skipped: number;
+}
+
+/** Payload for `snippet_export`. */
+export interface SnippetExportPayload {
+  /** The snippets to export (`Snippet.id`s); unknown ids are ignored. */
+  ids: string[];
+  /** Where to write the pack — from the native save dialog. */
+  path: string;
+}
+
+/** A forward rule's health, as reported over `forward:update` (F7). */
+export type ForwardHealthState = "starting" | "amber" | "green" | "red";
+
+/**
+ * Payload of a `forward:update` event — one health transition for one
+ * rule. All rules share the channel; the payload carries the rule key
+ * (PLAN.md §5, the `reach:update` precedent).
+ */
+export interface ForwardStatus {
+  /** The rule's registry key: `{hostId}:{type}:{spec}`. */
+  ruleKey: string;
+  /** The owning host's id. */
+  hostId: string;
+  /** Current health. */
+  state: ForwardHealthState;
+  /** Why the rule is red (exit status + stderr tail); red only. */
+  reason?: string;
+  /** The copyable SOCKS string for `D` rules, e.g. `socks5://localhost:1080`. */
+  proxyString?: string;
+}
+
+/** Payload for `forward_start`. */
+export interface ForwardStartPayload {
+  /** The owning host (`Host.id`, `sshcfg:` ids included). */
+  hostId: string;
+  /** The rule to start (usually one of `Host.forwards`). */
+  rule: HostForward;
+}
+
+/** The expected-failure half of {@link ForwardStartResult}. */
+export interface ForwardStartError {
+  /** What went wrong. */
+  kind: "port_in_use" | "spawn_failed";
+  /** Human-readable message (names the owning process when known). */
+  message: string;
+  /** The next free local port, for the "Use N" one-shot retry. */
+  suggestedPort?: number;
+}
+
+/**
+ * Result of `forward_start` — expected failures (port in use, spawn
+ * failure) ride the result, hosts-family style; only infrastructure
+ * errors reject the promise.
+ */
+export interface ForwardStartResult {
+  /** Whether the child is (now) running. */
+  started: boolean;
+  /** The rule's registry key, when started. */
+  ruleKey?: string;
+  /** The expected failure, when not. */
+  error?: ForwardStartError;
+}
+
+/** Payload for `forward_stop`. */
+export interface ForwardStopPayload {
+  /** The rule to stop. Unknown keys are a no-op (idempotent toggle-off). */
+  ruleKey: string;
+}
+
+/**
  * A node in a saved split tree (`state.json`, F4 session restore).
  *
  * Leaves carry a connection target, not live session ids: `hostId` names a
@@ -524,7 +675,8 @@ export interface SftpProgressEvent {
  * Phase 3 adds the `ui_state_*` pair over `state.json`; Phase 4 adds the
  * `reach_*` family driving the LED board; Phase 5 adds the `sftp_*` family
  * (dual-pane browser + transfers) and the `hostkey_trust` half of the
- * fingerprint trust flow.
+ * fingerprint trust flow; Phase 6 adds the `snippet_*` family over
+ * `snippets.toml` (CRUD + TOML packs).
  */
 export interface IpcCommands {
   /** Spawn a new PTY session — a local login shell or `ssh` to a host. */
@@ -547,6 +699,27 @@ export interface IpcCommands {
   host_delete: { payload: HostIdPayload; result: null };
   /** Copy an `sshcfg:` row into `hosts.toml` as an editable record. */
   host_adopt: { payload: HostIdPayload; result: Host };
+  /** List every snippet in `snippets.toml`, in file order (F6). */
+  snippet_list: { payload: Record<string, never>; result: Snippet[] };
+  /** Create (empty `id`) or update a snippet; validates before writing. */
+  snippet_upsert: { payload: SnippetUpsertPayload; result: SnippetUpsertResult };
+  /** Delete a snippet. Unknown ids are a no-op. */
+  snippet_delete: { payload: SnippetDeletePayload; result: null };
+  /**
+   * Import a snippet pack from a picked file, merging by id per
+   * `mergeStrategy`. Atomic: a pack with any invalid snippet imports nothing.
+   */
+  snippet_import: { payload: SnippetImportPayload; result: SnippetImportResult };
+  /** Export snippets as a pack file at a picked path, in store order. */
+  snippet_export: { payload: SnippetExportPayload; result: null };
+  /**
+   * Start a forward rule's managed `ssh -N` child (F7). `L`/`D` rules
+   * pre-flight their local port — a conflict comes back result-side with
+   * the owning process and the next free port.
+   */
+  forward_start: { payload: ForwardStartPayload; result: ForwardStartResult };
+  /** Stop a rule: SIGTERM its process group. Unknown keys are a no-op. */
+  forward_stop: { payload: ForwardStopPayload; result: null };
   /**
    * Start (or refresh) the reachability prober: the first call spawns the
    * sweep loop and probes immediately; later calls trigger a fresh sweep
@@ -624,6 +797,8 @@ export interface IpcCommands {
  *   verdict; one channel, the payload carries the host id (F5).
  * - `sftp:progress:{transferId}` — throttled transfer progress, closed by
  *   exactly one terminal `done`/`failed`/`cancelled` event (F5).
+ * - `forward:update` — one health transition per event, every rule on the
+ *   one channel (the payload carries the rule key; F7).
  */
 export interface IpcEvents {
   [channel: `pty:data:${string}`]: string;
@@ -631,4 +806,5 @@ export interface IpcEvents {
   [channel: `sftp:progress:${string}`]: SftpProgressEvent;
   "reach:update": ReachUpdate;
   "hostkey:prompt": HostkeyPromptEvent;
+  "forward:update": ForwardStatus;
 }

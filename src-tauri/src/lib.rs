@@ -12,20 +12,24 @@
 //! - [`ui_state`] — device-local `state.json`: layout restore + UI prefs (F4).
 //! - [`ssh_config`] — the small `~/.ssh/config` reader behind the F1 import.
 //! - [`connect`] — the `Host` → `ssh` argv spawn pipeline (F3).
+//! - [`forwards`] — managed `ssh -N` port-forward children (F7).
 //! - [`reach`] — the TCP reachability prober behind the LED board (F1).
 //! - [`known_hosts`] — host-key verification for the in-app SFTP client (F5).
 //! - [`sftp`] — the in-app SFTP client: connections, trust flow, sessions (F5).
+//! - [`snippets`] — plain-TOML persistence for snippets + packs (F6).
 //! - [`ipc`] — the Tauri command surface, mirrored by `src/ipc/contract.ts`.
 
 #![deny(missing_docs)]
 
 pub mod connect;
+pub mod forwards;
 pub mod ipc;
 pub mod known_hosts;
 pub mod pty;
 pub mod reach;
 pub mod settings;
 pub mod sftp;
+pub mod snippets;
 pub mod ssh_config;
 pub mod store;
 pub mod ui_state;
@@ -49,6 +53,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // The standard macOS menu: without it the app has no ⌘Q, which
             // would leave users no way to reach the kill-all exit path.
@@ -56,6 +61,9 @@ pub fn run() {
             let events = Arc::new(ipc::TauriPtyEvents::new(app.handle().clone()));
             app.manage(pty::PtyManager::new(events));
             app.manage(store::HostsStore::new(store::HostsStore::default_path()?));
+            app.manage(snippets::SnippetsStore::new(
+                snippets::SnippetsStore::default_path()?,
+            ));
             app.manage(settings::SettingsStore::new(
                 settings::SettingsStore::default_path()?,
             ));
@@ -73,6 +81,9 @@ pub fn run() {
             app.manage(sftp::SftpManager::new(Arc::new(ipc::TauriSftpEvents::new(
                 app.handle().clone(),
             ))));
+            app.manage(forwards::ForwardManager::new(Arc::new(
+                ipc::TauriForwardEvents::new(app.handle().clone()),
+            )));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -84,6 +95,13 @@ pub fn run() {
             ipc::host_upsert,
             ipc::host_delete,
             ipc::host_adopt,
+            ipc::snippet_list,
+            ipc::snippet_upsert,
+            ipc::snippet_delete,
+            ipc::snippet_import,
+            ipc::snippet_export,
+            ipc::forward_start,
+            ipc::forward_stop,
             ipc::reach_start,
             ipc::reach_stop,
             ipc::reach_set_visible,
@@ -119,6 +137,9 @@ pub fn run() {
             ) {
                 app.state::<pty::PtyManager>().kill_all();
                 app.state::<reach::ReachProber>().stop();
+                // Forward children die with the app — process-group SIGTERM,
+                // no orphans in `ps` (F7 acceptance).
+                app.state::<forwards::ForwardManager>().kill_all();
                 // SFTP teardown is async (protocol goodbyes); block briefly
                 // so no connection or transfer outlives the app.
                 tauri::async_runtime::block_on(app.state::<sftp::SftpManager>().kill_all());

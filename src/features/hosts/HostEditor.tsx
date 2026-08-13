@@ -1,11 +1,15 @@
 import "./HostEditor.css";
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
-import type { Host, HostFieldError } from "../../ipc/contract";
+import type { Host, HostFieldError, HostForward } from "../../ipc/contract";
+import { ruleKeyOf, useForwards } from "../../state/forwards";
 import { duplicatesOf, emptyHostDraft, useHosts } from "../../state/hosts";
 
 /** The 8 identity hues (§7) — indices into the `--hue-N` tokens. */
 const HUES = [0, 1, 2, 3, 4, 5, 6, 7] as const;
+
+/** The three forward kinds, for the rule editor's select (F7). */
+const FORWARD_KINDS: HostForward["type"][] = ["L", "R", "D"];
 
 /**
  * The HostEditor drawer (F1): create or edit a `hosts.toml` record with
@@ -14,6 +18,11 @@ const HUES = [0, 1, 2, 3, 4, 5, 6, 7] as const;
  * save — including identity-path existence — and its field errors land on
  * the same inputs. A duplicate `user@hostname:port` shows a non-blocking
  * warning (F1: warn, don't forbid).
+ *
+ * The forwards section (F7, Phase 6) edits the host's rules — kind, spec,
+ * auto-start — with one lockout: a rule whose child is running must be
+ * toggled off before it can be edited or removed (its key would silently
+ * detach from the live tunnel otherwise).
  *
  * Rendered only while `useHosts.editorTarget` is set; Esc or ✕ closes
  * without saving.
@@ -25,6 +34,7 @@ export function HostEditor() {
   const hosts = useHosts((s) => s.hosts);
   const closeEditor = useHosts((s) => s.closeEditor);
   const saveHost = useHosts((s) => s.saveHost);
+  const liveForwards = useForwards((s) => s.byRuleKey);
 
   const original = useMemo(() => {
     if (editorTarget === null || editorTarget === "new") return emptyHostDraft();
@@ -54,6 +64,25 @@ export function HostEditor() {
 
   const patch = (changes: Partial<Host>): void =>
     setDraft((previous) => ({ ...previous, ...changes }));
+
+  const patchForward = (index: number, changes: Partial<HostForward>): void =>
+    patch({
+      forwards: draft.forwards.map((rule, i) =>
+        i === index ? { ...rule, ...changes } : rule,
+      ),
+    });
+
+  /**
+   * Whether a rule's child is running right now — editing it is locked
+   * until it's toggled off (F7 edge case, enforced in the UI).
+   *
+   * @param rule - The rule row.
+   */
+  const forwardLocked = (rule: HostForward): boolean => {
+    if (draft.id === "") return false;
+    const status = liveForwards[ruleKeyOf(draft.id, rule)];
+    return status !== undefined && status.state !== "red";
+  };
 
   const addTag = (): void => {
     const tag = tagInput.trim();
@@ -260,6 +289,90 @@ export function HostEditor() {
               onChange={(event) => patch({ startup: event.target.value })}
             />
           </label>
+
+          <div className="hosteditor-field">
+            <span className="hosteditor-label" id="hosteditor-forwards-label">
+              Port forwards
+            </span>
+            <div aria-labelledby="hosteditor-forwards-label">
+              {draft.forwards.map((rule, index) => {
+                const locked = forwardLocked(rule);
+                return (
+                  <div
+                    className="hosteditor-forward"
+                    key={index}
+                    title={locked ? "Toggle the forward off first to edit it" : undefined}
+                  >
+                    <select
+                      className="hosteditor-input hosteditor-forward-kind"
+                      value={rule.type}
+                      disabled={locked}
+                      aria-label={`Forward ${index + 1} type`}
+                      onChange={(event) =>
+                        patchForward(index, {
+                          type: event.target.value as HostForward["type"],
+                        })
+                      }
+                    >
+                      {FORWARD_KINDS.map((kind) => (
+                        <option key={kind} value={kind}>
+                          {kind}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      className="hosteditor-input hosteditor-input--mono hosteditor-forward-spec"
+                      value={rule.spec}
+                      disabled={locked}
+                      placeholder={rule.type === "D" ? "1080" : "8080:localhost:8080"}
+                      aria-label={`Forward ${index + 1} spec`}
+                      onChange={(event) =>
+                        patchForward(index, { spec: event.target.value })
+                      }
+                    />
+                    <label className="hosteditor-forward-auto">
+                      <input
+                        type="checkbox"
+                        checked={rule.auto}
+                        disabled={locked}
+                        onChange={(event) =>
+                          patchForward(index, { auto: event.target.checked })
+                        }
+                      />
+                      auto
+                    </label>
+                    <button
+                      className="hosteditor-forward-remove"
+                      type="button"
+                      disabled={locked}
+                      aria-label={`Remove forward ${index + 1}`}
+                      onClick={() =>
+                        patch({
+                          forwards: draft.forwards.filter((_, i) => i !== index),
+                        })
+                      }
+                    >
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            <button
+              className="hosteditor-forward-add"
+              type="button"
+              onClick={() =>
+                patch({
+                  forwards: [...draft.forwards, { type: "L", spec: "", auto: false }],
+                })
+              }
+            >
+              Add forward
+            </button>
+            {errorFor("forwards") && (
+              <span className="hosteditor-fielderror">{errorFor("forwards")}</span>
+            )}
+          </div>
 
           <label className="hosteditor-field">
             <span className="hosteditor-label">Notes</span>

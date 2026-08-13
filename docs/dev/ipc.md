@@ -133,6 +133,106 @@ exactly what ssh would have resolved.
 | Emits      | nothing                                                                                                                                       |
 | Fails when | the id isn't `sshcfg:`, the alias no longer exists in the config, the copy fails validation (e.g. missing `IdentityFile`), or the write fails |
 
+### `snippet_list`
+
+List every snippet in `snippets.toml` (F6), in file order — which is also
+drawer order. A missing file is an empty list.
+
+|            |                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------- |
+| Payload    | none                                                                                  |
+| Result     | `Snippet[]` (`{ id, label, command, tags, variables[{ name, default?, choices? }] }`) |
+| Emits      | nothing                                                                               |
+| Fails when | `snippets.toml` exists but can't be read or parsed                                    |
+
+### `snippet_upsert`
+
+Create (empty `id`) or update a snippet. Validation: label and command
+non-empty; every `{{token}}` in the command is declared in `variables` and
+vice versa; variable names are `[A-Za-z_][A-Za-z0-9_]*` with no duplicates;
+a `choices` list is non-empty; a `default` alongside `choices` must be one
+of them. There is no `{{` escaping — a literal `{{` can't appear in a
+snippet command (PLAN.md §5).
+
+|            |                                                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ snippet: Snippet }`                                                                                                                |
+| Result     | `{ snippet }` on success · `{ errors: [{ field, message }] }` on validation failure                                                   |
+| Emits      | nothing                                                                                                                               |
+| Fails when | the store can't be read or written, or a non-empty `id` matches no record. Validation failures come back in the result, not as errors |
+
+### `snippet_delete`
+
+Delete a snippet. Unknown ids are a no-op (idempotent delete).
+
+|            |                                    |
+| ---------- | ---------------------------------- |
+| Payload    | `{ snippetId: string }`            |
+| Result     | `null`                             |
+| Emits      | nothing                            |
+| Fails when | the store can't be read or written |
+
+### `snippet_import`
+
+Import a snippet pack — a `[[snippet]]` TOML file picked in the native open
+dialog (the path carries explicit user consent; the core does the read).
+Merging is by id: `"replace"` overwrites an existing record, `"keep"` skips
+the incoming row; pack rows without an id always import under a fresh UUID.
+The import is atomic — a pack with any invalid snippet imports nothing.
+
+|            |                                                                                                                                                                                |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Payload    | `{ path: string, mergeStrategy: "replace" \| "keep" }`                                                                                                                         |
+| Result     | `{ imported: number, skipped: number }`                                                                                                                                        |
+| Emits      | nothing                                                                                                                                                                        |
+| Fails when | the file can't be read, the pack can't be parsed, is empty, contains an invalid snippet (the message names it), the strategy is unknown, or the store can't be read or written |
+
+### `snippet_export`
+
+Export snippets as a pack file at a path picked in the native save dialog,
+in store order. Packs hold commands and variables only — the schema has no
+secret fields.
+
+|            |                                                                                |
+| ---------- | ------------------------------------------------------------------------------ |
+| Payload    | `{ ids: string[], path: string }` (unknown ids among valid ones are ignored)   |
+| Result     | `null`                                                                         |
+| Emits      | nothing                                                                        |
+| Fails when | the store can't be read or parsed, no id matches, or the file can't be written |
+
+### `forward_start`
+
+Start a forward rule's managed `ssh -N` child (F7). The child runs
+`-o ExitOnForwardFailure=yes -o BatchMode=yes` in **its own process
+group**, so silent bind failures and hanging prompts become fast exits,
+and toggle-off / app exit kill the whole group — no orphans. `L`/`D`
+rules pre-flight their local bind port: a conflict names the owning
+process (`lsof`, 2 s budget) and suggests the next free port. Starting an
+already-running rule is a no-op reported as started.
+
+A host whose key isn't in `known_hosts` yet fails fast (BatchMode can't
+prompt) — connect a terminal to the host once first.
+
+|            |                                                                                                                                |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Payload    | `{ hostId: string, rule: { type: "L" \| "R" \| "D", spec: string, auto: boolean } }`                                           |
+| Result     | `{ started: true, ruleKey }` · `{ started: false, error: { kind: "port_in_use" \| "spawn_failed", message, suggestedPort? } }` |
+| Emits      | `forward:update` transitions (`starting` → `amber` → `green`/`red`) until the child dies or is stopped                         |
+| Fails when | the host id is unknown, the store can't be read, or the spec is malformed (the editor validates on save)                       |
+
+### `forward_stop`
+
+Stop a rule: SIGTERM its whole process group and end its monitor. The
+frontend drops the rule's status itself — a stop never races a red (the
+monitor goes quiet instead).
+
+|            |                                                  |
+| ---------- | ------------------------------------------------ |
+| Payload    | `{ ruleKey: string }` (`{hostId}:{type}:{spec}`) |
+| Result     | `null`                                           |
+| Emits      | nothing                                          |
+| Fails when | never — unknown keys are a no-op                 |
+
 ### `reach_start`
 
 Start (or refresh) the reachability prober behind the LED board (F1). The
@@ -433,3 +533,18 @@ Payload: `{ bytes: number, total: number, state: "running" | "done" |
 `0` when the size is unknown; `error`/`retryable` appear on `"failed"`
 only, and `retryable: true` (dropped connection, timeout) is what the
 queue's auto-retry ×1 keys on.
+
+### `forward:update`
+
+One health transition for one forward rule (F7). Every rule shares the
+channel; the payload's `ruleKey` routes it. States: `starting` (toggle
+accepted) → `amber` (child up, unproven) → `green` (`L`/`D`: the local
+port answers a TCP probe; `R`: the child outlived `ExitOnForwardFailure`'s
+window) or `red` (child exited — `reason` carries the exit status and an
+in-memory stderr tail — or the local port stopped answering). A rule that
+recovers flips back to `green`.
+
+Payload: `{ ruleKey: string, hostId: string, state: "starting" | "amber" |
+"green" | "red", reason?: string, proxyString?: string }` — `proxyString`
+(`socks5://localhost:PORT`) rides every `D`-rule event for the popover's
+copy button.

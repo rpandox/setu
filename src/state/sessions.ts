@@ -116,8 +116,12 @@ export interface SessionsState {
   findFocusSeq: number;
   /** Spawns a local shell in a fresh tab and focuses it. */
   openLocalTab(): Promise<void>;
-  /** Spawns `ssh` to a host in a fresh tab and focuses it. */
-  openSshTab(host: Host): Promise<void>;
+  /**
+   * Spawns `ssh` to a host in a fresh tab and focuses it. Returns the new
+   * session's id so callers can write into the pane — the F6 "run snippet
+   * as new tabs" path (PLAN.md §5, Phase 6 row).
+   */
+  openSshTab(host: Host): Promise<string>;
   /**
    * Reconnects an exited SSH pane in place: fresh PTY, same xterm and same
    * pane (scrollback survives). No-op for running panes, local panes, and
@@ -390,12 +394,13 @@ export const useSessions = create<SessionsState>((set, get) => {
    * @param hostId - The host to connect to.
    * @param hostLabel - Label to seed the pane title with.
    * @param hue - The host's identity hue.
+   * @returns The new session's id.
    */
   const openSsh = async (
     hostId: string,
     hostLabel: string,
     hue: number,
-  ): Promise<void> => {
+  ): Promise<string> => {
     // 80×24 is a placeholder; the pane fits and resizes right after open.
     const { sessionId } = await ipcInvoke("pty_spawn", {
       kind: "ssh",
@@ -415,6 +420,7 @@ export const useSessions = create<SessionsState>((set, get) => {
     };
     await wireSession(meta);
     placeAsTab(meta);
+    return sessionId;
   };
 
   return {
@@ -441,8 +447,8 @@ export const useSessions = create<SessionsState>((set, get) => {
       placeAsTab(meta);
     },
 
-    async openSshTab(host: Host): Promise<void> {
-      await openSsh(host.id, host.label, host.hue);
+    async openSshTab(host: Host): Promise<string> {
+      return openSsh(host.id, host.label, host.hue);
     },
 
     async reconnect(sessionId: string): Promise<void> {

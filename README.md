@@ -8,7 +8,7 @@ Keychain, config lives in plain files you own, and interactive sessions drive th
 system `ssh` — so your `~/.ssh/config`, agent, jump hosts, and Tailscale keep
 working exactly as they do today.
 
-**Status: pre-alpha, under active construction.** Phases 0–5 of the
+**Status: pre-alpha, under active construction.** Phases 0–6 of the
 [build plan](PLAN.md) are complete: the app shell and design system, a
 working local terminal ([docs](docs/features/F02-terminal-core.md)),
 hosts & SSH — a `hosts.toml` store with an editor drawer, automatic
@@ -23,11 +23,18 @@ answers right now ([docs](docs/features/F01-hosts.md)), a full ⌘K
 command palette with frecency ranking
 ([docs](docs/features/F11-command-palette.md)), a paste guard that
 stops multi-line and dangerous pastes at an exact-bytes preview
-([docs](docs/features/F02-terminal-core.md)) — and now **SFTP**: ⇧⌘S
-opens a dual-pane file browser over any SSH session — drag-drop both
-ways, a three-at-a-time transfer queue with cancel and auto-retry,
-chmod, and a fingerprint dialog for first-connect host keys
-([docs](docs/features/F05-sftp.md)).
+([docs](docs/features/F02-terminal-core.md)) — **SFTP**: ⇧⌘S opens a
+dual-pane file browser over any SSH session — drag-drop both ways, a
+three-at-a-time transfer queue with cancel and auto-retry, chmod, and
+a fingerprint dialog for first-connect host keys
+([docs](docs/features/F05-sftp.md)) — and now **snippets & port
+forwards**: ⌘J command templates whose `{{variables}}` prompt at run,
+targeting the current pane, the broadcast set, or a new tab per host,
+with shareable TOML packs ([docs](docs/features/F06-snippets.md)); and
+per-host `L`/`R`/`D` tunnels as status-bar toggles — managed `ssh -N`
+children with honest health dots, auto-start on connect, and a
+port-conflict helper that names the owner and offers the next free
+port ([docs](docs/features/F07-port-forwards.md)).
 
 <!-- Hero screenshot: docs/assets/hero.png (captured during Phase 4 live QA). -->
 

@@ -24,3 +24,21 @@
 .statusbar-chip--broadcast {
   color: var(--err);
 }
+
+/* The F7 forwards chip is a real button: it opens the popover. */
+.statusbar-chip--button {
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color var(--t-fast);
+}
+
+.statusbar-chip--button:hover {
+  color: var(--ink-1);
+}
+
+.statusbar-chip--button:focus-visible {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}
