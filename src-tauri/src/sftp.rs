@@ -985,6 +985,13 @@ const TRANSFER_CHUNK: usize = 256 * 1024;
 /// needs smoothness, not every write (PLAN.md §3 keeps IPC volume down).
 const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 
+/// Zero progress on a single chunk for this long means the link is dead.
+/// This guard exists because russh-sftp's write acknowledgements bypass
+/// its own request timeout — without it, a connection dropped mid-upload
+/// hangs the transfer forever instead of failing retryable (verified by
+/// the `live_sftp` integration suite).
+const TRANSFER_STALL: Duration = Duration::from_secs(30);
+
 /// Why a transfer stopped before completing.
 enum TransferHalt {
     /// The user cancelled; the caller cleans the partial file quietly.
@@ -997,6 +1004,18 @@ enum TransferHalt {
         /// Whether an immediate retry is worth attempting.
         retryable: bool,
     },
+}
+
+/// The retryable halt for a chunk that made no progress in
+/// [`TRANSFER_STALL`].
+fn halt_stalled() -> TransferHalt {
+    TransferHalt::Failed {
+        message: format!(
+            "transfer stalled for {}s — connection lost?",
+            TRANSFER_STALL.as_secs()
+        ),
+        retryable: true,
+    }
 }
 
 /// Failure from a local I/O error (the `std::io::ErrorKind` taxonomy).
@@ -1089,25 +1108,36 @@ async fn stream_upload(
         let read = tokio::select! {
             biased;
             () = token.cancelled() => return Err(TransferHalt::Cancelled),
-            read = src.read(&mut buf) => read.map_err(|e| halt_from_io(&e))?,
+            read = tokio::time::timeout(TRANSFER_STALL, src.read(&mut buf)) => {
+                read.map_err(|_| halt_stalled())?.map_err(|e| halt_from_io(&e))?
+            }
         };
         if read == 0 {
             break;
         }
-        // The write also reacts to cancel: a stalled server would otherwise
-        // pin a cancelled transfer until its timeout.
+        // The write also reacts to cancel (a stalled server would otherwise
+        // pin a cancelled transfer) and to the stall guard (write acks
+        // never time out on their own — see TRANSFER_STALL).
         tokio::select! {
             biased;
             () = token.cancelled() => return Err(TransferHalt::Cancelled),
-            write = dst.write_all(&buf[..read]) => write.map_err(|e| halt_from_io(&e))?,
+            write = tokio::time::timeout(TRANSFER_STALL, dst.write_all(&buf[..read])) => {
+                write.map_err(|_| halt_stalled())?.map_err(|e| halt_from_io(&e))?;
+            }
         }
         bytes += read as u64;
         if throttle.ready() {
             events.on_progress(transfer_id, bytes, total);
         }
     }
-    dst.flush().await.map_err(|e| halt_from_io(&e))?;
-    dst.close().await.map_err(|e| halt_from_io(&e))?;
+    tokio::time::timeout(TRANSFER_STALL, dst.flush())
+        .await
+        .map_err(|_| halt_stalled())?
+        .map_err(|e| halt_from_io(&e))?;
+    tokio::time::timeout(TRANSFER_STALL, dst.close())
+        .await
+        .map_err(|_| halt_stalled())?
+        .map_err(|e| halt_from_io(&e))?;
     Ok(bytes)
 }
 
@@ -1133,10 +1163,14 @@ async fn stream_download(
     let mut bytes: u64 = 0;
     let mut throttle = ProgressThrottle::new();
     loop {
+        // The remote read carries the same stall guard as remote writes:
+        // a dead link must fail retryable, not hang the queue slot.
         let read = tokio::select! {
             biased;
             () = token.cancelled() => return Err(TransferHalt::Cancelled),
-            read = src.read(&mut buf) => read.map_err(|e| halt_from_io(&e))?,
+            read = tokio::time::timeout(TRANSFER_STALL, src.read(&mut buf)) => {
+                read.map_err(|_| halt_stalled())?.map_err(|e| halt_from_io(&e))?
+            }
         };
         if read == 0 {
             break;
@@ -1144,14 +1178,19 @@ async fn stream_download(
         tokio::select! {
             biased;
             () = token.cancelled() => return Err(TransferHalt::Cancelled),
-            write = dst.write_all(&buf[..read]) => write.map_err(|e| halt_from_io(&e))?,
+            write = tokio::time::timeout(TRANSFER_STALL, dst.write_all(&buf[..read])) => {
+                write.map_err(|_| halt_stalled())?.map_err(|e| halt_from_io(&e))?;
+            }
         }
         bytes += read as u64;
         if throttle.ready() {
             events.on_progress(transfer_id, bytes, total);
         }
     }
-    dst.flush().await.map_err(|e| halt_from_io(&e))?;
+    tokio::time::timeout(TRANSFER_STALL, dst.flush())
+        .await
+        .map_err(|_| halt_stalled())?
+        .map_err(|e| halt_from_io(&e))?;
     Ok(bytes)
 }
 

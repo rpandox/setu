@@ -20,8 +20,11 @@ one entry.
   files from Finder to upload, double-click to send a file across. The
   queue runs three at once with live progress/speed/ETA; cancel removes
   the partial file; transient failures (dropped connection, timeout)
-  auto-retry once. Files stream in 256 KiB chunks — multi-GB transfers
-  never sit in memory.
+  auto-retry once, and a link that stalls a chunk for 30 s fails
+  retryable instead of hanging the slot. Files stream in 256 KiB chunks —
+  multi-GB transfers never sit in memory. The whole engine is exercised
+  end-to-end against a real local OpenSSH server by an ignored-by-default
+  integration suite (`cargo test --test live_sftp -- --ignored`).
 - Host-key trust (F5): the app's only in-protocol SSH use verifies
   servers against `~/.ssh/known_hosts` (hashed entries included). Unknown
   keys show the fingerprint dialog and append on explicit trust — the
