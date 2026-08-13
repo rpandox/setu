@@ -12,9 +12,13 @@ the board: every LED shows, right now, whether its machine answers.
 
 The sidebar is the patch bay: Favorites on top, then your groups, then
 ungrouped hosts, then an **ssh config** section listing every concrete
-alias from `~/.ssh/config`. Add and edit hosts in a drawer with inline
-validation; everything persists to `~/.config/setu/hosts.toml` — a
-human-diffable file that's safe to git-sync because it never holds secrets.
+alias from `~/.ssh/config` — and, when Tailscale is installed and
+logged in, a **Tailnet** section of live peers
+([F9](F09-tailscale.md), Phase 7). Add and edit hosts in a drawer with
+inline validation; everything persists to `~/.config/setu/hosts.toml` —
+a human-diffable file that's safe to git-sync because it never holds
+secrets. A host that is also a tailnet peer (same MagicDNS name) wears
+a small `ts` badge instead of appearing twice.
 
 Each row leads with a status LED, lit by the reachability prober: the
 moment the app opens, every visible host gets a **bare TCP connect** to

@@ -25,9 +25,12 @@ protocol itself (russh + russh-sftp; interactive terminals stay on system
 | ⌘-click / ⇧-click | Multi-select entries                                      |
 
 Focus an SSH pane and press ⇧⌘S (also in the ⌘K palette: "Toggle SFTP
-panel"). The first connection authenticates with your ssh-agent, then the
-host's identity file if one is set in the host record — passwords arrive
-with the Keychain in Phase 7. Connecting to a host whose key isn't in
+panel"). The first connection walks the auth ladder: your ssh-agent,
+then the host's identity file (encrypted files unlock with their
+Keychain passphrase), then the host's Keychain-stored SFTP password
+(Phase 7, [F8](F08-keys-vault.md)). A secret the Keychain doesn't hold
+pauses the connect with a prompt — type it, **Store & connect**, and
+it's saved for next time. Connecting to a host whose key isn't in
 `~/.ssh/known_hosts` shows the fingerprint dialog; **Trust this key**
 appends one line to `known_hosts` (that's the only write Setu ever makes
 there), Cancel stops the connection. A _changed_ key never prompts — the
@@ -69,8 +72,9 @@ a toast).
 
 - **"authentication … failed"** — the panel lists what was tried. No
   agent identities? `ssh-add` your key (`ssh-add -l` to check).
-  Passphrase-protected identity files can't be unlocked until the
-  Keychain lands in Phase 7 — use the agent for those. The host must also
+  Passphrase-protected files and password-only hosts prompt for their
+  secret and store it in the Keychain ([F8](F08-keys-vault.md)); a
+  pubkey-only server never sees a password prompt. The host must also
   allow your user: SFTP doesn't read `~/.ssh/config`, so hosts imported
   from there need a hostname and user on the record (adopt the host and
   fill them in).
