@@ -26,6 +26,7 @@
 //! connections (CLAUDE.md). File contents and paths never reach logs.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -483,6 +484,325 @@ fn known_hosts_path() -> std::path::PathBuf {
         .join("known_hosts")
 }
 
+// ---------------------------------------------------------------------------
+// Listings and file ops (F5): the same entry shape on both panes — remote
+// via russh-sftp, local via std::fs.
+// ---------------------------------------------------------------------------
+
+/// One row in a pane listing (mirrors `SftpEntry` in `contract.ts`).
+///
+/// The shape is identical for both panes so every downstream consumer —
+/// sorting, columns, drag payloads — is pane-agnostic. For symlinks the
+/// entry describes the **link itself** (`is_dir: false`); `link_target`
+/// carries the raw target for display, and following happens explicitly
+/// via a `stat` on double-click (F5).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpEntry {
+    /// File name (final path component), UTF-8.
+    pub name: String,
+    /// Size in bytes; `0` for directories and when the server omits it.
+    pub size: u64,
+    /// Modification time in epoch milliseconds; `0` when unknown.
+    pub mtime_ms: u64,
+    /// Unix permission bits (lower 12 bits: `rwxrwxrwx` + setuid/setgid/sticky).
+    pub mode: u32,
+    /// Whether the entry is a directory (never true for symlinks).
+    pub is_dir: bool,
+    /// Whether the entry is a symbolic link.
+    pub is_symlink: bool,
+    /// The symlink's raw target, when the entry is one and it was readable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link_target: Option<String>,
+}
+
+/// Permission-and-type bits mask kept in [`SftpEntry::mode`].
+const MODE_BITS: u32 = 0o7777;
+
+/// POSIX path join for **remote** paths (which are `/`-separated strings,
+/// never `std::path` on this side): absolute children replace, everything
+/// else appends with exactly one separator.
+pub fn remote_join(dir: &str, name: &str) -> String {
+    if name.starts_with('/') {
+        return name.to_string();
+    }
+    let dir = dir.trim_end_matches('/');
+    if dir.is_empty() {
+        format!("/{name}")
+    } else {
+        format!("{dir}/{name}")
+    }
+}
+
+/// Lists a remote directory: one `read_dir` round-trip, plus one
+/// `read_link` per symlink for its target (targets aren't in the READDIR
+/// reply). Entries come back name-sorted for deterministic pagination-free
+/// rendering; the frontend re-sorts per its own column state.
+///
+/// # Errors
+///
+/// Surfaces the server's error verbatim (permission denied included, F5).
+pub async fn remote_list(
+    sftp: &russh_sftp::client::SftpSession,
+    path: &str,
+) -> Result<Vec<SftpEntry>, String> {
+    let dir = sftp.read_dir(path).await.map_err(|e| e.to_string())?;
+    let mut entries = Vec::new();
+    for item in dir {
+        let name = item.file_name();
+        if name == "." || name == ".." {
+            continue;
+        }
+        let meta = item.metadata();
+        let is_symlink = meta.is_symlink();
+        let link_target = if is_symlink {
+            sftp.read_link(remote_join(path, &name)).await.ok()
+        } else {
+            None
+        };
+        entries.push(entry_from_remote(name, &meta, link_target));
+    }
+    entries.sort_by_key(|entry| entry.name.to_lowercase());
+    Ok(entries)
+}
+
+/// Stats a remote path, **following** symlinks — the explicit follow half
+/// of the F5 symlink behavior (list never follows).
+///
+/// # Errors
+///
+/// Surfaces the server's error verbatim (broken links stat as errors).
+pub async fn remote_stat(
+    sftp: &russh_sftp::client::SftpSession,
+    path: &str,
+) -> Result<SftpEntry, String> {
+    let meta = sftp.metadata(path).await.map_err(|e| e.to_string())?;
+    let name = path.rsplit('/').find(|s| !s.is_empty()).unwrap_or("/");
+    Ok(entry_from_remote(name.to_string(), &meta, None))
+}
+
+/// Creates a remote directory.
+///
+/// # Errors
+///
+/// Surfaces the server's error verbatim (exists, permission denied, …).
+pub async fn remote_mkdir(
+    sftp: &russh_sftp::client::SftpSession,
+    path: &str,
+) -> Result<(), String> {
+    sftp.create_dir(path).await.map_err(|e| e.to_string())
+}
+
+/// Renames (moves) a remote file or directory.
+///
+/// # Errors
+///
+/// Surfaces the server's error verbatim; many servers refuse to overwrite
+/// an existing target.
+pub async fn remote_rename(
+    sftp: &russh_sftp::client::SftpSession,
+    from: &str,
+    to: &str,
+) -> Result<(), String> {
+    sftp.rename(from, to).await.map_err(|e| e.to_string())
+}
+
+/// Deletes a remote file, or a directory **recursively** (SFTP's RMDIR
+/// only takes empty directories, so the walk happens client-side, exactly
+/// like every other SFTP browser). Symlinks are removed as links — never
+/// followed — so a link into `/etc` can't turn a folder delete into a
+/// system-wide one.
+///
+/// # Errors
+///
+/// Surfaces the first server error verbatim and stops there (a partial
+/// delete leaves the remainder listed, which is honest).
+pub async fn remote_delete(
+    sftp: &russh_sftp::client::SftpSession,
+    path: &str,
+    is_dir: bool,
+) -> Result<(), String> {
+    if !is_dir {
+        return sftp.remove_file(path).await.map_err(|e| e.to_string());
+    }
+    // Depth-first: children before their directory. Boxed for async recursion.
+    let children = remote_list(sftp, path).await?;
+    for child in children {
+        let child_path = remote_join(path, &child.name);
+        let recurse_dir = child.is_dir && !child.is_symlink;
+        Box::pin(remote_delete(sftp, &child_path, recurse_dir)).await?;
+    }
+    sftp.remove_dir(path).await.map_err(|e| e.to_string())
+}
+
+/// Sets a remote path's permission bits (the chmod dialog, F5).
+///
+/// # Errors
+///
+/// Fails when `mode` exceeds `0o7777` or the server refuses the SETSTAT.
+pub async fn remote_chmod(
+    sftp: &russh_sftp::client::SftpSession,
+    path: &str,
+    mode: u32,
+) -> Result<(), String> {
+    let meta = russh_sftp::client::fs::Metadata {
+        permissions: Some(validate_mode(mode)?),
+        ..Default::default()
+    };
+    sftp.set_metadata(path, meta)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Converts a russh-sftp [`Metadata`](russh_sftp::client::fs::Metadata)
+/// into the shared entry shape.
+fn entry_from_remote(
+    name: String,
+    meta: &russh_sftp::client::fs::Metadata,
+    link_target: Option<String>,
+) -> SftpEntry {
+    let is_symlink = meta.is_symlink();
+    SftpEntry {
+        name,
+        size: meta.size.unwrap_or(0),
+        mtime_ms: u64::from(meta.mtime.unwrap_or(0)) * 1000,
+        mode: meta.permissions.unwrap_or(0) & MODE_BITS,
+        is_dir: meta.is_dir() && !is_symlink,
+        is_symlink,
+        link_target,
+    }
+}
+
+/// Lists a local directory via `std::fs`, producing the same entry shape
+/// as [`remote_list`]: symlinks are described as links (`lstat`), targets
+/// come from `read_link`, `.`/`..` are omitted, names sort caselessly.
+///
+/// # Errors
+///
+/// Surfaces the OS error verbatim (missing dir, permission denied, …).
+pub fn local_list(path: &Path) -> Result<Vec<SftpEntry>, String> {
+    let dir = std::fs::read_dir(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut entries = Vec::new();
+    for item in dir {
+        let item = item.map_err(|e| e.to_string())?;
+        let name = item.file_name().to_string_lossy().into_owned();
+        let Ok(meta) = std::fs::symlink_metadata(item.path()) else {
+            // Raced away between readdir and lstat; skip like `ls` does.
+            continue;
+        };
+        let link_target = if meta.is_symlink() {
+            std::fs::read_link(item.path())
+                .ok()
+                .map(|t| t.to_string_lossy().into_owned())
+        } else {
+            None
+        };
+        entries.push(entry_from_local(name, &meta, link_target));
+    }
+    entries.sort_by_key(|entry| entry.name.to_lowercase());
+    Ok(entries)
+}
+
+/// Stats a local path, **following** symlinks (the double-click follow).
+///
+/// # Errors
+///
+/// Surfaces the OS error verbatim (broken links stat as errors).
+pub fn local_stat(path: &Path) -> Result<SftpEntry, String> {
+    let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "/".to_string());
+    Ok(entry_from_local(name, &meta, None))
+}
+
+/// Creates a local directory.
+///
+/// # Errors
+///
+/// Surfaces the OS error verbatim.
+pub fn local_mkdir(path: &Path) -> Result<(), String> {
+    std::fs::create_dir(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Renames (moves) a local file or directory.
+///
+/// # Errors
+///
+/// Surfaces the OS error verbatim.
+pub fn local_rename(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::rename(from, to).map_err(|e| format!("{}: {e}", from.display()))
+}
+
+/// Deletes a local file, or a directory recursively. Symlinks are removed
+/// as links (`remove_dir_all` does not follow them).
+///
+/// # Errors
+///
+/// Surfaces the OS error verbatim.
+pub fn local_delete(path: &Path, is_dir: bool) -> Result<(), String> {
+    let result = if is_dir {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
+    };
+    result.map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Sets a local path's permission bits (the chmod dialog works on both
+/// panes).
+///
+/// # Errors
+///
+/// Fails when `mode` exceeds `0o7777` or the OS refuses.
+#[cfg(unix)]
+pub fn local_chmod(path: &Path, mode: u32) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(validate_mode(mode)?))
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Converts local `symlink_metadata` into the shared entry shape.
+fn entry_from_local(
+    name: String,
+    meta: &std::fs::Metadata,
+    link_target: Option<String>,
+) -> SftpEntry {
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt;
+        meta.permissions().mode() & MODE_BITS
+    };
+    #[cfg(not(unix))]
+    let mode = 0;
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0);
+    let is_symlink = meta.is_symlink();
+    SftpEntry {
+        name,
+        size: if meta.is_dir() { 0 } else { meta.len() },
+        mtime_ms,
+        mode,
+        is_dir: meta.is_dir() && !is_symlink,
+        is_symlink,
+        link_target,
+    }
+}
+
+/// Rejects permission values beyond the defined bits before they hit a
+/// server or the OS.
+fn validate_mode(mode: u32) -> Result<u32, String> {
+    if mode > MODE_BITS {
+        return Err(format!("invalid mode {mode:o} (max 7777)"));
+    }
+    Ok(mode)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -571,6 +891,99 @@ mod tests {
             ..Host::default()
         };
         assert!(HostTarget::from_host(&host).is_err());
+    }
+
+    /// A unique scratch dir in the OS temp dir; removed by each test.
+    fn scratch_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("setu-sftp-{}-{}", name, uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    #[test]
+    fn remote_join_forms() {
+        assert_eq!(remote_join("/home/pandox", "logs"), "/home/pandox/logs");
+        assert_eq!(remote_join("/", "etc"), "/etc");
+        assert_eq!(remote_join("/home/", "x"), "/home/x");
+        assert_eq!(remote_join("/anything", "/absolute"), "/absolute");
+        assert_eq!(remote_join("", "top"), "/top");
+    }
+
+    #[test]
+    fn validate_mode_bounds() {
+        assert_eq!(validate_mode(0o755), Ok(0o755));
+        assert_eq!(validate_mode(0o7777), Ok(0o7777));
+        assert!(validate_mode(0o10000).is_err());
+    }
+
+    #[test]
+    fn local_list_names_sizes_and_dirs_sorted_caselessly() {
+        let dir = scratch_dir("list");
+        std::fs::write(dir.join("beta.txt"), b"12345").expect("file");
+        std::fs::create_dir(dir.join("Alpha")).expect("dir");
+        let entries = local_list(&dir).expect("list");
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["Alpha", "beta.txt"]);
+        assert!(entries[0].is_dir);
+        assert_eq!(entries[1].size, 5);
+        assert!(entries[1].mtime_ms > 0);
+        assert!(entries[1].mode > 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn local_list_round_trips_unicode_and_emoji_names() {
+        let dir = scratch_dir("unicode");
+        let name = "café-📁-日誌.txt";
+        std::fs::write(dir.join(name), b"x").expect("file");
+        let entries = local_list(&dir).expect("list");
+        assert_eq!(entries[0].name, name);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_symlinks_are_links_with_targets_never_followed() {
+        let dir = scratch_dir("symlink");
+        std::fs::create_dir(dir.join("real")).expect("dir");
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("link")).expect("symlink");
+        let entries = local_list(&dir).expect("list");
+        let link = entries.iter().find(|e| e.name == "link").expect("link row");
+        assert!(link.is_symlink);
+        assert!(!link.is_dir, "the entry describes the link, not the target");
+        assert!(link.link_target.as_deref().unwrap_or("").ends_with("real"));
+        // The follow half: stat resolves through the link.
+        let followed = local_stat(&dir.join("link")).expect("stat");
+        assert!(followed.is_dir);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_chmod_applies_permission_bits() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch_dir("chmod");
+        let file = dir.join("f");
+        std::fs::write(&file, b"x").expect("file");
+        local_chmod(&file, 0o640).expect("chmod");
+        let mode = std::fs::metadata(&file).expect("meta").permissions().mode();
+        assert_eq!(mode & 0o777, 0o640);
+        assert!(local_chmod(&file, 0o10000).is_err(), "out-of-range mode");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn local_ops_mkdir_rename_delete_recursive() {
+        let dir = scratch_dir("ops");
+        local_mkdir(&dir.join("sub")).expect("mkdir");
+        std::fs::write(dir.join("sub/inner.txt"), b"x").expect("file");
+        local_rename(&dir.join("sub"), &dir.join("moved")).expect("rename");
+        assert!(dir.join("moved/inner.txt").exists());
+        local_delete(&dir.join("moved"), true).expect("recursive delete");
+        assert!(!dir.join("moved").exists());
+        // Errors surface verbatim, not as panics.
+        assert!(local_delete(&dir.join("moved"), true).is_err());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
