@@ -59,7 +59,7 @@ beforeEach(() => {
 
 describe("actionRegistry", () => {
   it("covers every implemented §8 action", () => {
-    // The PLAN.md §8 rows whose features exist in Phases 0–4 (the §5 log
+    // The PLAN.md §8 rows whose features exist in Phases 0–5 (the §5 log
     // scopes the palette to implemented actions; ⌘C/⌘V stay native).
     const expected = [
       "quick-connect", // ⌘T
@@ -77,6 +77,7 @@ describe("actionRegistry", () => {
       "focus-pane-down", // ⌥⌘↓
       "toggle-broadcast", // ⇧⌘B
       "find-in-terminal", // ⇧⌘F
+      "toggle-sftp", // ⇧⌘S (Phase 5)
       "toggle-sidebar", // ⌘/
     ];
     const ids = actionRegistry().map((a) => a.id);

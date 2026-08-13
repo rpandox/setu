@@ -721,6 +721,20 @@ pub async fn remote_list(
     Ok(entries)
 }
 
+/// Resolves a remote path to canonical absolute form (SFTP REALPATH) —
+/// how the panel turns the post-connect `"."` into the home path its
+/// path bar and breadcrumbs need.
+///
+/// # Errors
+///
+/// Surfaces the server's error verbatim.
+pub async fn remote_realpath(
+    sftp: &russh_sftp::client::SftpSession,
+    path: &str,
+) -> Result<String, String> {
+    sftp.canonicalize(path).await.map_err(|e| e.to_string())
+}
+
 /// Stats a remote path, **following** symlinks — the explicit follow half
 /// of the F5 symlink behavior (list never follows).
 ///

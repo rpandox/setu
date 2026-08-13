@@ -1,0 +1,172 @@
+/* One SFTP browser pane (F5): header, path bar, column headers, and the
+   virtualized listing. All data cells are mono (§7: data chips are part of
+   the tech register); the chrome stays quiet. */
+
+.sftp-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+}
+
+.sftp-pane--drop {
+  border-color: var(--neon);
+}
+
+.sftp-pane-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pad);
+  padding: calc(var(--pad) / 2) var(--pad);
+  border-bottom: 1px solid var(--line);
+}
+
+.sftp-pane-title {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 450;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.sftp-pane-tools {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--pad) / 4);
+}
+
+.sftp-pane-tools button {
+  padding: calc(var(--pad) / 4) calc(var(--pad) / 2);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+
+.sftp-pane-tools button:hover:not(:disabled) {
+  background: var(--bg-3);
+  color: var(--ink-1);
+}
+
+.sftp-pane-tools button:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.sftp-pane-tools .sftp-pane-send {
+  border-color: var(--line-strong);
+}
+
+.sftp-pane-columns {
+  display: grid;
+  grid-template-columns: 1fr 84px 124px 96px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sftp-pane-column {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--pad) / 4);
+  padding: calc(var(--pad) / 3) var(--pad);
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sftp-pane-column:hover {
+  color: var(--ink-1);
+}
+
+.sftp-pane-sortmark {
+  font-size: 9px;
+}
+
+.sftp-pane-scroll {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.sftp-pane-rows {
+  position: relative;
+  width: 100%;
+}
+
+.sftp-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: 1fr 84px 124px 96px;
+  align-items: center;
+  height: 26px;
+  cursor: default;
+  user-select: none;
+}
+
+.sftp-row:hover {
+  background: var(--bg-2);
+}
+
+.sftp-row--selected {
+  background: var(--bg-3);
+}
+
+.sftp-row > span {
+  padding: 0 var(--pad);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.sftp-row .sftp-col-size,
+.sftp-row .sftp-col-mtime,
+.sftp-row .sftp-col-mode {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.sftp-row-glyph {
+  display: inline-block;
+  width: 1.4ch;
+  color: var(--ink-3);
+}
+
+.sftp-row-target {
+  color: var(--ink-3);
+}
+
+.sftp-pane-error {
+  padding: var(--pad);
+  color: var(--err);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.sftp-pane-empty {
+  padding: var(--pad);
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}

@@ -226,34 +226,34 @@ Host-key policy: a key matching `~/.ssh/known_hosts` connects silently; an
 never a prompt. Trusting appends one line to `known_hosts` (the app's only
 known_hosts write, append-only).
 
-|            |                                                                                                                                                                                                       |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Payload    | `{ hostId: string }`                                                                                                                                                                                  |
-| Result     | `{ sftpSessionId: string }` — keys every later `sftp_*` command                                                                                                                                       |
-| Emits      | one `hostkey:prompt` when the key is unknown                                                                                                                                                          |
+|            |                                                                                                                                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Payload    | `{ hostId: string }`                                                                                                                                                                                   |
+| Result     | `{ sftpSessionId: string }` — keys every later `sftp_*` command                                                                                                                                        |
+| Emits      | one `hostkey:prompt` when the key is unknown                                                                                                                                                           |
 | Fails when | the host id is unknown, the record has no hostname (alias-only imports must be adopted first), the host is unreachable, the key is mismatched/revoked/declined, auth is exhausted, or sftp can't start |
 
 ### `hostkey_trust`
 
 Answer a pending `hostkey:prompt` with the FingerprintDialog verdict.
 
-|            |                                                                                              |
-| ---------- | -------------------------------------------------------------------------------------------- |
-| Payload    | `{ hostId: string, accept: boolean }`                                                        |
-| Result     | `null` (the parked `sftp_connect` resumes on `true`, fails on `false`)                       |
-| Emits      | nothing                                                                                      |
+|            |                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------- |
+| Payload    | `{ hostId: string, accept: boolean }`                                                 |
+| Result     | `null` (the parked `sftp_connect` resumes on `true`, fails on `false`)                |
+| Emits      | nothing                                                                               |
 | Fails when | no prompt is pending for the host (already resolved, or the connect died dialog-open) |
 
 ### `sftp_disconnect`
 
 Close an SFTP session; its running transfers are cancelled first.
 
-|            |                                                              |
-| ---------- | ------------------------------------------------------------ |
-| Payload    | `{ sftpSessionId: string }`                                  |
-| Result     | `null`                                                       |
+|            |                                                                  |
+| ---------- | ---------------------------------------------------------------- |
+| Payload    | `{ sftpSessionId: string }`                                      |
+| Result     | `null`                                                           |
 | Emits      | one terminal `sftp:progress:{transferId}` per cancelled transfer |
-| Fails when | never — unknown ids are a no-op (idempotent close)           |
+| Fails when | never — unknown ids are a no-op (idempotent close)               |
 
 ### `sftp_list` · `sftp_local_list`
 
@@ -268,12 +268,24 @@ Symlink rows describe the **link** (`isDir: false`, `linkTarget` set);
 following happens via the stat commands on double-click. The listing is
 complete — the hidden-file toggle filters in the frontend.
 
-|            |                                                                                     |
-| ---------- | ----------------------------------------------------------------------------------- |
-| Payload    | `{ sftpSessionId: string, path: string }` · local: `{ path: string }`               |
-| Result     | `{ entries: SftpEntry[] }` — name-sorted, `.`/`..` omitted                          |
-| Emits      | nothing                                                                             |
+|            |                                                                                                      |
+| ---------- | ---------------------------------------------------------------------------------------------------- |
+| Payload    | `{ sftpSessionId: string, path: string }` · local: `{ path: string }`                                |
+| Result     | `{ entries: SftpEntry[] }` — name-sorted, `.`/`..` omitted                                           |
+| Emits      | nothing                                                                                              |
 | Fails when | the session is unknown (remote) or the directory can't be read — permission denied surfaces verbatim |
+
+### `sftp_realpath`
+
+Canonicalize a remote path (SFTP REALPATH) — how the panel turns the
+post-connect `"."` into the absolute home path its path bar shows.
+
+|            |                                              |
+| ---------- | -------------------------------------------- |
+| Payload    | `{ sftpSessionId: string, path: string }`    |
+| Result     | `{ path: string }`                           |
+| Emits      | nothing                                      |
+| Fails when | the session is unknown or the server refuses |
 
 ### `sftp_stat` · `sftp_local_stat`
 
@@ -302,12 +314,12 @@ Create a directory.
 
 Rename (move) a file or directory.
 
-|            |                                                                                         |
-| ---------- | --------------------------------------------------------------------------------------- |
-| Payload    | `{ sftpSessionId: string, from: string, to: string }` · local: `{ from, to }`           |
-| Result     | `null`                                                                                  |
-| Emits      | nothing                                                                                 |
-| Fails when | the server/OS refuses — many SFTP servers won't overwrite an existing target |
+|            |                                                                               |
+| ---------- | ----------------------------------------------------------------------------- |
+| Payload    | `{ sftpSessionId: string, from: string, to: string }` · local: `{ from, to }` |
+| Result     | `null`                                                                        |
+| Emits      | nothing                                                                       |
+| Fails when | the server/OS refuses — many SFTP servers won't overwrite an existing target  |
 
 ### `sftp_delete` · `sftp_local_delete`
 
@@ -315,23 +327,23 @@ Delete a file, or a directory **recursively**. The remote walk happens
 client-side (SFTP's RMDIR takes only empty directories) and never follows
 symlinks — links are removed as links.
 
-|            |                                                                                   |
-| ---------- | --------------------------------------------------------------------------------- |
+|            |                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------ |
 | Payload    | `{ sftpSessionId: string, path: string, isDir: boolean }` · local: `{ path, isDir }` |
-| Result     | `null`                                                                            |
-| Emits      | nothing                                                                           |
-| Fails when | the server/OS refuses — the remote walk stops at the first error                  |
+| Result     | `null`                                                                               |
+| Emits      | nothing                                                                              |
+| Fails when | the server/OS refuses — the remote walk stops at the first error                     |
 
 ### `sftp_chmod` · `sftp_local_chmod`
 
 Set a path's permission bits (the chmod dialog works on both panes).
 
-|            |                                                                                    |
-| ---------- | ---------------------------------------------------------------------------------- |
-| Payload    | `{ sftpSessionId: string, path: string, mode: number }` · local: `{ path, mode }`  |
-| Result     | `null`                                                                             |
-| Emits      | nothing                                                                            |
-| Fails when | `mode` exceeds `0o7777` or the server/OS refuses                                   |
+|            |                                                                                   |
+| ---------- | --------------------------------------------------------------------------------- |
+| Payload    | `{ sftpSessionId: string, path: string, mode: number }` · local: `{ path, mode }` |
+| Result     | `null`                                                                            |
+| Emits      | nothing                                                                           |
+| Fails when | `mode` exceeds `0o7777` or the server/OS refuses                                  |
 
 ### `sftp_upload` · `sftp_download`
 
@@ -341,11 +353,11 @@ never sits in memory); the **queue** — concurrency 3, auto-retry ×1 on
 retryable failures, folder expansion into per-file transfers — lives in the
 frontend sftp store.
 
-|            |                                                                                                                     |
-| ---------- | ------------------------------------------------------------------------------------------------------------------- |
-| Payload    | `{ sftpSessionId: string, localPath: string, remotePath: string }`                                                  |
-| Result     | `{ transferId: string }`                                                                                            |
-| Emits      | throttled `sftp:progress:{transferId}` (`state: "running"`, ~10/s), then exactly one terminal event                 |
+|            |                                                                                                                        |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ sftpSessionId: string, localPath: string, remotePath: string }`                                                     |
+| Result     | `{ transferId: string }`                                                                                               |
+| Emits      | throttled `sftp:progress:{transferId}` (`state: "running"`, ~10/s), then exactly one terminal event                    |
 | Fails when | the session is unknown, the source can't be read/statted, or it is a directory. Mid-transfer failures arrive as events |
 
 ### `sftp_cancel`

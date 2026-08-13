@@ -93,6 +93,7 @@ pub fn run() {
             ipc::hostkey_trust,
             ipc::sftp_disconnect,
             ipc::sftp_list,
+            ipc::sftp_realpath,
             ipc::sftp_stat,
             ipc::sftp_mkdir,
             ipc::sftp_rename,

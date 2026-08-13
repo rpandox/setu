@@ -6,6 +6,8 @@
 
 import { invoke, type InvokeArgs } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { homeDir } from "@tauri-apps/api/path";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type {
   HostkeyPromptEvent,
   IpcCommands,
@@ -118,5 +120,33 @@ export function onSftpProgress(
 ): Promise<UnlistenFn> {
   return listen<SftpProgressEvent>(`sftp:progress:${transferId}`, (event) => {
     onProgress(event.payload);
+  });
+}
+
+/**
+ * The user's home directory, for the SFTP local pane's starting path —
+ * wrapped here so the rest of the frontend never touches the raw Tauri
+ * path API (and tests mock this module alone).
+ *
+ * @returns The absolute home path, without a trailing slash.
+ */
+export async function localHomeDir(): Promise<string> {
+  const home = await homeDir();
+  return home.replace(/\/+$/, "");
+}
+
+/**
+ * Subscribes to OS file drops on the window (Tauri's drag-drop layer —
+ * webviews never see dropped files as HTML5 events). The SFTP panel uses
+ * it for Finder→app drop-to-upload (F5).
+ *
+ * @param onDrop - Called with the dropped absolute paths.
+ * @returns A promise resolving to the unlisten function.
+ */
+export function onOsFileDrop(onDrop: (paths: string[]) => void): Promise<UnlistenFn> {
+  return getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type === "drop" && event.payload.paths.length > 0) {
+      onDrop(event.payload.paths);
+    }
   });
 }

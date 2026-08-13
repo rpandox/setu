@@ -1,0 +1,116 @@
+/* The transfer queue strip (F5): compact mono rows, a hairline progress
+   bar, quiet until something moves. */
+
+.sftp-queue {
+  border-top: 1px solid var(--line-strong);
+  background: var(--bg-1);
+  max-height: 160px;
+  display: flex;
+  flex-direction: column;
+}
+
+.sftp-queue-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(var(--pad) / 2) var(--pad);
+}
+
+.sftp-queue-title {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sftp-queue-head button {
+  padding: calc(var(--pad) / 4) calc(var(--pad) / 2);
+  background: none;
+  border: none;
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sftp-queue-head button:hover {
+  background: var(--bg-3);
+  color: var(--ink-1);
+}
+
+.sftp-queue-rows {
+  list-style: none;
+  overflow-y: auto;
+  padding: 0 calc(var(--pad) / 2) calc(var(--pad) / 2);
+}
+
+.sftp-queue-row {
+  display: grid;
+  grid-template-columns:
+    1.5ch minmax(80px, 1fr) minmax(60px, 2fr) auto minmax(80px, 1fr)
+    auto;
+  align-items: center;
+  gap: var(--pad);
+  padding: calc(var(--pad) / 3) calc(var(--pad) / 2);
+  border-radius: var(--r-1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.sftp-queue-dir {
+  color: var(--ink-3);
+}
+
+.sftp-queue-name {
+  color: var(--ink-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sftp-queue-bar {
+  position: relative;
+  height: 3px;
+  background: var(--bg-3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.sftp-queue-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--neon);
+  transition: width var(--t-fast);
+}
+
+.sftp-queue-row--failed .sftp-queue-fill {
+  background: var(--err);
+}
+
+.sftp-queue-bytes,
+.sftp-queue-status {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sftp-queue-row--failed .sftp-queue-status {
+  color: var(--err);
+}
+
+.sftp-queue-row button {
+  padding: 0 calc(var(--pad) / 2);
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sftp-queue-row button:hover {
+  color: var(--ink-1);
+}

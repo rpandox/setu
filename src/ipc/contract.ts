@@ -382,6 +382,12 @@ export interface SftpListResult {
   entries: SftpEntry[];
 }
 
+/** Result of `sftp_realpath`. */
+export interface SftpRealpathResult {
+  /** The canonical absolute path. */
+  path: string;
+}
+
 /** Payload for `sftp_rename`. */
 export interface SftpRenamePayload {
   /** The session to act on. */
@@ -562,6 +568,8 @@ export interface IpcCommands {
   sftp_disconnect: { payload: SftpSessionPayload; result: null };
   /** List a remote directory (complete listing; hidden filter is a view concern). */
   sftp_list: { payload: SftpPathPayload; result: SftpListResult };
+  /** Canonicalize a remote path (REALPATH) — `"."` → the home path. */
+  sftp_realpath: { payload: SftpPathPayload; result: SftpRealpathResult };
   /** Stat a remote path, following symlinks (the double-click follow). */
   sftp_stat: { payload: SftpPathPayload; result: SftpEntry };
   /** Create a remote directory. */

@@ -1,0 +1,124 @@
+/* The SFTP panel's small dialogs (F5) — same register as the paste guard
+   and fingerprint dialogs: calm chrome, mono data, explicit non-default
+   destructive/confirm actions. */
+
+.sftp-dialog-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-0) 55%, transparent);
+}
+
+.sftp-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pad);
+  width: 360px;
+  max-width: 90vw;
+  padding: calc(var(--pad) * 2);
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-2);
+}
+
+.sftp-dialog-title {
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.sftp-dialog-body {
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading);
+}
+
+.sftp-dialog-field {
+  padding: calc(var(--pad) / 2) var(--pad);
+  background: var(--bg-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+}
+
+.sftp-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--pad);
+  margin-top: calc(var(--pad) / 2);
+}
+
+.sftp-dialog-actions button {
+  padding: calc(var(--pad) / 2) calc(var(--pad) * 1.5);
+  background: var(--bg-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+
+.sftp-dialog-actions button:hover {
+  background: var(--bg-3);
+}
+
+.sftp-dialog-actions button:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.sftp-dialog-confirm {
+  border-color: var(--neon);
+}
+
+.sftp-dialog-danger {
+  border-color: var(--err);
+  color: var(--err);
+}
+
+.sftp-chmod-grid {
+  border-collapse: collapse;
+}
+
+.sftp-chmod-grid th,
+.sftp-chmod-grid td {
+  padding: calc(var(--pad) / 2) var(--pad);
+  text-align: center;
+}
+
+.sftp-chmod-grid thead th,
+.sftp-chmod-grid tbody th {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 450;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sftp-chmod-grid tbody th {
+  text-align: left;
+}
+
+.sftp-chmod-octal {
+  display: flex;
+  align-items: center;
+  gap: var(--pad);
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.sftp-chmod-octal .sftp-dialog-field {
+  width: 6ch;
+}

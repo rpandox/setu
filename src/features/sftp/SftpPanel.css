@@ -1,0 +1,130 @@
+/* The SFTP panel (F5): a full-size overlay in the terminal area. The
+   terminal stays mounted (and running) underneath; the panel paints an
+   opaque surface over it. */
+
+.sftp-panel {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-0);
+}
+
+.sftp-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pad);
+  padding: calc(var(--pad) / 2) var(--pad);
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--bg-1);
+}
+
+.sftp-panel-title {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--pad) / 2);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 550;
+}
+
+.sftp-panel-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.sftp-panel-dot--connecting {
+  border: 1px solid var(--ink-3);
+}
+
+.sftp-panel-dot--connected {
+  background: var(--ok);
+}
+
+.sftp-panel-dot--error,
+.sftp-panel-dot--idle {
+  background: var(--err);
+}
+
+.sftp-panel-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--pad);
+}
+
+.sftp-panel-tools button {
+  padding: calc(var(--pad) / 4) calc(var(--pad) / 2);
+  background: none;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+
+.sftp-panel-tools button:hover {
+  background: var(--bg-3);
+  color: var(--ink-1);
+}
+
+.sftp-panel-hidden {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--pad) / 2);
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sftp-panel-panes {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: var(--pad);
+  padding: var(--pad);
+}
+
+.sftp-panel-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pad);
+  flex: 1;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.sftp-panel-notice button {
+  padding: calc(var(--pad) / 2) calc(var(--pad) * 1.5);
+  background: var(--bg-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  cursor: pointer;
+}
+
+.sftp-panel-notice button:hover {
+  background: var(--bg-3);
+}
+
+.sftp-panel-error {
+  max-width: 560px;
+  padding: 0 var(--pad);
+  color: var(--err);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: var(--leading);
+  overflow-wrap: anywhere;
+  text-align: center;
+}

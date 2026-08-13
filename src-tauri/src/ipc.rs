@@ -742,6 +742,35 @@ pub async fn sftp_list(
         .map(|entries| SftpListResult { entries })
 }
 
+/// Result of [`sftp_realpath`] (mirrors `SftpRealpathResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpRealpathResult {
+    /// The canonical absolute path.
+    pub path: String,
+}
+
+/// Resolves a remote path to canonical absolute form (SFTP REALPATH) —
+/// turns the post-connect `"."` into the home path the path bar shows.
+///
+/// **Payload:** `{ sftpSessionId, path }` · **Result:** `{ path }` ·
+/// **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the session is unknown or the server refuses.
+#[tauri::command]
+pub async fn sftp_realpath(
+    manager: State<'_, SftpManager>,
+    sftp_session_id: String,
+    path: String,
+) -> Result<SftpRealpathResult, String> {
+    let session = manager.session(&sftp_session_id).await?;
+    sftp::remote_realpath(&session, &path)
+        .await
+        .map(|path| SftpRealpathResult { path })
+}
+
 /// Stats a remote path, following symlinks — the explicit follow half of
 /// the F5 symlink behavior.
 ///
