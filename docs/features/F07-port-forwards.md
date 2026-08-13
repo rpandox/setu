@@ -21,6 +21,8 @@ The status bar shows `⇌ N fwd` whenever any host has rules; clicking it
 opens the popover with every rule, its dot, and its toggle. Children die
 with their toggle and with the app — never orphans.
 
+![The forwards popover: the sftp-qa rule L 8080:localhost:9800 running with a green dot and a Stop toggle, the status-bar chip reading 1 fwd](../assets/f07-popover.png)
+
 ## How do I use it?
 
 Rules are edited in the **host editor** (sidebar → host → Edit): kind,
@@ -33,7 +35,8 @@ D  [bind-addr:]local-port                            1080
 ```
 
 Toggle rules in the status-bar popover. `auto` rules fire by themselves
-the moment you open a terminal to their host. `D` rules show a copyable
+the moment their host gains its first running terminal — later tabs and
+splits on an already-connected host never re-fire (or double-start) them. `D` rules show a copyable
 `socks5://localhost:PORT` string once running. A rule that is currently
 running locks in the editor — toggle it off first, then edit.
 
@@ -55,6 +58,8 @@ popover names the owner (via `lsof`) and offers the next free port:
 
 **Use 8081** starts a one-shot tunnel on the suggested port; your saved
 rule is never rewritten.
+
+![The conflict helper in the popover: the rule red, "Port 8080 is in use by Python (pid 77197)", and a Use 8081 button](../assets/f07-conflict.png)
 
 ## What can go wrong?
 

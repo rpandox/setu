@@ -155,9 +155,11 @@ export function ForwardsPopover({ onClose }: ForwardsPopoverProps) {
                         {running ? "Stop" : "Start"}
                       </button>
                     </div>
-                    {status?.state === "red" && status.reason !== undefined && (
-                      <p className="fwdpop-reason">{status.reason}</p>
-                    )}
+                    {status?.state === "red" &&
+                      status.reason !== undefined &&
+                      conflict === undefined && (
+                        <p className="fwdpop-reason">{status.reason}</p>
+                      )}
                     {status?.proxyString !== undefined && running && (
                       <button
                         className="fwdpop-socks"

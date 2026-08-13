@@ -17,6 +17,8 @@ Snippets live in `~/.config/setu/snippets.toml`, inside the same
 human-diffable sync unit as your hosts, and travel as **packs**: export
 your snippets to a TOML file, import someone else's.
 
+![The snippet drawer (⌘J): each snippet shows its command template and tags with Run / Edit / Delete, plus New snippet, Import pack and Export all below](../assets/f06-drawer.png)
+
 ## How do I use it?
 
 | Keys | Action                                                    |
@@ -41,6 +43,8 @@ the exact resolved command, and asks where to run it:
   command runs there as the session opens.
 - **Broadcast set** — every armed pane (⇧⌘B first), exactly like typing
   into the broadcast.
+
+![The run dialog for "follow service logs": the SERVICE prompt pre-filled with its default, the three run targets, and the resolved command preview](../assets/f06-run-dialog.png)
 
 ### Packs
 
