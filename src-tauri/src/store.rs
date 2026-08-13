@@ -360,7 +360,9 @@ impl HostsStore {
 ///
 /// Rules (F1 inline validation): label and hostname non-empty, port ≥ 1
 /// (the type caps it at 65535), hue 0–7, and `identity` is `"agent"` or a
-/// path that exists (`~` expanded).
+/// path that exists (`~` expanded). Forward rules (F7, Phase 6) must parse
+/// against the [`crate::forwards::parse_forward_spec`] grammar, with no
+/// duplicate `kind + spec` pairs (they would collide on one rule key).
 pub fn validate_host(host: &Host) -> Vec<FieldError> {
     let mut errors = Vec::new();
     if host.label.trim().is_empty() {
@@ -381,6 +383,33 @@ pub fn validate_host(host: &Host) -> Vec<FieldError> {
             "identity",
             "Identity file not found (use \"agent\" for the SSH agent)",
         ));
+    }
+    for (index, rule) in host.forwards.iter().enumerate() {
+        if let Err(message) = crate::forwards::parse_forward_spec(&rule.kind, &rule.spec) {
+            errors.push(FieldError::new(
+                "forwards",
+                &format!(
+                    "Rule {} ({} {}): {message}",
+                    index + 1,
+                    rule.kind,
+                    rule.spec
+                ),
+            ));
+        }
+        if host.forwards[..index]
+            .iter()
+            .any(|earlier| earlier.kind == rule.kind && earlier.spec == rule.spec)
+        {
+            errors.push(FieldError::new(
+                "forwards",
+                &format!(
+                    "Rule {} duplicates an earlier {} {} rule",
+                    index + 1,
+                    rule.kind,
+                    rule.spec
+                ),
+            ));
+        }
     }
     errors
 }
@@ -569,6 +598,41 @@ mod tests {
         assert!(validate_host(&host).is_empty());
         host.identity = "agent".into();
         assert!(validate_host(&host).is_empty());
+    }
+
+    #[test]
+    fn forward_rules_validate_grammar_and_duplicates() {
+        let mut host = valid_host();
+        host.forwards = vec![
+            Forward {
+                kind: "L".into(),
+                spec: "8080:localhost:8080".into(),
+                auto: true,
+            },
+            Forward {
+                kind: "L".into(),
+                spec: "8080:localhost".into(), // malformed: missing target port
+                auto: false,
+            },
+            Forward {
+                kind: "L".into(),
+                spec: "8080:localhost:8080".into(), // duplicate of rule 1
+                auto: false,
+            },
+        ];
+        let messages: Vec<String> = validate_host(&host)
+            .into_iter()
+            .map(|e| {
+                assert_eq!(e.field, "forwards");
+                e.message
+            })
+            .collect();
+        assert_eq!(messages.len(), 2, "got: {messages:?}");
+        assert!(messages[0].contains("Rule 2"));
+        assert!(messages[1].contains("Rule 3") && messages[1].contains("duplicates"));
+
+        host.forwards.truncate(1);
+        assert!(validate_host(&host).is_empty(), "one valid rule passes");
     }
 
     #[test]

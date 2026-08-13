@@ -32,14 +32,17 @@ const KEEPALIVE_ARGS: [&str; 4] = [
     "ServerAliveCountMax=3",
 ];
 
-/// Builds the exact `ssh` argv for `host` (see module docs for the shape).
-///
-/// Pure and fully unit-tested; [`ssh_command`] wraps the result in a
-/// [`CommandBuilder`] for spawning.
-pub fn ssh_argv(host: &Host) -> Vec<String> {
-    let mut argv: Vec<String> = vec!["ssh".into(), "-tt".into()];
-    argv.extend(KEEPALIVE_ARGS.iter().map(|s| s.to_string()));
+/// Flags applied to every managed `ssh -N` forward child (F7, `PLAN.md` §5):
+/// a failed bind exits ssh instead of limping on, and BatchMode turns any
+/// would-be interactive prompt (auth, unknown host key) into a fast failure
+/// the health machine can read — a `-N` child has no terminal to ask in.
+const FORWARD_ARGS: [&str; 4] = ["-o", "ExitOnForwardFailure=yes", "-o", "BatchMode=yes"];
 
+/// The destination tail of an ssh argv: the bare alias for imported rows
+/// (system ssh applies the user's real config — ProxyJump included), or
+/// explicit `-p`/`-i`/`user@hostname` flags for Setu-owned rows.
+fn destination_args(host: &Host) -> Vec<String> {
+    let mut argv: Vec<String> = Vec::new();
     if host.source == HostSource::SshConfig {
         // The alias is the whole point: system ssh applies the user's real
         // config (ProxyJump, IdentityFile, wildcard options, …) itself.
@@ -60,6 +63,17 @@ pub fn ssh_argv(host: &Host) -> Vec<String> {
             argv.push(format!("{}@{}", host.user, host.hostname));
         }
     }
+    argv
+}
+
+/// Builds the exact `ssh` argv for `host` (see module docs for the shape).
+///
+/// Pure and fully unit-tested; [`ssh_command`] wraps the result in a
+/// [`CommandBuilder`] for spawning.
+pub fn ssh_argv(host: &Host) -> Vec<String> {
+    let mut argv: Vec<String> = vec!["ssh".into(), "-tt".into()];
+    argv.extend(KEEPALIVE_ARGS.iter().map(|s| s.to_string()));
+    argv.extend(destination_args(host));
 
     let startup = host.startup.trim();
     if !startup.is_empty() {
@@ -68,6 +82,27 @@ pub fn ssh_argv(host: &Host) -> Vec<String> {
         // them to the remote shell, so no local quoting is needed.
         argv.push(startup.to_string());
     }
+    argv
+}
+
+/// Builds the argv for a managed `ssh -N` forward child (F7):
+///
+/// ```text
+/// ssh -N -o ExitOnForwardFailure=yes -o BatchMode=yes \
+///     -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+///     -L|-R|-D <spec> <host flags | bare alias>
+/// ```
+///
+/// No `-tt` (there is no terminal) and no `-- <startup>` (nothing runs
+/// remotely). `kind` is `"L"`, `"R"`, or `"D"` — validated upstream by
+/// [`crate::forwards::parse_forward_spec`].
+pub fn forward_argv(host: &Host, kind: &str, spec: &str) -> Vec<String> {
+    let mut argv: Vec<String> = vec!["ssh".into(), "-N".into()];
+    argv.extend(FORWARD_ARGS.iter().map(|s| s.to_string()));
+    argv.extend(KEEPALIVE_ARGS.iter().map(|s| s.to_string()));
+    argv.push(format!("-{kind}"));
+    argv.push(spec.to_string());
+    argv.extend(destination_args(host));
     argv
 }
 
@@ -193,5 +228,44 @@ mod tests {
     fn agent_identity_adds_no_flag() {
         let argv = ssh_argv(&setu_host());
         assert!(!argv.contains(&"-i".to_string()));
+    }
+
+    #[test]
+    fn forward_argv_has_no_tty_and_fails_fast() {
+        let argv = forward_argv(&setu_host(), "L", "8080:localhost:8080");
+        let expected: Vec<&str> = vec![
+            "ssh",
+            "-N",
+            "-o",
+            "ExitOnForwardFailure=yes",
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ServerAliveInterval=30",
+            "-o",
+            "ServerAliveCountMax=3",
+            "-L",
+            "8080:localhost:8080",
+            "pandox@hermes.example.net",
+        ];
+        assert_eq!(argv, expected);
+    }
+
+    #[test]
+    fn forward_argv_ignores_startup_and_uses_bare_alias_for_imports() {
+        let mut host = setu_host();
+        host.startup = "tmux new -A -s main".into();
+        let argv = forward_argv(&host, "D", "1080");
+        assert!(!argv.contains(&"--".to_string()), "no remote command");
+        assert_eq!(argv.last().unwrap(), "pandox@hermes.example.net");
+
+        host.source = HostSource::SshConfig;
+        let argv = forward_argv(&host, "R", "9000:localhost:3000");
+        assert_eq!(
+            argv.last().unwrap(),
+            "hermes",
+            "imported rows use the alias"
+        );
+        assert!(argv.contains(&"-R".to_string()));
     }
 }
