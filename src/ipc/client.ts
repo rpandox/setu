@@ -6,7 +6,7 @@
 
 import { invoke, type InvokeArgs } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { IpcCommands, PtyExitEvent } from "./contract";
+import type { IpcCommands, PtyExitEvent, ReachUpdate } from "./contract";
 
 /**
  * Invokes a Tauri command with its contract-typed payload and result.
@@ -61,5 +61,21 @@ export function onPtyExit(
 ): Promise<UnlistenFn> {
   return listen<PtyExitEvent>(`pty:exit:${sessionId}`, (event) => {
     onExit(event.payload);
+  });
+}
+
+/**
+ * Subscribes to `reach:update` — one probe result per event, every host on
+ * the one channel (F1 LED board). Wired once at app start by the reach
+ * store; the payload's `hostId` routes it.
+ *
+ * @param onUpdate - Called with each probe result, in arrival order.
+ * @returns A promise resolving to the unlisten function.
+ */
+export function onReachUpdate(
+  onUpdate: (update: ReachUpdate) => void,
+): Promise<UnlistenFn> {
+  return listen<ReachUpdate>("reach:update", (event) => {
+    onUpdate(event.payload);
   });
 }

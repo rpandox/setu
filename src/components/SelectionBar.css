@@ -1,0 +1,93 @@
+/* The bulk-action bar pinned under the host list while a multi-selection
+   is active (F1, Phase 4). Quiet chrome; the selection tint on the rows
+   carries the state. */
+
+.selectionbar {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: calc(var(--pad) * 0.75);
+  padding: var(--pad);
+  background: var(--bg-2);
+  border-top: 1px solid var(--line-strong);
+}
+
+.selectionbar-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.selectionbar-clear {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-decoration: underline;
+}
+
+.selectionbar-clear:hover {
+  color: var(--ink-1);
+}
+
+.selectionbar-actions,
+.selectionbar-form {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+}
+
+.selectionbar-actions button,
+.selectionbar-form button {
+  flex: 1;
+  padding: calc(var(--pad) / 2) var(--pad);
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.selectionbar-actions button:hover,
+.selectionbar-form button:hover {
+  border-color: var(--line-strong);
+}
+
+.selectionbar-actions button.selectionbar-delete--armed {
+  color: var(--err);
+  border-color: var(--err);
+}
+
+.selectionbar-form input {
+  flex: 3;
+  min-width: 0;
+  padding: calc(var(--pad) / 2) var(--pad);
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.selectionbar-form input::placeholder {
+  color: var(--ink-3);
+}
+
+.selectionbar-hues {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  justify-content: space-between;
+}
+
+.selectionbar-hue {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+}

@@ -8,9 +8,11 @@
 //! Module map (mirrors `PLAN.md` §3):
 //! - [`pty`] — PTY lifecycle: spawning `$SHELL` / `ssh` / `mosh`, I/O, resize, reaping.
 //! - [`store`] — plain-TOML persistence for hosts, snippets, and settings.
+//! - [`settings`] — read-only `settings.toml` access (prober knobs, Phase 4).
 //! - [`ui_state`] — device-local `state.json`: layout restore + UI prefs (F4).
 //! - [`ssh_config`] — the small `~/.ssh/config` reader behind the F1 import.
 //! - [`connect`] — the `Host` → `ssh` argv spawn pipeline (F3).
+//! - [`reach`] — the TCP reachability prober behind the LED board (F1).
 //! - [`ipc`] — the Tauri command surface, mirrored by `src/ipc/contract.ts`.
 
 #![deny(missing_docs)]
@@ -18,6 +20,8 @@
 pub mod connect;
 pub mod ipc;
 pub mod pty;
+pub mod reach;
+pub mod settings;
 pub mod ssh_config;
 pub mod store;
 pub mod ui_state;
@@ -48,6 +52,15 @@ pub fn run() {
             let events = Arc::new(ipc::TauriPtyEvents::new(app.handle().clone()));
             app.manage(pty::PtyManager::new(events));
             app.manage(store::HostsStore::new(store::HostsStore::default_path()?));
+            app.manage(settings::SettingsStore::new(
+                settings::SettingsStore::default_path()?,
+            ));
+            // The prober reads hosts and emits reach:update through the app
+            // handle; it stays idle until the frontend invokes reach_start.
+            app.manage(reach::ReachProber::new(
+                Arc::new(ipc::AppTargetSource::new(app.handle().clone())),
+                Arc::new(ipc::TauriReachEvents::new(app.handle().clone())),
+            ));
             // state.json lives in the app-support dir (PLAN.md §4) — resolved
             // here so the module itself stays Tauri-free like the others.
             app.manage(ui_state::UiStateStore::new(
@@ -64,18 +77,22 @@ pub fn run() {
             ipc::host_upsert,
             ipc::host_delete,
             ipc::host_adopt,
+            ipc::reach_start,
+            ipc::reach_stop,
+            ipc::reach_set_visible,
             ipc::ui_state_get,
             ipc::ui_state_set,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
-            // Both arms fire on the way out; kill_all is idempotent.
+            // Both arms fire on the way out; kill_all and stop are idempotent.
             if matches!(
                 event,
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
             ) {
                 app.state::<pty::PtyManager>().kill_all();
+                app.state::<reach::ReachProber>().stop();
             }
         });
 }

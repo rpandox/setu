@@ -1,0 +1,109 @@
+/* The host-key trust dialog (Phase 4 component; Phase 5 wires it to SFTP
+   connects). Same register as the paste guard: calm chrome, the digest in
+   selectable mono, trust as the explicit non-default action. */
+
+.fingerprint-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-0) 55%, transparent);
+}
+
+.fingerprint {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pad);
+  width: 440px;
+  max-width: 90vw;
+  padding: calc(var(--pad) * 2);
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-2);
+}
+
+.fingerprint-title {
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.fingerprint-hint {
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading);
+}
+
+.fingerprint-hint code {
+  padding: 0 calc(var(--pad) / 4);
+  background: var(--bg-1);
+  border-radius: calc(var(--r-1) / 2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.fingerprint-key {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--pad) / 2) var(--pad);
+  padding: var(--pad);
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+}
+
+.fingerprint-key dt {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.fingerprint-key dd {
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* The digest is the thing being compared — selectable, wraps cleanly. */
+.fingerprint-digest {
+  user-select: all;
+  word-break: break-all;
+}
+
+.fingerprint-actions {
+  display: flex;
+  gap: var(--pad);
+  justify-content: flex-end;
+}
+
+.fingerprint-actions button {
+  padding: calc(var(--pad) / 2) calc(var(--pad) * 1.5);
+  border-radius: var(--r-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.fingerprint-cancel {
+  background: var(--bg-3);
+  border: 1px solid var(--line-strong);
+  color: var(--ink-1);
+}
+
+.fingerprint-trust {
+  background: var(--neon);
+  border: 1px solid var(--neon);
+  color: var(--neon-ink);
+  font-weight: 550;
+}
+
+.fingerprint-trust:hover {
+  background: var(--neon-hover);
+}
+
+.fingerprint-trust:active {
+  background: var(--neon-pressed);
+}

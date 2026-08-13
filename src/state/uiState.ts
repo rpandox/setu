@@ -15,8 +15,15 @@
 
 import { create } from "zustand";
 import { ipcInvoke } from "../ipc/client";
-import type { Host, SavedSplitNode, SavedTab, UiState } from "../ipc/contract";
+import type {
+  FrecencyEntry,
+  Host,
+  SavedSplitNode,
+  SavedTab,
+  UiState,
+} from "../ipc/contract";
 import { useBroadcast } from "./broadcast";
+import { bumpFrecency } from "./frecency";
 import { useSessions, type RestoreNode, type SessionMeta, type Tab } from "./sessions";
 import type { SplitNode } from "./splits";
 
@@ -34,6 +41,7 @@ export function defaultUiState(): UiState {
     broadcastAutoDisarm: true,
     restoreOnLaunch: false,
     savedLayout: [],
+    frecency: {},
   };
 }
 
@@ -43,24 +51,32 @@ export interface UiPrefsState {
   collapsedSections: string[];
   /** Whether the saved layout reopens on launch (F4, default off). */
   restoreOnLaunch: boolean;
+  /** Palette frecency records keyed by subject (F11, Phase 4). */
+  frecency: Record<string, FrecencyEntry>;
   /** True once `state.json` has been loaded and stores are hydrated. */
   hydrated: boolean;
   /** Replaces the collapsed-section set (Sidebar toggles call this). */
   setCollapsedSections(sections: string[]): void;
   /** Sets the restore-on-launch opt-in. */
   setRestoreOnLaunch(value: boolean): void;
+  /** Records one frecency use (`host:<id>` / `action:<id>`, F11). */
+  recordUse(subject: string): void;
 }
 
 /** The UI-preferences store hook. */
 export const useUiPrefs = create<UiPrefsState>((set) => ({
   collapsedSections: [],
   restoreOnLaunch: false,
+  frecency: {},
   hydrated: false,
   setCollapsedSections(sections: string[]): void {
     set((state) => ({ ...state, collapsedSections: sections }));
   },
   setRestoreOnLaunch(value: boolean): void {
     set((state) => ({ ...state, restoreOnLaunch: value }));
+  },
+  recordUse(subject: string): void {
+    set((state) => ({ ...state, frecency: bumpFrecency(state.frecency, subject) }));
   },
 }));
 
@@ -143,6 +159,8 @@ export function toRestorePlan(
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let persistDisabled = false;
 let wired = false;
+/** Undo hooks for everything initUiState wires (torn down on test reset). */
+let teardowns: Array<() => void> = [];
 
 /** Builds the full document from the owning stores. */
 function snapshot(): UiState {
@@ -154,6 +172,7 @@ function snapshot(): UiState {
     broadcastAutoDisarm: useBroadcast.getState().autoDisarm,
     restoreOnLaunch: prefs.restoreOnLaunch,
     savedLayout: serializeLayout(sessions.tabs, sessions.sessions),
+    frecency: prefs.frecency,
   };
 }
 
@@ -228,37 +247,49 @@ export async function initUiState(): Promise<void> {
   useUiPrefs.setState({
     collapsedSections: state.sidebar.collapsedSections,
     restoreOnLaunch: state.restoreOnLaunch,
+    frecency: state.frecency ?? {},
     hydrated: true,
   });
 
   // Persist on change — layout (tabs), sidebar collapse, the auto-disarm
   // flag — and flush on the way out so quick quits keep the last layout.
+  // Every subscription's undo is kept so test resets can't accumulate
+  // duplicate listeners across initUiState calls.
   let prevTabs = useSessions.getState().tabs;
-  useSessions.subscribe((s) => {
-    if (s.tabs !== prevTabs) {
-      prevTabs = s.tabs;
-      schedulePersist();
-    }
-  });
+  teardowns.push(
+    useSessions.subscribe((s) => {
+      if (s.tabs !== prevTabs) {
+        prevTabs = s.tabs;
+        schedulePersist();
+      }
+    }),
+  );
   let prevPrefs = useUiPrefs.getState();
-  useUiPrefs.subscribe((s) => {
-    if (
-      s.collapsedSections !== prevPrefs.collapsedSections ||
-      s.restoreOnLaunch !== prevPrefs.restoreOnLaunch
-    ) {
-      prevPrefs = s;
-      schedulePersist();
-    }
-  });
+  teardowns.push(
+    useUiPrefs.subscribe((s) => {
+      if (
+        s.collapsedSections !== prevPrefs.collapsedSections ||
+        s.restoreOnLaunch !== prevPrefs.restoreOnLaunch ||
+        s.frecency !== prevPrefs.frecency
+      ) {
+        prevPrefs = s;
+        schedulePersist();
+      }
+    }),
+  );
   let prevAutoDisarm = useBroadcast.getState().autoDisarm;
-  useBroadcast.subscribe((s) => {
-    if (s.autoDisarm !== prevAutoDisarm) {
-      prevAutoDisarm = s.autoDisarm;
-      schedulePersist();
-    }
-  });
+  teardowns.push(
+    useBroadcast.subscribe((s) => {
+      if (s.autoDisarm !== prevAutoDisarm) {
+        prevAutoDisarm = s.autoDisarm;
+        schedulePersist();
+      }
+    }),
+  );
   if (typeof window !== "undefined") {
-    window.addEventListener("pagehide", () => void persistNow());
+    const flush = (): void => void persistNow();
+    window.addEventListener("pagehide", flush);
+    teardowns.push(() => window.removeEventListener("pagehide", flush));
   }
 
   if (state.restoreOnLaunch && state.savedLayout.length > 0) {
@@ -293,12 +324,15 @@ async function restoreSavedLayout(saved: SavedTab[]): Promise<void> {
 }
 
 /**
- * Test hook: resets the module's wiring state (subscriptions themselves
- * are harmless to leave behind in tests; the flags gate re-entry).
+ * Test hook: resets the module's wiring state and tears down every
+ * subscription and listener the previous `initUiState` installed, so
+ * repeated init calls across tests never accumulate duplicates.
  */
 export function resetUiStateForTests(): void {
   wired = false;
   persistDisabled = false;
+  for (const teardown of teardowns) teardown();
+  teardowns = [];
   if (persistTimer !== null) {
     clearTimeout(persistTimer);
     persistTimer = null;

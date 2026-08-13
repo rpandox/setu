@@ -1,20 +1,25 @@
 import "./StatusBar.css";
 import { countBroadcastTargets, useBroadcast } from "../state/broadcast";
-import { activeTabOf, useSessions } from "../state/sessions";
+import { useReach } from "../state/reach";
+import { activeTabOf, tabSessionOf, useSessions } from "../state/sessions";
 
 /**
- * The 24px status bar (PLAN.md §7 wireframe): host, cwd, latency, forward
- * count, and sync state as quiet mono chips — plus the F4 broadcast badge,
- * which appears (in warning red, like the pane hairlines) whenever the
- * active tab is broadcasting. Most chips are static placeholders until
- * their feature lands (latency in Phase 4, forwards in Phase 6, sync in
- * Phase 8).
+ * The 24px status bar (PLAN.md §7 wireframe): quiet mono chips showing only
+ * real data — the focused pane's host (or `local`), its live latency from
+ * the reachability prober — plus the F4 broadcast badge in warning red
+ * whenever the active tab is broadcasting. Chips for features that haven't
+ * landed (cwd → Phase 10, forwards → Phase 6, sync → Phase 8) return with
+ * their phases instead of showing placeholders (PLAN.md §5, Phase 4 row).
  *
  * @returns The status bar element.
  */
 export function StatusBar() {
   const activeTab = useSessions(activeTabOf);
   const sessions = useSessions((s) => s.sessions);
+  const focused = activeTab ? tabSessionOf(sessions, activeTab) : undefined;
+  const rttMs = useReach((s) =>
+    focused?.hostId !== undefined ? s.byHost[focused.hostId]?.rttMs : undefined,
+  );
   const broadcastArmed = useBroadcast((s) =>
     activeTab ? (s.active[activeTab.tabId] ?? false) : false,
   );
@@ -26,13 +31,17 @@ export function StatusBar() {
       ? countBroadcastTargets(activeTab, sessions, selectedPanes ?? [])
       : 0;
 
+  const hostChip =
+    focused === undefined
+      ? null
+      : focused.kind === "ssh"
+        ? `⌁ ${focused.hostLabel ?? focused.title}${focused.orphaned ? " (orphaned)" : ""}`
+        : "⌁ local";
+
   return (
     <footer className="statusbar">
-      <span className="statusbar-chip">⌁ hermes</span>
-      <span className="statusbar-chip">~/apps</span>
-      <span className="statusbar-chip">12ms</span>
-      <span className="statusbar-chip">2 fwd</span>
-      <span className="statusbar-chip">sync ✓</span>
+      {hostChip !== null && <span className="statusbar-chip">{hostChip}</span>}
+      {rttMs !== undefined && <span className="statusbar-chip">{rttMs}ms</span>}
       {broadcastCount > 0 && (
         <span className="statusbar-chip statusbar-chip--broadcast" role="status">
           ⇉ Broadcasting to {broadcastCount}

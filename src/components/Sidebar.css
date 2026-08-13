@@ -171,6 +171,56 @@
   background: var(--bg-2);
 }
 
+/* Multi-selected rows (F1 bulk actions): a quiet tint + accent edge. */
+.host-item--selected .host-row,
+.host-item--selected:hover .host-row {
+  background: var(--bg-3);
+  box-shadow: inset 2px 0 0 var(--neon);
+}
+
+/* The notes popover (F1): minimal markdown under the row. */
+.host-notes {
+  position: absolute;
+  top: 100%;
+  right: var(--pad);
+  left: var(--pad);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+  padding: var(--pad);
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: var(--leading);
+}
+
+.host-notes code {
+  padding: 0 calc(var(--pad) / 4);
+  background: var(--bg-1);
+  border-radius: calc(var(--r-1) / 2);
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.host-notes a {
+  color: var(--info);
+  text-decoration: underline;
+}
+
+.host-notes ul {
+  padding-left: calc(var(--pad) * 2);
+  list-style: disc;
+}
+
+.host-action--open {
+  color: var(--ink-1);
+}
+
 /* Row actions (edit / adopt / copy / delete) fade in on hover, floating
    over the row's right edge. */
 .host-actions {
@@ -217,24 +267,19 @@
   color: var(--err);
 }
 
-/* Hollow ring = probing / reachability off (§7 LED table). No glow. */
-.host-led {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border: 1px solid var(--ink-3);
-  border-radius: 50%;
-}
+/* The LED itself lives in HostLed.css (shared with the palette). */
 
 .host-label {
   flex: none;
 }
 
 .host-detail {
+  flex: 1;
   overflow: hidden;
   color: var(--ink-3);
   font-family: var(--font-mono);
   font-size: 11px;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

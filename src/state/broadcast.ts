@@ -7,11 +7,12 @@
  * frontend at the pty-write boundary (PLAN.md §5: broadcast is frontend
  * fan-out). Typing into a deselected pane stays normal input.
  *
- * Multi-line pastes while broadcasting never fan out silently: the paste
- * is intercepted at the DOM level (xterm normalizes newlines before
- * `onData`, so detection must happen before xterm sees it) and routed
- * through the {@link PendingPaste} guard dialog. Phase 4 extends this
- * minimal guard to all pastes with dangerous-pattern detection (§5 log).
+ * Risky pastes never land silently: they are intercepted at the DOM level
+ * (xterm normalizes newlines before `onData`, so detection must happen
+ * before xterm sees it) and routed through the {@link PendingPaste} guard
+ * dialog. Detection lives in `src/features/terminal/pasteGuard.ts` (F2,
+ * Phase 4) and covers every pane — broadcast pastes add the "N sessions"
+ * warning on top.
  */
 
 import { create } from "zustand";
@@ -21,14 +22,16 @@ import { getSessionTerminal } from "../features/terminal/registry";
 import { useToast } from "./toast";
 import type { SessionMeta, Tab } from "./sessions";
 
-/** A multi-line paste awaiting confirmation in the guard dialog (F4). */
+/** A guarded paste awaiting confirmation in the dialog (F2/F4). */
 export interface PendingPaste {
   /** The pane the paste landed in (fan-out re-resolves from it). */
   sessionId: string;
   /** The exact clipboard text. */
   text: string;
-  /** How many sessions the paste will reach ("N sessions" warning). */
+  /** How many sessions the paste will reach (1 = single pane). */
   targetCount: number;
+  /** Why the paste was guarded (from `classifyPaste`, F2). */
+  reasons: string[];
 }
 
 /** Store shape + actions for broadcast selection, arming, and paste guard. */
@@ -57,12 +60,13 @@ export interface BroadcastState {
   pruneAgainst(tabs: Tab[]): void;
   /** Opens the paste-guard dialog for a multi-line broadcast paste. */
   requestPasteGuard(pending: PendingPaste): void;
-  /** Closes the dialog without pasting. */
+  /** Closes the dialog without pasting; the pane regains keyboard focus. */
   cancelPasteGuard(): void;
   /**
    * Confirms the guarded paste: the (possibly edited) text goes through the
    * focused pane's normal xterm paste path, so bracketed paste and the
-   * fan-out resolver apply exactly as if it were typed.
+   * fan-out resolver apply exactly as if it were typed. The pane regains
+   * keyboard focus afterwards.
    */
   confirmPasteGuard(text: string): void;
 }
@@ -149,7 +153,9 @@ export const useBroadcast = create<BroadcastState>((set, get) => ({
   },
 
   cancelPasteGuard(): void {
+    const pending = get().pendingPaste;
     set((state) => ({ ...state, pendingPaste: null }));
+    if (pending) refocusPane(pending.sessionId);
   },
 
   confirmPasteGuard(text: string): void {
@@ -157,24 +163,28 @@ export const useBroadcast = create<BroadcastState>((set, get) => ({
     if (!pending) return;
     set((state) => ({ ...state, pendingPaste: null }));
     getSessionTerminal(pending.sessionId)?.term.paste(text);
+    refocusPane(pending.sessionId);
   },
 }));
+
+/**
+ * Hands focus back to a pane's terminal after the guard dialog closes.
+ * Without this, focus falls to `<body>` and the next ⌘V dies silently —
+ * no pane capture handler in its path, so no guard and no paste. Deferred
+ * a frame for the same WKWebView reason as in `TerminalPane`.
+ *
+ * @param sessionId - The pane whose terminal should regain focus.
+ */
+function refocusPane(sessionId: string): void {
+  requestAnimationFrame(() => {
+    getSessionTerminal(sessionId)?.term.focus();
+  });
+}
 
 /** Minimum ms between "skipped dead panes" toasts (one per burst, F4). */
 const DEAD_SKIP_TOAST_MS = 2000;
 
 let lastDeadToastAt = 0;
-
-/**
- * Whether pasted text needs the broadcast guard: any newline counts —
- * even a trailing one, since that would *execute* in every armed pane.
- *
- * @param text - The raw clipboard text (before xterm normalizes it).
- * @returns True when the paste is multi-line.
- */
-export function pasteNeedsGuard(text: string): boolean {
-  return /[\r\n]/.test(text);
-}
 
 /**
  * Resolves where a pane's input goes (the F4 fan-out): the pane itself

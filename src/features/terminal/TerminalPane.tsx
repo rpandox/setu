@@ -1,10 +1,7 @@
 import { useEffect, useRef, type ClipboardEvent } from "react";
 import { getSessionTerminal } from "./registry";
-import {
-  pasteNeedsGuard,
-  resolvePtyWriteTargets,
-  useBroadcast,
-} from "../../state/broadcast";
+import { classifyPaste } from "./pasteGuard";
+import { resolvePtyWriteTargets, useBroadcast } from "../../state/broadcast";
 
 /** Props for {@link TerminalPane}. */
 export interface TerminalPaneProps {
@@ -22,9 +19,10 @@ export interface TerminalPaneProps {
  *
  * Pastes are inspected here, in the DOM capture phase *before* xterm sees
  * them (xterm normalizes newlines, so `onData` can't tell a multi-line
- * paste from typing): a multi-line paste that would broadcast to several
- * sessions is stopped and routed through the F4 paste-guard dialog.
- * Everything else flows through untouched.
+ * paste from typing): multi-line or dangerous-pattern pastes stop at the
+ * F2 guard dialog on every pane — with the "N sessions" warning when the
+ * pane is broadcasting (F4). Single-line safe pastes flow through
+ * untouched.
  *
  * @param props - {@link TerminalPaneProps}
  * @returns The pane element the terminal renders into.
@@ -33,21 +31,22 @@ export function TerminalPane({ sessionId, active }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   /**
-   * Guards multi-line pastes that would fan out (F4).
+   * Guards risky pastes (F2 patterns; F4 fan-out count).
    *
    * @param event - The DOM paste event, capture phase.
    */
   const onPasteCapture = (event: ClipboardEvent<HTMLDivElement>): void => {
     const text = event.clipboardData?.getData("text") ?? "";
-    if (!pasteNeedsGuard(text)) return;
+    const { verdict, reasons } = classifyPaste(text);
+    if (verdict === "safe") return;
     const targets = resolvePtyWriteTargets(sessionId, { silent: true });
-    if (targets.length <= 1) return; // Not broadcasting: Phase 4 owns this path.
     event.preventDefault();
     event.stopPropagation();
     useBroadcast.getState().requestPasteGuard({
       sessionId,
       text,
       targetCount: targets.length,
+      reasons,
     });
   };
 

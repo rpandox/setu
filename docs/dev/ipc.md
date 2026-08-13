@@ -133,6 +133,55 @@ exactly what ssh would have resolved.
 | Emits      | nothing                                                                                                                                       |
 | Fails when | the id isn't `sshcfg:`, the alias no longer exists in the config, the copy fails validation (e.g. missing `IdentityFile`), or the write fails |
 
+### `reach_start`
+
+Start (or refresh) the reachability prober behind the LED board (F1). The
+first call spawns the sweep loop and probes immediately — a bare TCP
+connect per host, staggered with jitter, at most `max_concurrent` in
+flight, each bounded by `timeout_ms` — then re-sweeps every `interval_s`.
+Later calls re-read `settings.toml` and trigger an immediate fresh sweep;
+the frontend re-invokes after host CRUD so a new host lights up without
+waiting a full interval. Knobs and defaults live in the `[reachability]`
+table of `settings.toml` ([store.md](store.md)).
+
+|            |                                                                                                                       |
+| ---------- | --------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{}`                                                                                                                  |
+| Result     | `{ started: boolean }` — `false` means the global kill switch (`reachability.enabled = false`) is off; nothing probes |
+| Emits      | `reach:update` per probed host, every sweep, until `reach_stop`                                                       |
+| Fails when | `settings.toml` exists but can't be read or parsed                                                                    |
+
+Hosts opt out individually with `reachability = false` in `hosts.toml`;
+alias-only `~/.ssh/config` rows (no `HostName`) are never probed and their
+LED stays hollow. Probes carry no auth and read no banners — see the
+security model in [architecture.md](../architecture.md).
+
+### `reach_stop`
+
+Stop the prober. In-flight probes finish within their timeout; no further
+`reach:update` events follow.
+
+|            |                                            |
+| ---------- | ------------------------------------------ |
+| Payload    | `{}`                                       |
+| Result     | `null`                                     |
+| Emits      | nothing                                    |
+| Fails when | never — stopping an idle prober is a no-op |
+
+### `reach_set_visible`
+
+Report app visibility, called on every `document.visibilitychange`. Once
+the app has been hidden for more than 60 s, sweeping pauses; becoming
+visible again after such a pause triggers an immediate sweep (F1
+"pause-when-hidden"). Shorter hides don't disturb the probe rhythm.
+
+|            |                                                          |
+| ---------- | -------------------------------------------------------- |
+| Payload    | `{ visible: boolean }`                                   |
+| Result     | `null`                                                   |
+| Emits      | nothing directly (the resume sweep emits `reach:update`) |
+| Fails when | never                                                    |
+
 ### `ui_state_get`
 
 Read the device-local UI state from `state.json` in the app-support
@@ -181,3 +230,15 @@ follows it.
 
 Payload: `{ code: number | null }` — the exit code, or `null` when the child
 died from a signal (including `pty_kill`).
+
+### `reach:update`
+
+One reachability probe finished (F1). Every host shares this one channel —
+the payload carries the host id, and the reach store is the single consumer
+(PLAN.md §5, Phase 4 row, for why this differs from the per-session `pty:*`
+channels).
+
+Payload: `{ hostId: string, state: "up" | "down", rttMs?: number }` —
+`rttMs` is the TCP connect latency, present only for `"up"`. A host that
+accepts the connect but would refuse an ssh login still reports `"up"`: the
+LED shows reachability, not auth.

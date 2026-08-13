@@ -5,10 +5,11 @@
  * sync with what the Rust core sees.
  */
 
-import Fuse from "fuse.js";
+import Fuse, { type IFuseOptions } from "fuse.js";
 import { create } from "zustand";
 import { ipcInvoke } from "../ipc/client";
-import type { Host, HostFieldError } from "../ipc/contract";
+import type { FrecencyEntry, Host, HostFieldError } from "../ipc/contract";
+import { frecencyScore, hostSubject } from "./frecency";
 import { useSessions } from "./sessions";
 
 /**
@@ -27,6 +28,8 @@ export interface HostsState {
   query: string;
   /** What the HostEditor drawer is showing. */
   editorTarget: EditorTarget;
+  /** Multi-selected host ids (F1 bulk actions; editable rows only). */
+  selectedIds: string[];
   /** Loads (or reloads) the host list from the core. */
   load(): Promise<void>;
   /** Sets the sidebar search query. */
@@ -44,7 +47,25 @@ export interface HostsState {
   deleteHost(hostId: string): Promise<void>;
   /** Adopts an `sshcfg:` row into `hosts.toml` and reloads the list. */
   adoptHost(hostId: string): Promise<void>;
+  /** Replaces the multi-selection (⌘-click / ⇧-click build it). */
+  setSelected(ids: string[]): void;
+  /** Clears the multi-selection (Esc, or after a bulk action). */
+  clearSelection(): void;
+  /**
+   * Applies one edit to every selected editable host — set group, set hue,
+   * or add a tag — then reloads. Imported rows are skipped (read-only
+   * until adopted, F1).
+   */
+  bulkEdit(edit: BulkEdit): Promise<void>;
+  /** Deletes every selected editable host, then reloads. */
+  bulkDelete(): Promise<void>;
 }
+
+/** One bulk edit applied to the whole selection (F1 bulk actions). */
+export type BulkEdit =
+  | { kind: "group"; group: string }
+  | { kind: "hue"; hue: number }
+  | { kind: "tag"; tag: string };
 
 /**
  * The hosts store hook. Select narrowly in components
@@ -55,11 +76,18 @@ export const useHosts = create<HostsState>((set, get) => ({
   loadError: null,
   query: "",
   editorTarget: null,
+  selectedIds: [],
 
   async load(): Promise<void> {
     try {
       const hosts = await ipcInvoke("hosts_list", {});
-      set((state) => ({ ...state, hosts, loadError: null }));
+      set((state) => ({
+        ...state,
+        hosts,
+        loadError: null,
+        // Drop selection entries whose hosts vanished (delete, config edit).
+        selectedIds: state.selectedIds.filter((id) => hosts.some((h) => h.id === id)),
+      }));
     } catch (error) {
       set((state) => ({ ...state, loadError: String(error) }));
     }
@@ -103,6 +131,50 @@ export const useHosts = create<HostsState>((set, get) => ({
     await ipcInvoke("host_adopt", { hostId });
     await get().load();
   },
+
+  setSelected(ids: string[]): void {
+    set((state) => ({ ...state, selectedIds: ids }));
+  },
+
+  clearSelection(): void {
+    set((state) =>
+      state.selectedIds.length === 0 ? state : { ...state, selectedIds: [] },
+    );
+  },
+
+  async bulkEdit(edit: BulkEdit): Promise<void> {
+    const { hosts, selectedIds } = get();
+    const targets = hosts.filter(
+      (h) => selectedIds.includes(h.id) && h.source === "setu",
+    );
+    for (const host of targets) {
+      const draft: Host =
+        edit.kind === "group"
+          ? { ...host, group: edit.group }
+          : edit.kind === "hue"
+            ? { ...host, hue: edit.hue }
+            : {
+                ...host,
+                tags: host.tags.includes(edit.tag) ? host.tags : [...host.tags, edit.tag],
+              };
+      await ipcInvoke("host_upsert", { host: draft });
+    }
+    set((state) => ({ ...state, selectedIds: [] }));
+    await get().load();
+  },
+
+  async bulkDelete(): Promise<void> {
+    const { hosts, selectedIds } = get();
+    const targets = hosts.filter(
+      (h) => selectedIds.includes(h.id) && h.source === "setu",
+    );
+    for (const host of targets) {
+      await ipcInvoke("host_delete", { hostId: host.id });
+      useSessions.getState().markOrphaned(host.id);
+    }
+    set((state) => ({ ...state, selectedIds: [] }));
+    await get().load();
+  },
 }));
 
 /**
@@ -134,9 +206,26 @@ export function emptyHostDraft(): Host {
 }
 
 /**
+ * The tuned fuse.js options (Phase 4): match ranking label \> hostname \>
+ * tags \> user (F1), threshold tightened from the Phase 2 seed's 0.4 so
+ * short queries stop matching everything vaguely similar.
+ */
+const FUSE_OPTIONS: IFuseOptions<Host> = {
+  keys: [
+    { name: "label", weight: 1 },
+    { name: "hostname", weight: 0.6 },
+    { name: "tags", weight: 0.4 },
+    { name: "user", weight: 0.3 },
+  ],
+  threshold: 0.35,
+  ignoreLocation: true,
+  includeScore: true,
+};
+
+/**
  * Fuzzy-searches hosts, ranking matches label \> hostname \> tags \> user
- * (F1). Pure so ranking is unit-testable; threshold tuning happens in
- * Phase 4 alongside the full palette.
+ * (F1). Pure so ranking is unit-testable. The sidebar filter uses this;
+ * the palette blends in frecency via {@link rankHosts}.
  *
  * @param hosts - The hosts to search.
  * @param query - The user's query; empty returns `hosts` unchanged.
@@ -149,17 +238,50 @@ export function emptyHostDraft(): Host {
 export function searchHosts(hosts: Host[], query: string): Host[] {
   const trimmed = query.trim();
   if (trimmed === "") return hosts;
-  const fuse = new Fuse(hosts, {
-    keys: [
-      { name: "label", weight: 1 },
-      { name: "hostname", weight: 0.6 },
-      { name: "tags", weight: 0.4 },
-      { name: "user", weight: 0.3 },
-    ],
-    threshold: 0.4,
-    ignoreLocation: true,
-  });
-  return fuse.search(trimmed).map((result) => result.item);
+  return new Fuse(hosts, FUSE_OPTIONS).search(trimmed).map((result) => result.item);
+}
+
+/**
+ * Palette host ranking (F11): fuzzy match blended with frecency. With a
+ * query, each fuse score (lower = better) shrinks by the host's frecency
+ * boost, so the machines you actually connect to win near-ties; with an
+ * empty query, hosts order by frecency (favorites break ties), which makes
+ * ⌘T's initial list your most-used hosts.
+ *
+ * @param hosts - The hosts to rank.
+ * @param query - The palette query; may be empty.
+ * @param frecency - Frecency records from `state.json` (F11).
+ * @param now - Epoch ms of "now" (injectable for tests).
+ * @returns Hosts, best first.
+ */
+export function rankHosts(
+  hosts: Host[],
+  query: string,
+  frecency: Record<string, FrecencyEntry>,
+  now: number = Date.now(),
+): Host[] {
+  const boostOf = (host: Host): number =>
+    frecencyScore(frecency[hostSubject(host.id)], now);
+  const trimmed = query.trim();
+  if (trimmed === "") {
+    return [...hosts].sort((a, b) => {
+      const boost = boostOf(b) - boostOf(a);
+      if (boost !== 0) return boost;
+      if (a.favorite !== b.favorite) return a.favorite ? -1 : 1;
+      return a.label.localeCompare(b.label);
+    });
+  }
+  return new Fuse(hosts, FUSE_OPTIONS)
+    .search(trimmed)
+    .map((result) => ({
+      host: result.item,
+      // Fuse scores are 0 (perfect) … 1 (barely); dividing by 1 + log2(1 +
+      // boost) pulls frequently-used hosts up without letting a huge use
+      // count overrule a clearly better textual match.
+      score: (result.score ?? 0) / (1 + Math.log2(1 + boostOf(result.item))),
+    }))
+    .sort((a, b) => a.score - b.score)
+    .map((entry) => entry.host);
 }
 
 /**

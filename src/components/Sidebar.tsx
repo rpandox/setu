@@ -1,10 +1,14 @@
 import "./Sidebar.css";
 import { useEffect, useMemo, useState } from "react";
-import { Copy, FolderDown, Pencil, Plus, Trash2 } from "lucide-react";
+import { Copy, FolderDown, Pencil, Plus, StickyNote, Trash2 } from "lucide-react";
 import type { Host } from "../ipc/contract";
+import { renderMiniMarkdown } from "../features/hosts/miniMarkdown";
 import { sidebarSections, sshCommandOf, useHosts } from "../state/hosts";
+import { ledInfoOf, useReach } from "../state/reach";
 import { useSessions } from "../state/sessions";
 import { useUiPrefs } from "../state/uiState";
+import { HostLed, ReachChip } from "./HostLed";
+import { SelectionBar } from "./SelectionBar";
 
 /**
  * Props for the {@link Sidebar} component.
@@ -18,13 +22,21 @@ export interface SidebarProps {
  * The LED patch-bay sidebar (PLAN.md §7, F1): real host rows from the
  * hosts store — Favorites first, then named groups, ungrouped hosts, and
  * the read-only `~/.ssh/config` imports. The search field fuzzy-filters
- * into one ranked list. LEDs stay hollow until the reachability prober
- * lands in Phase 4.
+ * into one ranked list. LEDs are live (Phase 4): the reachability prober
+ * lights them the moment the app opens, with the latency chip at the row's
+ * right edge and a pulse on hosts with a running session.
  *
  * Row actions (hover): connect is the row itself; then Edit / Copy ssh
- * command / Adopt (imported rows) / Delete (two-click confirm). Group
- * collapse state persists in `state.json` via the uiState module (Phase 3;
- * previously localStorage — migrated automatically).
+ * command / Notes popover (minimal markdown) / Adopt (imported rows) /
+ * Delete (two-click confirm). Group collapse state persists in
+ * `state.json` via the uiState module (Phase 3; previously localStorage —
+ * migrated automatically).
+ *
+ * Bulk actions (F1, Phase 4): ⌘-click toggles a host into the selection,
+ * ⇧-click extends it over the visible order, Esc clears it; the
+ * SelectionBar under the list applies group/tag/hue/delete to everything
+ * selected. Imported rows stay out of selections (read-only until
+ * adopted).
  *
  * @param props - {@link SidebarProps}
  * @returns The sidebar element.
@@ -38,15 +50,34 @@ export function Sidebar({ collapsed }: SidebarProps) {
   const adoptHost = useHosts((s) => s.adoptHost);
   const deleteHost = useHosts((s) => s.deleteHost);
   const openSshTab = useSessions((s) => s.openSshTab);
+  const sessions = useSessions((s) => s.sessions);
+  const reachByHost = useReach((s) => s.byHost);
+  const probing = useReach((s) => s.probing);
+
+  const selectedIds = useHosts((s) => s.selectedIds);
+  const setSelected = useHosts((s) => s.setSelected);
+  const clearSelection = useHosts((s) => s.clearSelection);
 
   const collapsedSections = useUiPrefs((s) => s.collapsedSections);
   const setCollapsedSections = useUiPrefs((s) => s.setCollapsedSections);
   const collapsedKeys = useMemo(() => new Set(collapsedSections), [collapsedSections]);
   /** Host id whose delete button is armed (second click deletes). */
   const [armedDelete, setArmedDelete] = useState<string | null>(null);
+  /** ⇧-click range anchor (the last ⌘-clicked host). */
+  const [anchorId, setAnchorId] = useState<string | null>(null);
+  /** Host id whose notes popover is open. */
+  const [notesOpenId, setNotesOpenId] = useState<string | null>(null);
 
   const sections = sidebarSections(hosts, query);
   const searching = query.trim() !== "";
+  /**
+   * Selectable = editable; imported rows are read-only until adopted.
+   *
+   * @param host - The row's host.
+   */
+  const selectable = (host: Host): boolean => host.source !== "ssh_config";
+  /** Visible selectable ids, in render order (for ⇧-click ranges). */
+  const visibleIds = sections.flatMap((s) => s.hosts.filter(selectable).map((h) => h.id));
 
   useEffect(() => {
     // Disarm the delete confirmation shortly after arming it.
@@ -54,6 +85,55 @@ export function Sidebar({ collapsed }: SidebarProps) {
     const timer = window.setTimeout(() => setArmedDelete(null), 3000);
     return () => window.clearTimeout(timer);
   }, [armedDelete]);
+
+  useEffect(() => {
+    // Esc closes the notes popover, then clears the selection. Plain
+    // listener without preventDefault: terminal apps keep their Esc.
+    const onEsc = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      if (notesOpenId !== null) {
+        setNotesOpenId(null);
+      } else {
+        clearSelection();
+      }
+    };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [notesOpenId, clearSelection]);
+
+  /**
+   * Row click: plain = connect; ⌘ = toggle into the selection; ⇧ = extend
+   * the selection from the anchor over the visible order (F1 bulk select).
+   *
+   * @param host - The clicked row's host.
+   * @param event - The mouse event (modifier keys decide the meaning).
+   */
+  const onRowClick = (host: Host, event: React.MouseEvent): void => {
+    if (event.metaKey && selectable(host)) {
+      const next = selectedIds.includes(host.id)
+        ? selectedIds.filter((id) => id !== host.id)
+        : [...selectedIds, host.id];
+      setSelected(next);
+      setAnchorId(host.id);
+      return;
+    }
+    if (event.shiftKey && anchorId !== null && selectable(host)) {
+      const from = visibleIds.indexOf(anchorId);
+      const to = visibleIds.indexOf(host.id);
+      if (from !== -1 && to !== -1) {
+        const range = visibleIds.slice(Math.min(from, to), Math.max(from, to) + 1);
+        setSelected([...new Set([...selectedIds, ...range])]);
+        return;
+      }
+    }
+    if (selectedIds.length > 0) {
+      // A plain click while selecting just clears — connecting mid-bulk
+      // would be a surprise.
+      clearSelection();
+      return;
+    }
+    void openSshTab(host);
+  };
 
   const toggleSection = (key: string): void => {
     const next = new Set(collapsedKeys);
@@ -126,88 +206,119 @@ export function Sidebar({ collapsed }: SidebarProps) {
                 </h2>
                 {!sectionCollapsed && (
                   <ul className="group-hosts">
-                    {section.hosts.map((host) => (
-                      <li className="host-item" key={host.id}>
-                        <button
-                          className="host-row"
-                          type="button"
-                          title={`Connect: ${sshCommandOf(host)}`}
-                          onClick={() => void openSshTab(host)}
+                    {section.hosts.map((host) => {
+                      const led = ledInfoOf(host, reachByHost, sessions, probing);
+                      const isSelected = selectedIds.includes(host.id);
+                      return (
+                        <li
+                          className={`host-item${isSelected ? " host-item--selected" : ""}`}
+                          key={host.id}
                         >
-                          <span className="host-led" aria-hidden="true" />
-                          <span className="host-label">{host.label}</span>
-                          <span className="host-detail">{rowDetail(host)}</span>
-                        </button>
-                        <span className="host-actions">
-                          {host.source === "ssh_config" ? (
-                            <button
-                              className="host-action"
-                              type="button"
-                              title="Adopt into hosts.toml"
-                              aria-label={`Adopt ${host.label}`}
-                              onClick={() => void adoptHost(host.id)}
-                            >
-                              <FolderDown size={13} aria-hidden />
-                            </button>
-                          ) : (
-                            <>
+                          <button
+                            className="host-row"
+                            type="button"
+                            title={`Connect: ${sshCommandOf(host)} · ⌘-click to select`}
+                            aria-pressed={isSelected}
+                            onClick={(event) => onRowClick(host, event)}
+                          >
+                            <HostLed led={led} />
+                            <span className="host-label">{host.label}</span>
+                            <span className="host-detail">{rowDetail(host)}</span>
+                            <ReachChip led={led} />
+                          </button>
+                          <span className="host-actions">
+                            {host.source === "ssh_config" ? (
                               <button
                                 className="host-action"
                                 type="button"
-                                title="Edit"
-                                aria-label={`Edit ${host.label}`}
-                                onClick={() => openEditor(host.id)}
+                                title="Adopt into hosts.toml"
+                                aria-label={`Adopt ${host.label}`}
+                                onClick={() => void adoptHost(host.id)}
                               >
-                                <Pencil size={13} aria-hidden />
+                                <FolderDown size={13} aria-hidden />
                               </button>
-                              <button
-                                className={`host-action${armedDelete === host.id ? " host-action--armed" : ""}`}
-                                type="button"
-                                title={
-                                  armedDelete === host.id
-                                    ? "Click again to delete"
-                                    : "Delete"
-                                }
-                                aria-label={
-                                  armedDelete === host.id
-                                    ? `Confirm delete ${host.label}`
-                                    : `Delete ${host.label}`
-                                }
-                                onClick={() => {
-                                  if (armedDelete === host.id) {
-                                    setArmedDelete(null);
-                                    void deleteHost(host.id);
-                                  } else {
-                                    setArmedDelete(host.id);
+                            ) : (
+                              <>
+                                <button
+                                  className="host-action"
+                                  type="button"
+                                  title="Edit"
+                                  aria-label={`Edit ${host.label}`}
+                                  onClick={() => openEditor(host.id)}
+                                >
+                                  <Pencil size={13} aria-hidden />
+                                </button>
+                                <button
+                                  className={`host-action${armedDelete === host.id ? " host-action--armed" : ""}`}
+                                  type="button"
+                                  title={
+                                    armedDelete === host.id
+                                      ? "Click again to delete"
+                                      : "Delete"
                                   }
-                                }}
+                                  aria-label={
+                                    armedDelete === host.id
+                                      ? `Confirm delete ${host.label}`
+                                      : `Delete ${host.label}`
+                                  }
+                                  onClick={() => {
+                                    if (armedDelete === host.id) {
+                                      setArmedDelete(null);
+                                      void deleteHost(host.id);
+                                    } else {
+                                      setArmedDelete(host.id);
+                                    }
+                                  }}
+                                >
+                                  <Trash2 size={13} aria-hidden />
+                                </button>
+                              </>
+                            )}
+                            <button
+                              className="host-action"
+                              type="button"
+                              title={`Copy: ${sshCommandOf(host)}`}
+                              aria-label={`Copy ssh command for ${host.label}`}
+                              onClick={() =>
+                                void navigator.clipboard
+                                  .writeText(sshCommandOf(host))
+                                  .catch(() => undefined)
+                              }
+                            >
+                              <Copy size={13} aria-hidden />
+                            </button>
+                            {host.notes.trim() !== "" && (
+                              <button
+                                className={`host-action${notesOpenId === host.id ? " host-action--open" : ""}`}
+                                type="button"
+                                title="Notes"
+                                aria-label={`Notes for ${host.label}`}
+                                aria-expanded={notesOpenId === host.id}
+                                onClick={() =>
+                                  setNotesOpenId((open) =>
+                                    open === host.id ? null : host.id,
+                                  )
+                                }
                               >
-                                <Trash2 size={13} aria-hidden />
+                                <StickyNote size={13} aria-hidden />
                               </button>
-                            </>
+                            )}
+                          </span>
+                          {notesOpenId === host.id && (
+                            <div className="host-notes" role="note">
+                              {renderMiniMarkdown(host.notes)}
+                            </div>
                           )}
-                          <button
-                            className="host-action"
-                            type="button"
-                            title={`Copy: ${sshCommandOf(host)}`}
-                            aria-label={`Copy ssh command for ${host.label}`}
-                            onClick={() =>
-                              void navigator.clipboard
-                                .writeText(sshCommandOf(host))
-                                .catch(() => undefined)
-                            }
-                          >
-                            <Copy size={13} aria-hidden />
-                          </button>
-                        </span>
-                      </li>
-                    ))}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </section>
             );
           })}
         </nav>
+        <SelectionBar />
       </div>
     </aside>
   );

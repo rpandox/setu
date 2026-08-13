@@ -25,7 +25,7 @@ export function TerminalArea() {
     return (
       <main className="terminal-area terminal-area--empty">
         <div className="terminal-empty">
-          <h1 className="terminal-empty-title">No hosts yet</h1>
+          <h1 className="terminal-empty-title">No sessions yet</h1>
           <p className="terminal-empty-hint">
             Press <kbd>⌘T</kbd> to connect, or <kbd>⌘N</kbd> for a local shell
           </p>

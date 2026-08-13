@@ -1,4 +1,5 @@
-/* The single app toast: quiet, bottom-center, auto-dismissing. */
+/* The single app toast: quiet, bottom-center, auto-dismissing. Variants
+   tint the leading edge with the state tokens — never the text. */
 
 .toast {
   position: fixed;
@@ -9,8 +10,39 @@
   padding: calc(var(--pad) / 2) calc(var(--pad) * 2);
   background: var(--bg-2);
   border: 1px solid var(--line-strong);
+  border-left-width: 3px;
   border-radius: var(--r-1);
   color: var(--ink-1);
   font-family: var(--font-ui);
   font-size: var(--text-base);
+  animation: toast-in var(--t-med) backwards;
+}
+
+.toast--info {
+  border-left-color: var(--info);
+}
+
+.toast--success {
+  border-left-color: var(--ok);
+}
+
+.toast--error {
+  border-left-color: var(--err);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
 }

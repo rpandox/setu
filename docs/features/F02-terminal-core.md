@@ -23,7 +23,7 @@ shell process — no orphans.
 | ⌘1–9         | Go to tab 1–9                                             |
 | ⌃Tab / ⌃⇧Tab | Cycle tabs forward / backward                             |
 | ⇧⌘F          | Find in terminal (Enter next, ⇧Enter previous, Esc close) |
-| ⌘C / ⌘V      | Copy selection / paste                                    |
+| ⌘C / ⌘V      | Copy selection / paste (guarded — see below)              |
 | ⌘-click      | Open a URL from the terminal in your browser              |
 
 - The `+` button in the tab bar is ⌘N with a mouse; the `×` on each tab
@@ -39,6 +39,26 @@ shell process — no orphans.
   (dimmed, with an `exited (code N)` notice) so you can read the output;
   ⌘W closes it.
 - Scrollback keeps 10 000 lines per pane.
+
+### The paste guard (Phase 4)
+
+The #1 defense against clipboard disasters: risky pastes stop at a preview
+showing **exactly** the bytes about to land — editable in place — with the
+reasons they were stopped. Safe single-line pastes go straight through.
+A paste is guarded when it:
+
+- has more than one line — or a trailing newline, which would _execute_
+  the line the moment it lands;
+- runs `sudo` (or `doas`) in command position;
+- contains a destructive `rm` (`-r`/`-f` flags, sudo-prefixed included);
+- pipes a download into a shell (`curl … | sh`, `wget … | bash`,
+  `… | sudo bash`);
+- writes to a raw device or formats one (`dd of=/dev/…`, `mkfs`).
+
+Detection avoids false alarms: prose like "reforms", `git rm --cached`, a
+URL that merely mentions sudo, or `curl … | jq` paste clean. While
+broadcasting ([F04](F04-splits-broadcast.md)), the dialog also warns how
+many sessions the paste will reach.
 
 No config keys yet — profile settings (fonts, cursor styles, ligatures)
 arrive with the settings surface in a later phase.

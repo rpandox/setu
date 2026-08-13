@@ -1,0 +1,72 @@
+/* The LED board's dots (§7 table). Glow appears here because reachable and
+   active LEDs are one of its three legal uses (tokens.css). */
+
+.hostled {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* Hollow ring = probing / reachability off. No glow. */
+.hostled--hollow {
+  border: 1px solid var(--ink-3);
+}
+
+/* Solid neon + glow = reachable right now. */
+.hostled--up {
+  background: var(--neon);
+  box-shadow: var(--glow);
+}
+
+/* Slow pulse = live session on this host (2.4s opacity 0.6→1). */
+.hostled--pulsing {
+  background: var(--neon);
+  box-shadow: var(--glow);
+  animation: hostled-pulse 2.4s ease-in-out infinite;
+}
+
+/* Solid err, no glow = unreachable (last-seen on hover). */
+.hostled--down {
+  background: var(--err);
+}
+
+@keyframes hostled-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+/* The latency chip fades in beside a lit LED. */
+.reach-chip {
+  flex: none;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  animation: reach-chip-in var(--t-med) backwards;
+}
+
+@keyframes reach-chip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hostled--pulsing {
+    animation: none;
+  }
+
+  .reach-chip {
+    animation: none;
+  }
+}

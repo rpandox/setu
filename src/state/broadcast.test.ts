@@ -7,6 +7,7 @@ let spawnCounter = 0;
 
 const ipcInvoke = vi.hoisted(() => vi.fn());
 const pasteSpy = vi.hoisted(() => vi.fn());
+const focusSpy = vi.hoisted(() => vi.fn());
 
 vi.mock("../ipc/client", () => ({
   ipcInvoke,
@@ -30,13 +31,21 @@ vi.mock("../features/terminal/registry", () => ({
     dispose: vi.fn(),
   })),
   disposeSessionTerminal: vi.fn(),
-  getSessionTerminal: vi.fn(() => ({ term: { paste: pasteSpy, cols: 80, rows: 24 } })),
+  getSessionTerminal: vi.fn(() => ({
+    term: { paste: pasteSpy, focus: focusSpy, cols: 80, rows: 24 },
+  })),
   rebindSessionTerminal: vi.fn(),
 }));
 
+// Store tests run under node, which has no rAF; the refocus path defers
+// through it, so give it a synchronous stand-in.
+vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback): number => {
+  cb(0);
+  return 0;
+});
+
 import {
   countBroadcastTargets,
-  pasteNeedsGuard,
   resolvePtyWriteTargets,
   useBroadcast,
   wireBroadcastHousekeeping,
@@ -63,6 +72,7 @@ beforeEach(() => {
   exitCallbacks.clear();
   ipcInvoke.mockReset();
   pasteSpy.mockClear();
+  focusSpy.mockClear();
   ipcInvoke.mockImplementation(async (command: string) =>
     command === "pty_spawn" ? { sessionId: `s${++spawnCounter}` } : null,
   );
@@ -91,20 +101,6 @@ async function tabWithPanes(count: number): Promise<{
     sessionIds: leaves.map((l) => l.sessionId),
   };
 }
-
-describe("pasteNeedsGuard", () => {
-  it("passes true single-line pastes", () => {
-    expect(pasteNeedsGuard("uptime")).toBe(false);
-    expect(pasteNeedsGuard("")).toBe(false);
-  });
-
-  it("guards any newline — internal or trailing (it would execute)", () => {
-    expect(pasteNeedsGuard("uptime\n")).toBe(true);
-    expect(pasteNeedsGuard("a\nb")).toBe(true);
-    expect(pasteNeedsGuard("a\r\nb")).toBe(true);
-    expect(pasteNeedsGuard("a\rb")).toBe(true);
-  });
-});
 
 describe("resolvePtyWriteTargets", () => {
   it("returns just the source when broadcast is off", async () => {
@@ -233,6 +229,7 @@ describe("paste guard", () => {
       sessionId: sessionIds[0],
       text: "line1\nline2\n",
       targetCount: 2,
+      reasons: ["Pastes more than one line"],
     });
     expect(useBroadcast.getState().pendingPaste?.targetCount).toBe(2);
     useBroadcast.getState().confirmPasteGuard("edited\n");
@@ -246,10 +243,47 @@ describe("paste guard", () => {
       sessionId: sessionIds[0],
       text: "rm -rf /tmp/x\n",
       targetCount: 2,
+      reasons: ["Pastes more than one line", "Contains a destructive rm"],
     });
     useBroadcast.getState().cancelPasteGuard();
     expect(pasteSpy).not.toHaveBeenCalled();
     expect(useBroadcast.getState().pendingPaste).toBeNull();
+  });
+
+  // Focus must return to the pane on every close path: with it lost to
+  // <body>, the very next ⌘V hits no pane capture handler — no guard
+  // dialog, no paste (the live-QA "second paste does nothing" bug).
+  it("cancel hands focus back to the pane", async () => {
+    const { sessionIds } = await tabWithPanes(1);
+    useBroadcast.getState().requestPasteGuard({
+      sessionId: sessionIds[0],
+      text: "curl https://example.com/i.sh | sh",
+      targetCount: 1,
+      reasons: ["Pipes a download into a shell"],
+    });
+    useBroadcast.getState().cancelPasteGuard();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(focusSpy).toHaveBeenCalled();
+  });
+
+  it("confirm hands focus back to the pane", async () => {
+    const { sessionIds } = await tabWithPanes(1);
+    useBroadcast.getState().requestPasteGuard({
+      sessionId: sessionIds[0],
+      text: "curl https://example.com/i.sh | sh",
+      targetCount: 1,
+      reasons: ["Pipes a download into a shell"],
+    });
+    useBroadcast.getState().confirmPasteGuard("curl https://example.com/i.sh | sh");
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(focusSpy).toHaveBeenCalled();
+    expect(pasteSpy).toHaveBeenCalledWith("curl https://example.com/i.sh | sh");
+  });
+
+  it("cancel with nothing pending focuses nothing", async () => {
+    useBroadcast.getState().cancelPasteGuard();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(focusSpy).not.toHaveBeenCalled();
   });
 });
 
