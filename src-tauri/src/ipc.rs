@@ -10,7 +10,9 @@
 //! `hosts.toml` store and the `~/.ssh/config` import; Phase 4 adds the
 //! `reach_*` family driving the LED board; Phase 5 adds the `sftp_*` family
 //! (dual-pane browser + transfers) and `hostkey_trust`; Phase 6 adds the
-//! `snippet_*` family over `snippets.toml` (CRUD + packs). This module also
+//! `snippet_*` family over `snippets.toml` (CRUD + packs); Phase 7 adds the
+//! `keychain_*` family (set / delete / has — never get: secrets are read
+//! only inside the core, F8). This module also
 //! hosts the event bridges — [`TauriPtyEvents`] for `pty:data:{sessionId}` /
 //! `pty:exit:{sessionId}`, [`TauriReachEvents`] for `reach:update`, and
 //! [`TauriSftpEvents`] for `hostkey:prompt` / `sftp:progress:{transferId}` —
@@ -29,7 +31,7 @@ use crate::sftp::{HostTarget, SftpEntry, SftpEvents, SftpManager};
 use crate::snippets::{ImportOutcome, Snippet, SnippetUpsertOutcome, SnippetsStore};
 use crate::store::{FieldError, Forward, Host, HostsStore, UpsertOutcome};
 use crate::ui_state::{UiState, UiStateStore};
-use crate::{connect, reach, sftp, ssh_config};
+use crate::{connect, keychain, reach, sftp, ssh_config};
 
 /// What kind of process a PTY session drives.
 ///
@@ -1311,4 +1313,106 @@ pub async fn sftp_download(
 pub fn sftp_cancel(manager: State<'_, SftpManager>, transfer_id: String) -> Result<(), String> {
     manager.cancel(&transfer_id);
     Ok(())
+}
+
+/// Which kind of Keychain secret a `keychain_*` command addresses (mirrors
+/// the `kind` discriminant of `KeychainSecretRef` in `contract.ts`).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KeychainSecretKind {
+    /// A host's SFTP password — addressed by `hostId`.
+    Password,
+    /// A private key's passphrase — addressed by `keyPath`.
+    Passphrase,
+}
+
+/// Result of [`keychain_has`] (mirrors `KeychainHasResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeychainHasResult {
+    /// Whether an entry exists at the address.
+    pub exists: bool,
+}
+
+/// Builds the [`keychain::SecretRef`] a command addresses, checking that
+/// the field matching `kind` is present and non-empty.
+fn keychain_ref(
+    kind: KeychainSecretKind,
+    host_id: Option<String>,
+    key_path: Option<String>,
+) -> Result<keychain::SecretRef, String> {
+    match kind {
+        KeychainSecretKind::Password => host_id
+            .filter(|id| !id.is_empty())
+            .map(|host_id| keychain::SecretRef::Password { host_id })
+            .ok_or_else(|| "hostId is required for password secrets".to_string()),
+        KeychainSecretKind::Passphrase => key_path
+            .filter(|path| !path.is_empty())
+            .map(|key_path| keychain::SecretRef::Passphrase { key_path })
+            .ok_or_else(|| "keyPath is required for passphrase secrets".to_string()),
+    }
+}
+
+/// Stores (or replaces) a secret in the macOS Keychain under the service
+/// `dev.pandox.setu` (F8). Write-only by design: no command ever returns a
+/// stored secret, and the secret is never logged (PLAN.md §5, Phase 7 row).
+///
+/// **Payload:** `{ kind, hostId? | keyPath?, secret }` · **Result:** `null`
+/// · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the address field matching `kind` is missing or empty, or
+/// when the Keychain refuses the write (locked keychain, denied
+/// authorization).
+#[tauri::command]
+pub fn keychain_set(
+    kind: KeychainSecretKind,
+    host_id: Option<String>,
+    key_path: Option<String>,
+    secret: String,
+) -> Result<(), String> {
+    keychain::set(&keychain_ref(kind, host_id, key_path)?, &secret)
+}
+
+/// Deletes a Keychain secret. Missing entries are a no-op (idempotent
+/// delete, F8).
+///
+/// **Payload:** `{ kind, hostId? | keyPath? }` · **Result:** `null` ·
+/// **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the address field matching `kind` is missing or empty, or
+/// when the Keychain refuses the delete for a reason other than a missing
+/// entry.
+#[tauri::command]
+pub fn keychain_delete(
+    kind: KeychainSecretKind,
+    host_id: Option<String>,
+    key_path: Option<String>,
+) -> Result<(), String> {
+    keychain::delete(&keychain_ref(kind, host_id, key_path)?)
+}
+
+/// Reports whether a Keychain entry exists — existence only; the secret
+/// itself stays inside the Rust core (F8; reads happen only in the SFTP
+/// auth ladder).
+///
+/// **Payload:** `{ kind, hostId? | keyPath? }` · **Result:** `{ exists }` ·
+/// **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the address field matching `kind` is missing or empty, or
+/// when the Keychain cannot be queried at all.
+#[tauri::command]
+pub fn keychain_has(
+    kind: KeychainSecretKind,
+    host_id: Option<String>,
+    key_path: Option<String>,
+) -> Result<KeychainHasResult, String> {
+    Ok(KeychainHasResult {
+        exists: keychain::has(&keychain_ref(kind, host_id, key_path)?)?,
+    })
 }

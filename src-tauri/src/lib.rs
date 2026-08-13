@@ -17,6 +17,7 @@
 //! - [`known_hosts`] — host-key verification for the in-app SFTP client (F5).
 //! - [`sftp`] — the in-app SFTP client: connections, trust flow, sessions (F5).
 //! - [`snippets`] — plain-TOML persistence for snippets + packs (F6).
+//! - [`keychain`] — the Keychain doorway: SFTP passwords & key passphrases (F8).
 //! - [`ipc`] — the Tauri command surface, mirrored by `src/ipc/contract.ts`.
 
 #![deny(missing_docs)]
@@ -24,6 +25,7 @@
 pub mod connect;
 pub mod forwards;
 pub mod ipc;
+pub mod keychain;
 pub mod known_hosts;
 pub mod pty;
 pub mod reach;
@@ -126,6 +128,9 @@ pub fn run() {
             ipc::sftp_upload,
             ipc::sftp_download,
             ipc::sftp_cancel,
+            ipc::keychain_set,
+            ipc::keychain_delete,
+            ipc::keychain_has,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

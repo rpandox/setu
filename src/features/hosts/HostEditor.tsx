@@ -1,9 +1,11 @@
 import "./HostEditor.css";
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
+import { ipcInvoke } from "../../ipc/client";
 import type { Host, HostFieldError, HostForward } from "../../ipc/contract";
 import { ruleKeyOf, useForwards } from "../../state/forwards";
 import { duplicatesOf, emptyHostDraft, useHosts } from "../../state/hosts";
+import { useToast } from "../../state/toast";
 
 /** The 8 identity hues (§7) — indices into the `--hue-N` tokens. */
 const HUES = [0, 1, 2, 3, 4, 5, 6, 7] as const;
@@ -48,11 +50,32 @@ export function HostEditor() {
   const [tagInput, setTagInput] = useState("");
   const [errors, setErrors] = useState<HostFieldError[]>([]);
   const [saving, setSaving] = useState(false);
+  // Keychain state for the SFTP password row (F8). The secret itself lives
+  // only in `passwordInput` between typing and the keychain_set call — it
+  // never enters `draft` (hosts.toml's schema forbids secret fields).
+  const [passwordStored, setPasswordStored] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [keychainError, setKeychainError] = useState<string | null>(null);
 
   useEffect(() => {
     setDraft(original);
     setTagInput("");
     setErrors([]);
+    setPasswordInput("");
+    setPasswordStored(false);
+    setKeychainError(null);
+    if (original.id === "") return;
+    let cancelled = false;
+    ipcInvoke("keychain_has", { kind: "password", hostId: original.id })
+      .then((result) => {
+        if (!cancelled) setPasswordStored(result.exists);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setKeychainError(String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [original]);
 
   if (editorTarget === null) return null;
@@ -90,6 +113,35 @@ export function HostEditor() {
       patch({ tags: [...draft.tags, tag] });
     }
     setTagInput("");
+  };
+
+  /** Stores the typed SFTP password in the Keychain and forgets it here. */
+  const storePassword = async (): Promise<void> => {
+    setKeychainError(null);
+    try {
+      await ipcInvoke("keychain_set", {
+        kind: "password",
+        hostId: draft.id,
+        secret: passwordInput,
+      });
+      setPasswordInput("");
+      setPasswordStored(true);
+      useToast.getState().show("SFTP password stored in Keychain", "success");
+    } catch (error) {
+      setKeychainError(String(error));
+    }
+  };
+
+  /** Removes the host's SFTP password from the Keychain. */
+  const clearPassword = async (): Promise<void> => {
+    setKeychainError(null);
+    try {
+      await ipcInvoke("keychain_delete", { kind: "password", hostId: draft.id });
+      setPasswordStored(false);
+      useToast.getState().show("SFTP password removed from Keychain");
+    } catch (error) {
+      setKeychainError(String(error));
+    }
   };
 
   const submit = async (): Promise<void> => {
@@ -205,6 +257,59 @@ export function HostEditor() {
               <span className="hosteditor-fielderror">{errorFor("identity")}</span>
             )}
           </label>
+
+          <div className="hosteditor-field">
+            <span className="hosteditor-label" id="hosteditor-password-label">
+              SFTP password
+            </span>
+            {draft.id === "" ? (
+              <p className="hosteditor-hint">
+                Save the host first, then store a password here. It goes to the macOS
+                Keychain — never to disk — and is used for SFTP only; terminal ssh stays
+                agent-first (F8).
+              </p>
+            ) : passwordStored ? (
+              <div
+                className="hosteditor-keychain"
+                aria-labelledby="hosteditor-password-label"
+              >
+                <span className="hosteditor-keychain-state">Stored in Keychain</span>
+                <button
+                  className="hosteditor-keychain-button"
+                  type="button"
+                  onClick={() => void clearPassword()}
+                >
+                  Clear
+                </button>
+              </div>
+            ) : (
+              <div
+                className="hosteditor-keychain"
+                aria-labelledby="hosteditor-password-label"
+              >
+                <input
+                  className="hosteditor-input hosteditor-keychain-input"
+                  type="password"
+                  value={passwordInput}
+                  placeholder="For SFTP only — stored in Keychain"
+                  autoComplete="new-password"
+                  aria-label="SFTP password"
+                  onChange={(event) => setPasswordInput(event.target.value)}
+                />
+                <button
+                  className="hosteditor-keychain-button"
+                  type="button"
+                  disabled={passwordInput === ""}
+                  onClick={() => void storePassword()}
+                >
+                  Store
+                </button>
+              </div>
+            )}
+            {keychainError !== null && (
+              <span className="hosteditor-fielderror">{keychainError}</span>
+            )}
+          </div>
 
           <label className="hosteditor-field">
             <span className="hosteditor-label">Group</span>

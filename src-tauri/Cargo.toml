@@ -35,3 +35,6 @@ sha1 = "0.10"
 tokio-util = "0.7"
 tauri-plugin-dialog = "2.7.2"
 libc = "0.2.189"
+# Keychain doorway (F8, Phase 7): generic passwords under service
+# dev.pandox.setu via Security.framework. Secrets never touch disk or logs.
+keyring = { version = "3.6.3", features = ["apple-native"] }

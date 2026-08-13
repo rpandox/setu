@@ -479,6 +479,51 @@ Cancel a running transfer. The partial destination file is removed
 | Emits      | one terminal `sftp:progress:{transferId}`                                          |
 | Fails when | never — unknown ids are a no-op, so cancelling can't race a transfer that finished |
 
+### `keychain_set`
+
+Store (or replace) a secret in the macOS Keychain under the service
+`dev.pandox.setu` (F8). Two kinds of entry exist, at deterministic
+accounts: `password:{hostId}` — a host's SFTP password — and
+`passphrase:{keyPath}` — a key file's passphrase, keyed by the
+tilde-expanded path so two hosts sharing a key share one entry.
+
+The family is deliberately **write-only**: there is no `keychain_get`
+command. A stored secret is read exclusively inside the Rust core (the
+SFTP auth ladder) and never flows toward the WebView (PLAN.md §5,
+Phase 7 row). Secrets are never logged.
+
+|            |                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| Payload    | `{ kind: "password", hostId: string, secret: string }` · `{ kind: "passphrase", keyPath: string, secret: string }` |
+| Result     | `null`                                                                                                             |
+| Emits      | nothing                                                                                                            |
+| Fails when | the address field matching `kind` is missing/empty, or the Keychain refuses the write                              |
+
+### `keychain_delete`
+
+Delete a Keychain secret. Missing entries are a no-op, so a "Clear"
+button can't race an entry that was already gone.
+
+|            |                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------- |
+| Payload    | `{ kind: "password", hostId: string }` · `{ kind: "passphrase", keyPath: string }` |
+| Result     | `null`                                                                             |
+| Emits      | nothing                                                                            |
+| Fails when | the address field matching `kind` is missing/empty, or the Keychain refuses        |
+
+### `keychain_has`
+
+Whether an entry exists at the address — existence only, never the
+secret. This is what the HostEditor's SFTP-password row renders its
+Stored/Store state from.
+
+|            |                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------ |
+| Payload    | `{ kind: "password", hostId: string }` · `{ kind: "passphrase", keyPath: string }`   |
+| Result     | `{ exists: boolean }`                                                                |
+| Emits      | nothing                                                                              |
+| Fails when | the address field matching `kind` is missing/empty, or the Keychain can't be queried |
+
 ## Events
 
 ### `pty:data:{sessionId}`

@@ -668,6 +668,44 @@ export interface SftpProgressEvent {
 }
 
 /**
+ * Which Keychain entry a `keychain_*` command addresses (F8, Phase 7).
+ *
+ * Secrets live under the Keychain service `dev.pandox.setu`, at
+ * deterministic accounts — `password:{hostId}` for a host's SFTP password,
+ * `passphrase:{keyPath}` for a key file's passphrase (the core
+ * tilde-expands the path, so hosts sharing a key share one entry).
+ */
+export type KeychainSecretRef =
+  | {
+      /** A host's SFTP password. */
+      kind: "password";
+      /** The owning host (`Host.id`). */
+      hostId: string;
+    }
+  | {
+      /** A private key's passphrase. */
+      kind: "passphrase";
+      /** Path to the key file (`~` allowed). */
+      keyPath: string;
+    };
+
+/**
+ * Payload for `keychain_set` — the address plus the secret itself. The
+ * secret is write-only: it crosses IPC toward the core exactly once, and
+ * no command ever returns it (PLAN.md §5, Phase 7 row).
+ */
+export type KeychainSetPayload = KeychainSecretRef & {
+  /** The secret to store; replaces any existing entry at the address. */
+  secret: string;
+};
+
+/** Result of `keychain_has`. */
+export interface KeychainHasResult {
+  /** Whether an entry exists at the address. */
+  exists: boolean;
+}
+
+/**
  * Invokable commands, keyed by command name.
  *
  * Phase 1 shipped the `pty_*` family; Phase 2 adds SSH spawning and the
@@ -676,7 +714,8 @@ export interface SftpProgressEvent {
  * `reach_*` family driving the LED board; Phase 5 adds the `sftp_*` family
  * (dual-pane browser + transfers) and the `hostkey_trust` half of the
  * fingerprint trust flow; Phase 6 adds the `snippet_*` family over
- * `snippets.toml` (CRUD + TOML packs).
+ * `snippets.toml` (CRUD + TOML packs); Phase 7 adds the `keychain_*`
+ * family (set / delete / has — never get, F8).
  */
 export interface IpcCommands {
   /** Spawn a new PTY session — a local login shell or `ssh` to a host. */
@@ -783,6 +822,16 @@ export interface IpcCommands {
   sftp_download: { payload: SftpTransferPayload; result: SftpTransferResult };
   /** Cancel a running transfer; partial destination files are removed. */
   sftp_cancel: { payload: SftpCancelPayload; result: null };
+  /**
+   * Store (or replace) a secret in the macOS Keychain (F8). Write-only:
+   * no command ever returns a stored secret — the core reads it inside
+   * the SFTP auth ladder only.
+   */
+  keychain_set: { payload: KeychainSetPayload; result: null };
+  /** Delete a Keychain secret. Missing entries are a no-op. */
+  keychain_delete: { payload: KeychainSecretRef; result: null };
+  /** Whether a Keychain entry exists — existence only, never the secret. */
+  keychain_has: { payload: KeychainSecretRef; result: KeychainHasResult };
 }
 
 /**
