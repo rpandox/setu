@@ -18,4 +18,6 @@ Pages so far:
 - [F03 · Sessions & connection lifecycle](F03-sessions.md) — ssh spawning, reconnect (Phase 2)
 - [F04 · Splits, broadcast & session restore](F04-splits-broadcast.md) — panes, cssh, restore (Phase 3)
 - [F05 · SFTP & files](F05-sftp.md) — dual-pane browser, transfers, host-key trust (Phase 5)
+- [F06 · Snippets](F06-snippets.md) — command templates, {{variables}}, multi-host runs, packs (Phase 6)
+- [F07 · Port forwarding](F07-port-forwards.md) — L/R/D rules as toggles, health dots, auto-start (Phase 6)
 - [F11 · Command palette & quick connect](F11-command-palette.md) — ⌘T (Phase 2)

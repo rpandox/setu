@@ -7,6 +7,42 @@ one entry.
 
 ## [Unreleased]
 
+### Added — Phase 6: snippets & port forwards
+
+- Snippets (F6): command templates with `{{variable}}` prompts — free
+  text with defaults, or fixed choices rendered as a select. Run to the
+  current pane, the armed broadcast set, or a **new SSH tab per selected
+  host** (three hosts, one action). CRUD lives in the ⌘J drawer — with
+  one-click "Declare {{token}}" chips and inline validation — and every
+  snippet is a frecency-ranked row in the ⌘K palette. Store:
+  `~/.config/setu/snippets.toml` in the sync unit
+  ([docs](docs/features/F06-snippets.md)).
+- Snippet packs (F6): export all snippets to a TOML file, import a pack
+  through native file dialogs (new `tauri-plugin-dialog` dependency; the
+  picked paths cross IPC and the Rust core does the file I/O). Imports
+  merge by id — keep or overwrite — and are atomic: one invalid snippet
+  imports nothing.
+- Port forwarding (F7): per-host `L`/`R`/`D` rules edited in the host
+  editor, toggled from the status bar's new `⇌ N fwd` popover. Each
+  toggle runs a managed `ssh -N` child in its own process group with
+  `ExitOnForwardFailure` + `BatchMode`, so every failure is a fast exit
+  with a visible reason; children die with the toggle and with the app —
+  no orphans. Health dots: amber on start, green once the tunnel answers
+  (or the remote bind survives), red with the reason on death. `auto`
+  rules fire the moment their host's terminal connects; `D` rules show a
+  copyable `socks5://` string ([docs](docs/features/F07-port-forwards.md)).
+- Port-conflict helper (F7): starting a rule on an occupied local port
+  names the owning process (`lsof`) and offers the next free port as a
+  one-shot override — the saved rule is never rewritten.
+- New IPC: the `snippet_*` family (list/upsert/delete/import/export),
+  `forward_start`/`forward_stop`, and the `forward:update` event
+  ([docs](docs/dev/ipc.md)).
+- Live e2e: `cargo test --test live_forwards -- --ignored` walks the
+  forwards acceptance list against a throwaway localhost sshd —
+  tunnel-through-banner, toggle-off refusal, conflict helper, red on a
+  doomed remote bind, and a no-orphans `ps` sweep after `kill_all`.
+  `scripts/qa-forwards.sh` packages the manual GUI walk.
+
 ### Fixed — Phase 5 live-run findings
 
 - Downloads (and any fast transfer) no longer hang as "running" forever:

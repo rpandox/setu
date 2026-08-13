@@ -1,6 +1,6 @@
 # Store
 
-How Setu persists hosts (and later snippets, runbooks, and settings) as
+How Setu persists hosts and snippets (and later runbooks and settings) as
 plain TOML in `~/.config/setu/`, why that directory is the sync unit — and
 the device-local `state.json` that deliberately lives outside it.
 
@@ -9,7 +9,7 @@ the device-local `state.json` that deliberately lives outside it.
 ```
 ~/.config/setu/
   hosts.toml          # Phase 2 — this page
-  snippets.toml       # Phase 6
+  snippets.toml       # Phase 6 — this page
   runbooks.toml       # Phase 12
   settings.toml       # Phase 4 (read-only) — settings UI lands in Phase 8
 ```
@@ -20,8 +20,10 @@ has no secret fields: passwords and passphrases go to the macOS Keychain,
 never to disk. Full schemas live in [PLAN.md](../../PLAN.md) §4.
 
 Implementation: [`src-tauri/src/store.rs`](../../src-tauri/src/store.rs)
-(`HostsStore`), exposed over IPC by the `hosts_*` commands
-([ipc.md](ipc.md)).
+(`HostsStore`) and
+[`src-tauri/src/snippets.rs`](../../src-tauri/src/snippets.rs)
+(`SnippetsStore`), exposed over IPC by the `hosts_*` and `snippet_*`
+commands ([ipc.md](ipc.md)).
 
 ## hosts.toml
 
@@ -47,6 +49,34 @@ file written today keeps working as features land.
 Rows parsed from `~/.ssh/config` (`source = "ssh_config"`) are **never**
 written here — they're re-parsed live on every listing. "Adopt" copies one
 into this file with a fresh uuid and `source = "setu"`.
+
+## snippets.toml
+
+An array of `[[snippet]]` tables (F6) — command templates whose
+`{{variables}}` prompt at run time:
+
+```toml
+[[snippet]]
+id = "…uuid…"                     # assigned on create — don't invent
+label = "follow service logs"
+command = "journalctl -u {{service}} -f"
+tags = ["logs"]
+
+[[snippet.variables]]
+name = "service"                  # [A-Za-z_][A-Za-z0-9_]*
+default = "sshd"                  # optional: pre-fills the prompt
+# choices = ["a", "b"]            # optional: renders a select instead
+
+```
+
+Validation on save: label and command required, every `{{token}}` in the
+command declared under `variables` and vice versa, no duplicate names, a
+`default` alongside `choices` must be one of them. There is **no** brace
+escaping — a literal `{{` cannot appear in a command (PLAN.md §5).
+
+Snippet **packs** — the import/export files — are this exact shape.
+Imports merge by id (`keep` skips collisions, `replace` overwrites) and
+are atomic: one invalid snippet imports nothing.
 
 ## settings.toml
 
