@@ -89,6 +89,7 @@ pub fn ssh_argv(host: &Host) -> Vec<String> {
 ///
 /// ```text
 /// ssh -N -o ExitOnForwardFailure=yes -o BatchMode=yes \
+///     [-o UserKnownHostsFile="$HOME/.ssh/known_hosts"] \
 ///     -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
 ///     -L|-R|-D <spec> <host flags | bare alias>
 /// ```
@@ -96,9 +97,24 @@ pub fn ssh_argv(host: &Host) -> Vec<String> {
 /// No `-tt` (there is no terminal) and no `-- <startup>` (nothing runs
 /// remotely). `kind` is `"L"`, `"R"`, or `"D"` — validated upstream by
 /// [`crate::forwards::parse_forward_spec`].
+///
+/// The explicit `UserKnownHostsFile` pins the child's trust database to
+/// the **process environment's** home (`$HOME/.ssh/known_hosts`) instead
+/// of ssh's passwd-database lookup. For a normal launch the two are the
+/// same file; the difference is that the app's whole view of "home" —
+/// store paths included — follows `$HOME`, so its ssh children should
+/// too (and the live e2e suite relies on it to stay hermetic).
 pub fn forward_argv(host: &Host, kind: &str, spec: &str) -> Vec<String> {
     let mut argv: Vec<String> = vec!["ssh".into(), "-N".into()];
     argv.extend(FORWARD_ARGS.iter().map(|s| s.to_string()));
+    if let Some(home) = dirs::home_dir() {
+        argv.push("-o".into());
+        // Quoted so a home path containing spaces stays one file name.
+        argv.push(format!(
+            "UserKnownHostsFile=\"{}\"",
+            home.join(".ssh/known_hosts").display()
+        ));
+    }
     argv.extend(KEEPALIVE_ARGS.iter().map(|s| s.to_string()));
     argv.push(format!("-{kind}"));
     argv.push(spec.to_string());
@@ -233,21 +249,26 @@ mod tests {
     #[test]
     fn forward_argv_has_no_tty_and_fails_fast() {
         let argv = forward_argv(&setu_host(), "L", "8080:localhost:8080");
-        let expected: Vec<&str> = vec![
+        let mut expected: Vec<String> = [
             "ssh",
             "-N",
             "-o",
             "ExitOnForwardFailure=yes",
             "-o",
             "BatchMode=yes",
-            "-o",
-            "ServerAliveInterval=30",
-            "-o",
-            "ServerAliveCountMax=3",
-            "-L",
-            "8080:localhost:8080",
-            "pandox@hermes.example.net",
-        ];
+        ]
+        .map(String::from)
+        .to_vec();
+        // The child's trust database follows the process's $HOME (module docs).
+        let home = dirs::home_dir().expect("home dir in tests");
+        expected.push("-o".into());
+        expected.push(format!(
+            "UserKnownHostsFile=\"{}\"",
+            home.join(".ssh/known_hosts").display()
+        ));
+        expected.extend(KEEPALIVE.map(String::from));
+        expected
+            .extend(["-L", "8080:localhost:8080", "pandox@hermes.example.net"].map(String::from));
         assert_eq!(argv, expected);
     }
 
