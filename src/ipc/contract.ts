@@ -267,14 +267,14 @@ export interface SnippetDeletePayload {
 }
 
 /**
- * Payload for `snippet_import` — pack TOML as text (the frontend owns the
- * file dialog). Merging is by id: `"replace"` overwrites an existing
- * record, `"keep"` skips the incoming row; pack rows without an id always
- * import under a fresh UUID.
+ * Payload for `snippet_import` — the pack file's path from the native open
+ * dialog (explicit user consent; the Rust core does the read). Merging is
+ * by id: `"replace"` overwrites an existing record, `"keep"` skips the
+ * incoming row; pack rows without an id always import under a fresh UUID.
  */
 export interface SnippetImportPayload {
-  /** The pack file's contents (`[[snippet]]` TOML). */
-  tomlText: string;
+  /** Absolute path of the pack file (`[[snippet]]` TOML). */
+  path: string;
   /** What to do when an incoming id already exists. */
   mergeStrategy: "replace" | "keep";
 }
@@ -291,12 +291,8 @@ export interface SnippetImportResult {
 export interface SnippetExportPayload {
   /** The snippets to export (`Snippet.id`s); unknown ids are ignored. */
   ids: string[];
-}
-
-/** Result of `snippet_export`. */
-export interface SnippetExportResult {
-  /** The pack TOML — ready to write to the file the user picked. */
-  toml: string;
+  /** Where to write the pack — from the native save dialog. */
+  path: string;
 }
 
 /**
@@ -651,12 +647,12 @@ export interface IpcCommands {
   /** Delete a snippet. Unknown ids are a no-op. */
   snippet_delete: { payload: SnippetDeletePayload; result: null };
   /**
-   * Import a snippet pack (TOML text), merging by id per `mergeStrategy`.
-   * Atomic: a pack with any invalid snippet imports nothing.
+   * Import a snippet pack from a picked file, merging by id per
+   * `mergeStrategy`. Atomic: a pack with any invalid snippet imports nothing.
    */
   snippet_import: { payload: SnippetImportPayload; result: SnippetImportResult };
-  /** Export snippets as pack TOML, in store order. */
-  snippet_export: { payload: SnippetExportPayload; result: SnippetExportResult };
+  /** Export snippets as a pack file at a picked path, in store order. */
+  snippet_export: { payload: SnippetExportPayload; result: null };
   /**
    * Start (or refresh) the reachability prober: the first call spawns the
    * sweep loop and probes immediately; later calls trigger a fresh sweep

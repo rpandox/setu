@@ -1,0 +1,166 @@
+/* The F6 snippet run dialog: variable prompts, target radio, live preview. */
+
+.snippetrun-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-0) 65%, transparent);
+}
+
+.snippetrun {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pad);
+  width: min(480px, 80vw);
+  max-height: 80vh;
+  padding: calc(var(--pad) * 2);
+  overflow-y: auto;
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-2);
+}
+
+.snippetrun-title {
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.snippetrun-field {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+}
+
+.snippetrun-label {
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.snippetrun-input {
+  padding: calc(var(--pad) / 2) var(--pad);
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+}
+
+.snippetrun-input:focus {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}
+
+.snippetrun-targets {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+  padding: var(--pad);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+}
+
+.snippetrun-target {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.snippetrun-target:has(input:disabled) {
+  color: var(--ink-3);
+}
+
+.snippetrun-why {
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.snippetrun-hosts {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 4);
+  max-height: 160px;
+  padding-left: calc(var(--pad) * 2.5);
+  overflow-y: auto;
+}
+
+.snippetrun-host {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+/* The exact command about to run — mono, honest, unresolved tokens visible. */
+.snippetrun-preview {
+  padding: var(--pad);
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  line-height: var(--leading);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.snippetrun-actions {
+  display: flex;
+  gap: var(--pad);
+  justify-content: flex-end;
+}
+
+.snippetrun-cancel,
+.snippetrun-confirm {
+  padding: calc(var(--pad) / 2) calc(var(--pad) * 2);
+  border-radius: var(--r-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  transition: border-color var(--t-fast);
+}
+
+.snippetrun-cancel {
+  background: var(--bg-3);
+  border: 1px solid var(--line-strong);
+  color: var(--ink-1);
+}
+
+.snippetrun-cancel:hover {
+  border-color: var(--ink-2);
+}
+
+.snippetrun-confirm {
+  background: var(--neon);
+  border: 1px solid var(--neon);
+  color: var(--neon-ink);
+  font-weight: 550;
+}
+
+.snippetrun-confirm:disabled {
+  background: var(--bg-3);
+  border-color: var(--line-strong);
+  color: var(--ink-3);
+}
+
+.snippetrun-cancel:focus-visible,
+.snippetrun-confirm:focus-visible,
+.snippetrun-target input:focus-visible,
+.snippetrun-host input:focus-visible {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}

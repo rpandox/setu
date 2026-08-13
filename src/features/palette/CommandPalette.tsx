@@ -2,11 +2,12 @@ import "./CommandPalette.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Fuse from "fuse.js";
 import { HostLed, ReachChip } from "../../components/HostLed";
-import type { Host } from "../../ipc/contract";
+import type { Host, Snippet } from "../../ipc/contract";
 import { paletteEntries, type PaletteActionEntry } from "../../state/actions";
-import { actionSubject, hostSubject } from "../../state/frecency";
+import { actionSubject, hostSubject, snippetSubject } from "../../state/frecency";
 import { rankHosts, sshCommandOf, useHosts } from "../../state/hosts";
 import { ledInfoOf, useReach } from "../../state/reach";
+import { rankSnippets, useSnippets } from "../../state/snippets";
 import { findLeafBySession } from "../../state/splits";
 import { useSessions } from "../../state/sessions";
 import { useUiChrome } from "../../state/ui";
@@ -15,20 +16,27 @@ import { useUiPrefs } from "../../state/uiState";
 /** Result rows shown per section; ranking makes more never necessary. */
 const MAX_HOSTS = 8;
 
-/** One selectable palette row: a §8 action or a host. */
+/** Snippet rows shown in the Snippets section (F6). */
+const MAX_SNIPPETS = 8;
+
+/** One selectable palette row: a §8 action, a host, or a snippet (F6). */
 type PaletteItem =
-  { kind: "action"; entry: PaletteActionEntry } | { kind: "host"; host: Host };
+  | { kind: "action"; entry: PaletteActionEntry }
+  | { kind: "host"; host: Host }
+  | { kind: "snippet"; snippet: Snippet };
 
 /**
  * The F11 command palette. One component, two surfaces from the chrome
  * store: ⌘K (`"commands"`) lists Actions — every implemented §8 command
- * with its shortcut — above Hosts; ⌘T (`"hosts"`) is the same palette
- * pre-filtered to hosts (quick connect). Renders nothing while closed.
+ * with its shortcut — above Hosts and Snippets (F6); ⌘T (`"hosts"`) is the
+ * same palette pre-filtered to hosts (quick connect). Renders nothing
+ * while closed.
  *
  * Hosts rank by fuzzy match blended with frecency and carry their live
  * LED. Selected-host actions: ⏎ connect (focuses an existing running tab,
  * else opens one) · ⌘⏎ always a new tab · ⌘E edit · ⌘C copy ssh command.
- * ⌥⏎ SFTP joins in Phase 5. Actions run on ⏎ and record frecency.
+ * Actions run on ⏎ and record frecency. Snippets rank the same way; ⏎
+ * opens the run dialog (variables + target live there).
  *
  * @returns The palette overlay, or `null` when closed.
  */
@@ -37,6 +45,8 @@ export function CommandPalette() {
   const closePalette = useUiChrome((s) => s.closePalette);
   const hosts = useHosts((s) => s.hosts);
   const openEditor = useHosts((s) => s.openEditor);
+  const snippets = useSnippets((s) => s.snippets);
+  const requestRun = useSnippets((s) => s.requestRun);
   const frecency = useUiPrefs((s) => s.frecency);
   const recordUse = useUiPrefs((s) => s.recordUse);
   const reachByHost = useReach((s) => s.byHost);
@@ -75,12 +85,21 @@ export function CommandPalette() {
     [mode, hosts, query, frecency],
   );
 
+  const snippetRows = useMemo<Snippet[]>(
+    () =>
+      mode !== "commands"
+        ? []
+        : rankSnippets(snippets, query, frecency).slice(0, MAX_SNIPPETS),
+    [mode, snippets, query, frecency],
+  );
+
   const items = useMemo<PaletteItem[]>(
     () => [
       ...actionRows.map((entry): PaletteItem => ({ kind: "action", entry })),
       ...hostRows.map((host): PaletteItem => ({ kind: "host", host })),
+      ...snippetRows.map((snippet): PaletteItem => ({ kind: "snippet", snippet })),
     ],
-    [actionRows, hostRows],
+    [actionRows, hostRows, snippetRows],
   );
   const clamped = Math.min(selected, Math.max(items.length - 1, 0));
 
@@ -125,6 +144,13 @@ export function CommandPalette() {
       recordUse(actionSubject(item.entry.id.split(":")[0]));
       closePalette();
       item.entry.perform();
+      return;
+    }
+    if (item.kind === "snippet") {
+      recordUse(snippetSubject(item.snippet.id));
+      closePalette();
+      // Variables and the target choice live in the run dialog (F6).
+      requestRun(item.snippet);
       return;
     }
     connectHost(item.host, event?.metaKey ?? false);
@@ -250,6 +276,27 @@ export function CommandPalette() {
               </li>
             );
           })}
+          {snippetRows.length > 0 && <li className="palette-eyebrow">Snippets</li>}
+          {snippetRows.map((snippet) => {
+            const index = items.findIndex(
+              (i) => i.kind === "snippet" && i.snippet.id === snippet.id,
+            );
+            return (
+              <li key={`snippet:${snippet.id}`}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={index === clamped}
+                  className={`palette-row${index === clamped ? " palette-row--selected" : ""}`}
+                  onMouseEnter={() => setSelected(index)}
+                  onClick={() => runItem({ kind: "snippet", snippet })}
+                >
+                  <span className="palette-title">{snippet.label}</span>
+                  <span className="palette-detail">{snippet.command}</span>
+                </button>
+              </li>
+            );
+          })}
           {items.length === 0 && (
             <li className="palette-none">
               {mode === "hosts" ? "No matching hosts" : "No matching commands or hosts"}
@@ -262,6 +309,11 @@ export function CommandPalette() {
             <span>⌘⏎ new tab</span>
             {selectedItem.host.source !== "ssh_config" && <span>⌘E edit</span>}
             <span>⌘C copy ssh command</span>
+          </footer>
+        )}
+        {selectedItem?.kind === "snippet" && (
+          <footer className="palette-hints">
+            <span>⏎ run…</span>
           </footer>
         )}
       </div>

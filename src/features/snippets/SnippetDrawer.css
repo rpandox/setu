@@ -1,0 +1,379 @@
+/* The SnippetDrawer (F6, ⌘J): a right-side panel over a dimmed scrim. */
+
+.snippetdrawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: flex-end;
+  background: color-mix(in srgb, var(--bg-0) 60%, transparent);
+}
+
+.snippetdrawer {
+  display: flex;
+  flex-direction: column;
+  width: 380px;
+  max-width: 90vw;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg-1);
+  border-left: 1px solid var(--line-strong);
+}
+
+.snippetdrawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--pad) calc(var(--pad) * 2);
+  border-bottom: 1px solid var(--line);
+}
+
+.snippetdrawer-title {
+  color: var(--ink-1);
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.snippetdrawer-close {
+  display: flex;
+  align-items: center;
+  padding: calc(var(--pad) / 2);
+  background: none;
+  border: none;
+  color: var(--ink-2);
+  transition: color var(--t-fast);
+}
+
+.snippetdrawer-close:hover {
+  color: var(--ink-1);
+}
+
+.snippetdrawer-error {
+  padding: var(--pad) calc(var(--pad) * 2);
+  color: var(--err);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.snippetdrawer-list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--pad);
+  padding: calc(var(--pad) * 2);
+}
+
+.snippetdrawer-search,
+.snippetdrawer-input {
+  padding: calc(var(--pad) / 2) var(--pad);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.snippetdrawer-search:focus,
+.snippetdrawer-input:focus {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}
+
+.snippetdrawer-empty {
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.snippetdrawer-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pad);
+  list-style: none;
+}
+
+.snippetdrawer-row {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+  padding: var(--pad);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+}
+
+.snippetdrawer-rowmain {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 4);
+  min-width: 0;
+}
+
+.snippetdrawer-rowlabel {
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 550;
+}
+
+.snippetdrawer-rowcommand {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snippetdrawer-rowtags {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.snippetdrawer-rowactions {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+}
+
+.snippetdrawer-run,
+.snippetdrawer-save {
+  padding: calc(var(--pad) / 2) calc(var(--pad) * 1.5);
+  background: var(--neon);
+  border: 1px solid var(--neon);
+  border-radius: var(--r-1);
+  color: var(--neon-ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  font-weight: 550;
+}
+
+.snippetdrawer-save:disabled {
+  background: var(--bg-3);
+  border-color: var(--line-strong);
+  color: var(--ink-3);
+}
+
+.snippetdrawer-secondary {
+  padding: calc(var(--pad) / 2) calc(var(--pad) * 1.5);
+  background: var(--bg-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  transition: border-color var(--t-fast);
+}
+
+.snippetdrawer-secondary:hover {
+  border-color: var(--ink-2);
+}
+
+.snippetdrawer-secondary:disabled {
+  color: var(--ink-3);
+  border-color: var(--line);
+}
+
+.snippetdrawer-delete {
+  padding: calc(var(--pad) / 2) calc(var(--pad) * 1.5);
+  background: var(--bg-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  transition: border-color var(--t-fast);
+}
+
+/* Armed: the second click deletes — the warning register makes that legible. */
+.snippetdrawer-delete--armed {
+  border-color: var(--err);
+  color: var(--err);
+}
+
+.snippetdrawer-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pad);
+  padding: calc(var(--pad) * 2);
+  border-top: 1px solid var(--line);
+}
+
+.snippetdrawer-pack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--pad);
+  align-items: center;
+}
+
+.snippetdrawer-overwrite {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.snippetdrawer-form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--pad);
+  padding: calc(var(--pad) * 2);
+}
+
+.snippetdrawer-subtitle {
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.snippetdrawer-field {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+}
+
+.snippetdrawer-label {
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.snippetdrawer-command {
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+
+.snippetdrawer-fielderror {
+  color: var(--err);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.snippetdrawer-hint {
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.snippetdrawer-declare {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--pad) / 2);
+}
+
+.snippetdrawer-declarechip {
+  padding: calc(var(--pad) / 4) var(--pad);
+  background: var(--bg-3);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  transition: border-color var(--t-fast);
+}
+
+.snippetdrawer-declarechip:hover {
+  border-color: var(--neon);
+}
+
+.snippetdrawer-variable {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+}
+
+.snippetdrawer-variable .snippetdrawer-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.snippetdrawer-varname {
+  max-width: 90px;
+}
+
+.snippetdrawer-varremove {
+  padding: 0 calc(var(--pad) / 2);
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  font-size: 14px;
+  transition: color var(--t-fast);
+}
+
+.snippetdrawer-varremove:hover {
+  color: var(--err);
+}
+
+.snippetdrawer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+  padding: calc(var(--pad) / 2);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+}
+
+.snippetdrawer-chip {
+  display: inline-flex;
+  gap: calc(var(--pad) / 4);
+  align-items: center;
+  padding: calc(var(--pad) / 4) var(--pad);
+  background: var(--bg-3);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.snippetdrawer-chipremove {
+  background: none;
+  border: none;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.snippetdrawer-chipremove:hover {
+  color: var(--err);
+}
+
+.snippetdrawer-chipinput {
+  flex: 1;
+  min-width: 80px;
+  background: none;
+  border: none;
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  outline: none;
+}
+
+.snippetdrawer-formfooter {
+  display: flex;
+  gap: var(--pad);
+  justify-content: flex-end;
+  margin-top: auto;
+}
+
+.snippetdrawer-run:focus-visible,
+.snippetdrawer-save:focus-visible,
+.snippetdrawer-secondary:focus-visible,
+.snippetdrawer-delete:focus-visible,
+.snippetdrawer-close:focus-visible,
+.snippetdrawer-declarechip:focus-visible,
+.snippetdrawer-varremove:focus-visible,
+.snippetdrawer-chipremove:focus-visible {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}

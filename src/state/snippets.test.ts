@@ -204,22 +204,25 @@ describe("runSnippet", () => {
 });
 
 describe("packs", () => {
-  it("importPack forwards the strategy and reloads", async () => {
+  it("importPack forwards the path + strategy and reloads", async () => {
     ipcInvoke
       .mockResolvedValueOnce({ imported: 2, skipped: 1 })
       .mockResolvedValueOnce([snippet()]);
-    const outcome = await useSnippets.getState().importPack("toml here", "keep");
+    const outcome = await useSnippets.getState().importPack("/tmp/pack.toml", "keep");
     expect(ipcInvoke).toHaveBeenNthCalledWith(1, "snippet_import", {
-      tomlText: "toml here",
+      path: "/tmp/pack.toml",
       mergeStrategy: "keep",
     });
     expect(outcome).toEqual({ imported: 2, skipped: 1 });
     expect(useSnippets.getState().snippets).toHaveLength(1);
   });
 
-  it("exportPack returns the pack TOML", async () => {
-    ipcInvoke.mockResolvedValueOnce({ toml: "# pack" });
-    await expect(useSnippets.getState().exportPack(["s1"])).resolves.toBe("# pack");
-    expect(ipcInvoke).toHaveBeenCalledWith("snippet_export", { ids: ["s1"] });
+  it("exportPack writes to the picked path", async () => {
+    ipcInvoke.mockResolvedValueOnce(null);
+    await useSnippets.getState().exportPack(["s1"], "/tmp/out.toml");
+    expect(ipcInvoke).toHaveBeenCalledWith("snippet_export", {
+      ids: ["s1"],
+      path: "/tmp/out.toml",
+    });
   });
 });

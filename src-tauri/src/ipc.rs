@@ -550,13 +550,6 @@ pub struct SnippetUpsertResult {
     pub errors: Vec<FieldError>,
 }
 
-/// Result of [`snippet_export`] (mirrors `SnippetExportResult`).
-#[derive(Debug, Serialize)]
-pub struct SnippetExportResult {
-    /// The pack TOML — ready to write to the file the user picked.
-    pub toml: String,
-}
-
 /// Lists every snippet in `snippets.toml`, in file order (F6).
 ///
 /// **Payload:** none · **Result:** `Snippet[]` · **Emits:** nothing.
@@ -617,12 +610,14 @@ pub fn snippet_delete(
     snippets.delete(&snippet_id)
 }
 
-/// Imports a snippet pack — TOML text in the same `[[snippet]]` shape as
-/// the store file (the frontend owns the file dialog and passes the text).
+/// Imports a snippet pack from a file the user picked in the native open
+/// dialog — `[[snippet]]` TOML in the same shape as the store file.
 ///
-/// **Payload:** `{ tomlText, mergeStrategy: "replace" | "keep" }` ·
+/// **Payload:** `{ path, mergeStrategy: "replace" | "keep" }` ·
 /// **Result:** `{ imported, skipped }` · **Emits:** nothing.
 ///
+/// The path comes from the dialog plugin, so it always carries explicit
+/// user consent; the core does the read (no fs plugin, no broad scopes).
 /// Merging is by id: `"replace"` overwrites an existing record, `"keep"`
 /// skips the incoming row. Pack rows without an id always import under a
 /// fresh UUID. The import is atomic — a pack with any invalid snippet
@@ -630,13 +625,13 @@ pub fn snippet_delete(
 ///
 /// # Errors
 ///
-/// Fails when the pack cannot be parsed, is empty, contains an invalid
-/// snippet (the message names it), `mergeStrategy` is unknown, or the
-/// store cannot be read or written.
+/// Fails when the file cannot be read, the pack cannot be parsed, is
+/// empty, contains an invalid snippet (the message names it),
+/// `mergeStrategy` is unknown, or the store cannot be read or written.
 #[tauri::command]
 pub fn snippet_import(
     snippets: State<'_, SnippetsStore>,
-    toml_text: String,
+    path: String,
     merge_strategy: String,
 ) -> Result<ImportOutcome, String> {
     let replace = match merge_strategy.as_str() {
@@ -644,26 +639,33 @@ pub fn snippet_import(
         "keep" => false,
         other => return Err(format!("unknown merge strategy: {other}")),
     };
+    let toml_text =
+        std::fs::read_to_string(&path).map_err(|e| format!("failed to read {path}: {e}"))?;
     snippets.import(&toml_text, replace)
 }
 
-/// Exports the given snippets as pack TOML, in store order (the frontend
-/// owns the save dialog and writes the returned text).
+/// Exports the given snippets as a pack file at a path the user picked in
+/// the native save dialog.
 ///
-/// **Payload:** `{ ids }` · **Result:** `{ toml }` · **Emits:** nothing.
+/// **Payload:** `{ ids, path }` · **Result:** `null` · **Emits:** nothing.
+///
+/// The path comes from the dialog plugin (explicit user consent); the core
+/// does the write. Packs hold commands and variables only — the schema has
+/// no secret fields.
 ///
 /// # Errors
 ///
-/// Fails when the store cannot be read or parsed, or when no id matches
-/// (there is nothing to export). Unknown ids among valid ones are ignored.
+/// Fails when the store cannot be read or parsed, no id matches (there is
+/// nothing to export), or the file cannot be written. Unknown ids among
+/// valid ones are ignored.
 #[tauri::command]
 pub fn snippet_export(
     snippets: State<'_, SnippetsStore>,
     ids: Vec<String>,
-) -> Result<SnippetExportResult, String> {
-    Ok(SnippetExportResult {
-        toml: snippets.export(&ids)?,
-    })
+    path: String,
+) -> Result<(), String> {
+    let toml_text = snippets.export(&ids)?;
+    std::fs::write(&path, toml_text).map_err(|e| format!("failed to write {path}: {e}"))
 }
 
 /// Returns the device-local UI state from `state.json` (PLAN.md §4).

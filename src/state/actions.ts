@@ -16,6 +16,7 @@
 import { useBroadcast } from "./broadcast";
 import { activeSessionOf, tabSessionOf, useSessions } from "./sessions";
 import { useSftp } from "./sftp";
+import { useSnippets } from "./snippets";
 import type { FocusDirection } from "./splits";
 import { useToast } from "./toast";
 import { useUiChrome } from "./ui";
@@ -224,6 +225,13 @@ export function actionRegistry(): AppAction[] {
         }
         sftp.toggleForHost(meta.hostId, meta.hostLabel ?? meta.title);
       },
+    },
+    {
+      id: "toggle-snippet-drawer",
+      title: "Toggle snippet drawer",
+      shortcut: "⌘J",
+      matches: (event) => cmd(event, "j", false),
+      perform: () => useSnippets.getState().toggleDrawer(),
     },
     {
       id: "toggle-sidebar",

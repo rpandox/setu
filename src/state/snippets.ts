@@ -11,9 +11,11 @@
  * explicit confirmation; the paste guard stays for pastes).
  */
 
+import Fuse, { type IFuseOptions } from "fuse.js";
 import { create } from "zustand";
 import { ipcInvoke } from "../ipc/client";
 import type {
+  FrecencyEntry,
   Host,
   Snippet,
   SnippetFieldError,
@@ -21,6 +23,7 @@ import type {
 } from "../ipc/contract";
 import { resolveCommand } from "../features/snippets/variables";
 import { resolvePtyWriteTargets } from "./broadcast";
+import { frecencyScore, snippetSubject } from "./frecency";
 import { useHosts } from "./hosts";
 import { activeSessionOf, useSessions } from "./sessions";
 import { useToast } from "./toast";
@@ -83,16 +86,16 @@ export interface SnippetsState {
    */
   runSnippet(snippet: Snippet, context: SnippetRunContext): Promise<void>;
   /**
-   * Imports a pack (TOML text from the file dialog) and reloads. Returns
-   * the import counters; parse/validation failures reject with the
+   * Imports a pack from a dialog-picked path and reloads. Returns the
+   * import counters; read/parse/validation failures reject with the
    * backend's message (the caller toasts it).
    */
   importPack(
-    tomlText: string,
+    path: string,
     mergeStrategy: "replace" | "keep",
   ): Promise<SnippetImportResult>;
-  /** Exports snippets as pack TOML (the caller writes the file). */
-  exportPack(ids: string[]): Promise<string>;
+  /** Exports snippets as a pack file at a dialog-picked path. */
+  exportPack(ids: string[], path: string): Promise<void>;
 }
 
 /**
@@ -209,16 +212,67 @@ export const useSnippets = create<SnippetsState>((set, get) => ({
   },
 
   async importPack(
-    tomlText: string,
+    path: string,
     mergeStrategy: "replace" | "keep",
   ): Promise<SnippetImportResult> {
-    const outcome = await ipcInvoke("snippet_import", { tomlText, mergeStrategy });
+    const outcome = await ipcInvoke("snippet_import", { path, mergeStrategy });
     await get().load();
     return outcome;
   },
 
-  async exportPack(ids: string[]): Promise<string> {
-    const { toml } = await ipcInvoke("snippet_export", { ids });
-    return toml;
+  async exportPack(ids: string[], path: string): Promise<void> {
+    await ipcInvoke("snippet_export", { ids, path });
   },
 }));
+
+/**
+ * The tuned fuse.js options for snippets: label \> tags \> command, same
+ * threshold discipline as the hosts search (Phase 4).
+ */
+const FUSE_OPTIONS: IFuseOptions<Snippet> = {
+  keys: [
+    { name: "label", weight: 1 },
+    { name: "tags", weight: 0.5 },
+    { name: "command", weight: 0.3 },
+  ],
+  threshold: 0.35,
+  ignoreLocation: true,
+  includeScore: true,
+};
+
+/**
+ * Palette snippet ranking (F6): fuzzy match blended with frecency, the
+ * exact `rankHosts` recipe. With an empty query, snippets order by
+ * frecency then label, so your working set floats up.
+ *
+ * @param snippets - The snippets to rank.
+ * @param query - The palette query; may be empty.
+ * @param frecency - Frecency records from `state.json` (F11).
+ * @param now - Epoch ms of "now" (injectable for tests).
+ * @returns Snippets, best first.
+ */
+export function rankSnippets(
+  snippets: Snippet[],
+  query: string,
+  frecency: Record<string, FrecencyEntry>,
+  now: number = Date.now(),
+): Snippet[] {
+  const boostOf = (snippet: Snippet): number =>
+    frecencyScore(frecency[snippetSubject(snippet.id)], now);
+  const trimmed = query.trim();
+  if (trimmed === "") {
+    return [...snippets].sort((a, b) => {
+      const boost = boostOf(b) - boostOf(a);
+      if (boost !== 0) return boost;
+      return a.label.localeCompare(b.label);
+    });
+  }
+  return new Fuse(snippets, FUSE_OPTIONS)
+    .search(trimmed)
+    .map((result) => ({
+      snippet: result.item,
+      score: (result.score ?? 0) / (1 + Math.log2(1 + boostOf(result.item))),
+    }))
+    .sort((a, b) => a.score - b.score)
+    .map((entry) => entry.snippet);
+}

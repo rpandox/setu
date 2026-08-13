@@ -6,12 +6,15 @@ import { TerminalArea } from "../components/TerminalArea";
 import { HostEditor } from "../features/hosts/HostEditor";
 import { CommandPalette } from "../features/palette/CommandPalette";
 import { PasteGuardDialog } from "../features/broadcast/PasteGuardDialog";
+import { SnippetDrawer } from "../features/snippets/SnippetDrawer";
+import { SnippetRunDialog } from "../features/snippets/SnippetRunDialog";
 import { Toast } from "../components/Toast";
 import { dispatchShortcut } from "../state/actions";
 import { useBroadcast, wireBroadcastHousekeeping } from "../state/broadcast";
 import { useHosts } from "../state/hosts";
 import { initReach } from "../state/reach";
 import { activeSessionOf, useSessions } from "../state/sessions";
+import { useSnippets } from "../state/snippets";
 import { useUiChrome } from "../state/ui";
 import { initUiState } from "../state/uiState";
 import "./App.css";
@@ -36,6 +39,8 @@ export function App() {
   useEffect(() => {
     // Hosts feed the sidebar and the palette; load once at startup.
     void useHosts.getState().load();
+    // Snippets feed the palette's Snippets section and the ⌘J drawer (F6).
+    void useSnippets.getState().load();
     // Broadcast follows tab lifecycle: auto-disarm on switch, prune closed
     // panes (F4). Wired lazily to avoid a module-evaluation cycle.
     wireBroadcastHousekeeping();
@@ -67,7 +72,9 @@ export function App() {
         !event.shiftKey &&
         useUiChrome.getState().paletteMode === null &&
         useHosts.getState().editorTarget === null &&
-        useBroadcast.getState().pendingPaste === null
+        useBroadcast.getState().pendingPaste === null &&
+        !useSnippets.getState().drawerOpen &&
+        useSnippets.getState().pendingRun === null
       ) {
         const sessions = useSessions.getState();
         const active = activeSessionOf(sessions);
@@ -95,6 +102,8 @@ export function App() {
         <StatusBar />
       </div>
       <HostEditor />
+      <SnippetDrawer />
+      <SnippetRunDialog />
       <CommandPalette />
       <PasteGuardDialog />
       <Toast />

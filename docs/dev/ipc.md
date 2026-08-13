@@ -174,30 +174,31 @@ Delete a snippet. Unknown ids are a no-op (idempotent delete).
 
 ### `snippet_import`
 
-Import a snippet pack — TOML text in the same `[[snippet]]` shape as the
-store file. The frontend owns the open dialog and passes the file's text.
+Import a snippet pack — a `[[snippet]]` TOML file picked in the native open
+dialog (the path carries explicit user consent; the core does the read).
 Merging is by id: `"replace"` overwrites an existing record, `"keep"` skips
 the incoming row; pack rows without an id always import under a fresh UUID.
 The import is atomic — a pack with any invalid snippet imports nothing.
 
-|            |                                                                                                                                                        |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Payload    | `{ tomlText: string, mergeStrategy: "replace" \| "keep" }`                                                                                             |
-| Result     | `{ imported: number, skipped: number }`                                                                                                                |
-| Emits      | nothing                                                                                                                                                |
-| Fails when | the pack can't be parsed, is empty, contains an invalid snippet (the message names it), the strategy is unknown, or the store can't be read or written |
+|            |                                                                                                                                                                                |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Payload    | `{ path: string, mergeStrategy: "replace" \| "keep" }`                                                                                                                         |
+| Result     | `{ imported: number, skipped: number }`                                                                                                                                        |
+| Emits      | nothing                                                                                                                                                                        |
+| Fails when | the file can't be read, the pack can't be parsed, is empty, contains an invalid snippet (the message names it), the strategy is unknown, or the store can't be read or written |
 
 ### `snippet_export`
 
-Export snippets as pack TOML, in store order. The frontend owns the save
-dialog and writes the returned text where the user chose.
+Export snippets as a pack file at a path picked in the native save dialog,
+in store order. Packs hold commands and variables only — the schema has no
+secret fields.
 
-|            |                                                                |
-| ---------- | -------------------------------------------------------------- |
-| Payload    | `{ ids: string[] }` (unknown ids among valid ones are ignored) |
-| Result     | `{ toml: string }`                                             |
-| Emits      | nothing                                                        |
-| Fails when | the store can't be read or parsed, or no id matches            |
+|            |                                                                                |
+| ---------- | ------------------------------------------------------------------------------ |
+| Payload    | `{ ids: string[], path: string }` (unknown ids among valid ones are ignored)   |
+| Result     | `null`                                                                         |
+| Emits      | nothing                                                                        |
+| Fails when | the store can't be read or parsed, no id matches, or the file can't be written |
 
 ### `reach_start`
 
