@@ -11,6 +11,7 @@ import { SnippetRunDialog } from "../features/snippets/SnippetRunDialog";
 import { Toast } from "../components/Toast";
 import { dispatchShortcut } from "../state/actions";
 import { useBroadcast, wireBroadcastHousekeeping } from "../state/broadcast";
+import { wireForwards } from "../state/forwards";
 import { useHosts } from "../state/hosts";
 import { initReach } from "../state/reach";
 import { activeSessionOf, useSessions } from "../state/sessions";
@@ -50,6 +51,9 @@ export function App() {
     // The LED board: start the prober, wire reach:update, follow host CRUD
     // and window visibility (F1, Phase 4).
     initReach();
+    // Forwards: wire forward:update and the auto-start-on-connect
+    // subscription (F7, Phase 6).
+    wireForwards();
   }, []);
 
   useEffect(() => {

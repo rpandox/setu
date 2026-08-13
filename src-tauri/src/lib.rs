@@ -81,6 +81,9 @@ pub fn run() {
             app.manage(sftp::SftpManager::new(Arc::new(ipc::TauriSftpEvents::new(
                 app.handle().clone(),
             ))));
+            app.manage(forwards::ForwardManager::new(Arc::new(
+                ipc::TauriForwardEvents::new(app.handle().clone()),
+            )));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -97,6 +100,8 @@ pub fn run() {
             ipc::snippet_delete,
             ipc::snippet_import,
             ipc::snippet_export,
+            ipc::forward_start,
+            ipc::forward_stop,
             ipc::reach_start,
             ipc::reach_stop,
             ipc::reach_set_visible,
@@ -132,6 +137,9 @@ pub fn run() {
             ) {
                 app.state::<pty::PtyManager>().kill_all();
                 app.state::<reach::ReachProber>().stop();
+                // Forward children die with the app — process-group SIGTERM,
+                // no orphans in `ps` (F7 acceptance).
+                app.state::<forwards::ForwardManager>().kill_all();
                 // SFTP teardown is async (protocol goodbyes); block briefly
                 // so no connection or transfer outlives the app.
                 tauri::async_runtime::block_on(app.state::<sftp::SftpManager>().kill_all());

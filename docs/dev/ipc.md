@@ -200,6 +200,39 @@ secret fields.
 | Emits      | nothing                                                                        |
 | Fails when | the store can't be read or parsed, no id matches, or the file can't be written |
 
+### `forward_start`
+
+Start a forward rule's managed `ssh -N` child (F7). The child runs
+`-o ExitOnForwardFailure=yes -o BatchMode=yes` in **its own process
+group**, so silent bind failures and hanging prompts become fast exits,
+and toggle-off / app exit kill the whole group — no orphans. `L`/`D`
+rules pre-flight their local bind port: a conflict names the owning
+process (`lsof`, 2 s budget) and suggests the next free port. Starting an
+already-running rule is a no-op reported as started.
+
+A host whose key isn't in `known_hosts` yet fails fast (BatchMode can't
+prompt) — connect a terminal to the host once first.
+
+|            |                                                                                                                                |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Payload    | `{ hostId: string, rule: { type: "L" \| "R" \| "D", spec: string, auto: boolean } }`                                           |
+| Result     | `{ started: true, ruleKey }` · `{ started: false, error: { kind: "port_in_use" \| "spawn_failed", message, suggestedPort? } }` |
+| Emits      | `forward:update` transitions (`starting` → `amber` → `green`/`red`) until the child dies or is stopped                         |
+| Fails when | the host id is unknown, the store can't be read, or the spec is malformed (the editor validates on save)                       |
+
+### `forward_stop`
+
+Stop a rule: SIGTERM its whole process group and end its monitor. The
+frontend drops the rule's status itself — a stop never races a red (the
+monitor goes quiet instead).
+
+|            |                                                  |
+| ---------- | ------------------------------------------------ |
+| Payload    | `{ ruleKey: string }` (`{hostId}:{type}:{spec}`) |
+| Result     | `null`                                           |
+| Emits      | nothing                                          |
+| Fails when | never — unknown keys are a no-op                 |
+
 ### `reach_start`
 
 Start (or refresh) the reachability prober behind the LED board (F1). The
@@ -500,3 +533,18 @@ Payload: `{ bytes: number, total: number, state: "running" | "done" |
 `0` when the size is unknown; `error`/`retryable` appear on `"failed"`
 only, and `retryable: true` (dropped connection, timeout) is what the
 queue's auto-retry ×1 keys on.
+
+### `forward:update`
+
+One health transition for one forward rule (F7). Every rule shares the
+channel; the payload's `ruleKey` routes it. States: `starting` (toggle
+accepted) → `amber` (child up, unproven) → `green` (`L`/`D`: the local
+port answers a TCP probe; `R`: the child outlived `ExitOnForwardFailure`'s
+window) or `red` (child exited — `reason` carries the exit status and an
+in-memory stderr tail — or the local port stopped answering). A rule that
+recovers flips back to `green`.
+
+Payload: `{ ruleKey: string, hostId: string, state: "starting" | "amber" |
+"green" | "red", reason?: string, proxyString?: string }` — `proxyString`
+(`socks5://localhost:PORT`) rides every `D`-rule event for the popover's
+copy button.

@@ -295,6 +295,65 @@ export interface SnippetExportPayload {
   path: string;
 }
 
+/** A forward rule's health, as reported over `forward:update` (F7). */
+export type ForwardHealthState = "starting" | "amber" | "green" | "red";
+
+/**
+ * Payload of a `forward:update` event — one health transition for one
+ * rule. All rules share the channel; the payload carries the rule key
+ * (PLAN.md §5, the `reach:update` precedent).
+ */
+export interface ForwardStatus {
+  /** The rule's registry key: `{hostId}:{type}:{spec}`. */
+  ruleKey: string;
+  /** The owning host's id. */
+  hostId: string;
+  /** Current health. */
+  state: ForwardHealthState;
+  /** Why the rule is red (exit status + stderr tail); red only. */
+  reason?: string;
+  /** The copyable SOCKS string for `D` rules, e.g. `socks5://localhost:1080`. */
+  proxyString?: string;
+}
+
+/** Payload for `forward_start`. */
+export interface ForwardStartPayload {
+  /** The owning host (`Host.id`, `sshcfg:` ids included). */
+  hostId: string;
+  /** The rule to start (usually one of `Host.forwards`). */
+  rule: HostForward;
+}
+
+/** The expected-failure half of {@link ForwardStartResult}. */
+export interface ForwardStartError {
+  /** What went wrong. */
+  kind: "port_in_use" | "spawn_failed";
+  /** Human-readable message (names the owning process when known). */
+  message: string;
+  /** The next free local port, for the "Use N" one-shot retry. */
+  suggestedPort?: number;
+}
+
+/**
+ * Result of `forward_start` — expected failures (port in use, spawn
+ * failure) ride the result, hosts-family style; only infrastructure
+ * errors reject the promise.
+ */
+export interface ForwardStartResult {
+  /** Whether the child is (now) running. */
+  started: boolean;
+  /** The rule's registry key, when started. */
+  ruleKey?: string;
+  /** The expected failure, when not. */
+  error?: ForwardStartError;
+}
+
+/** Payload for `forward_stop`. */
+export interface ForwardStopPayload {
+  /** The rule to stop. Unknown keys are a no-op (idempotent toggle-off). */
+  ruleKey: string;
+}
+
 /**
  * A node in a saved split tree (`state.json`, F4 session restore).
  *
@@ -654,6 +713,14 @@ export interface IpcCommands {
   /** Export snippets as a pack file at a picked path, in store order. */
   snippet_export: { payload: SnippetExportPayload; result: null };
   /**
+   * Start a forward rule's managed `ssh -N` child (F7). `L`/`D` rules
+   * pre-flight their local port — a conflict comes back result-side with
+   * the owning process and the next free port.
+   */
+  forward_start: { payload: ForwardStartPayload; result: ForwardStartResult };
+  /** Stop a rule: SIGTERM its process group. Unknown keys are a no-op. */
+  forward_stop: { payload: ForwardStopPayload; result: null };
+  /**
    * Start (or refresh) the reachability prober: the first call spawns the
    * sweep loop and probes immediately; later calls trigger a fresh sweep
    * (invoked again after host CRUD so new hosts light up right away).
@@ -730,6 +797,8 @@ export interface IpcCommands {
  *   verdict; one channel, the payload carries the host id (F5).
  * - `sftp:progress:{transferId}` — throttled transfer progress, closed by
  *   exactly one terminal `done`/`failed`/`cancelled` event (F5).
+ * - `forward:update` — one health transition per event, every rule on the
+ *   one channel (the payload carries the rule key; F7).
  */
 export interface IpcEvents {
   [channel: `pty:data:${string}`]: string;
@@ -737,4 +806,5 @@ export interface IpcEvents {
   [channel: `sftp:progress:${string}`]: SftpProgressEvent;
   "reach:update": ReachUpdate;
   "hostkey:prompt": HostkeyPromptEvent;
+  "forward:update": ForwardStatus;
 }

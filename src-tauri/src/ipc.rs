@@ -21,12 +21,13 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager as _, State};
 
+use crate::forwards::{ForwardEvents, ForwardManager, ForwardUpdate, StartOutcome};
 use crate::pty::{PtyEvents, PtyManager};
 use crate::reach::{ProbeTarget, ReachEvents, ReachProber, ReachState, TargetSource};
 use crate::settings::SettingsStore;
 use crate::sftp::{HostTarget, SftpEntry, SftpEvents, SftpManager};
 use crate::snippets::{ImportOutcome, Snippet, SnippetUpsertOutcome, SnippetsStore};
-use crate::store::{FieldError, Host, HostsStore, UpsertOutcome};
+use crate::store::{FieldError, Forward, Host, HostsStore, UpsertOutcome};
 use crate::ui_state::{UiState, UiStateStore};
 use crate::{connect, reach, sftp, ssh_config};
 
@@ -262,6 +263,56 @@ impl SftpEvents for TauriSftpEvents {
                 state: "cancelled",
                 error: None,
                 retryable: None,
+            },
+        );
+    }
+}
+
+/// Payload of a `forward:update` event (mirrors `ForwardStatus` in
+/// `contract.ts`). One channel for all rules; the payload carries the rule
+/// key (PLAN.md §5, Phase 6 row — the `reach:update` precedent).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ForwardUpdatePayload {
+    /// The rule's registry key (`{hostId}:{kind}:{spec}`).
+    rule_key: String,
+    /// The owning host's id.
+    host_id: String,
+    /// `"starting"`, `"amber"`, `"green"`, or `"red"`.
+    state: &'static str,
+    /// Why the rule is red; red only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<String>,
+    /// The copyable SOCKS string for `D` rules.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    proxy_string: Option<String>,
+}
+
+/// [`ForwardEvents`] sink that forwards health transitions to the WebView
+/// as `forward:update` events. Constructed once at app setup and handed to
+/// the [`ForwardManager`].
+pub struct TauriForwardEvents {
+    /// Handle used to emit events to all windows.
+    app: AppHandle,
+}
+
+impl TauriForwardEvents {
+    /// Creates a sink emitting through `app`.
+    pub fn new(app: AppHandle) -> Self {
+        Self { app }
+    }
+}
+
+impl ForwardEvents for TauriForwardEvents {
+    fn on_update(&self, update: &ForwardUpdate) {
+        let _ = self.app.emit(
+            "forward:update",
+            ForwardUpdatePayload {
+                rule_key: update.rule_key.clone(),
+                host_id: update.host_id.clone(),
+                state: update.state.as_str(),
+                reason: update.reason.clone(),
+                proxy_string: update.proxy.clone(),
             },
         );
     }
@@ -666,6 +717,112 @@ pub fn snippet_export(
 ) -> Result<(), String> {
     let toml_text = snippets.export(&ids)?;
     std::fs::write(&path, toml_text).map_err(|e| format!("failed to write {path}: {e}"))
+}
+
+/// The error half of [`ForwardStartResult`] (mirrors the `contract.ts`
+/// shape): an expected start failure with enough detail for the popover's
+/// conflict helper.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForwardStartError {
+    /// `"port_in_use"` or `"spawn_failed"`.
+    pub kind: &'static str,
+    /// Human-readable message (names the owning process when known).
+    pub message: String,
+    /// The next free local port, for the "Use N" one-shot retry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_port: Option<u16>,
+}
+
+/// Result of [`forward_start`] (mirrors `ForwardStartResult`): expected
+/// failures — port in use, spawn failure — ride the result, hosts-family
+/// style; only infrastructure errors reject the promise.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForwardStartResult {
+    /// Whether the child is (now) running.
+    pub started: bool,
+    /// The rule's registry key, when started.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_key: Option<String>,
+    /// The expected failure, when not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<ForwardStartError>,
+}
+
+/// Starts a forward rule's managed `ssh -N` child (F7).
+///
+/// **Payload:** `{ hostId, rule: { type, spec, auto } }` · **Result:**
+/// `{ started: true, ruleKey }` or `{ started: false, error: { kind,
+/// message, suggestedPort? } }` · **Emits:** `forward:update` transitions
+/// (`starting` → `amber` → `green`/`red`) until the child dies or is
+/// stopped.
+///
+/// `L`/`D` rules pre-flight their local bind port: a conflict names the
+/// owning process (`lsof`, 2 s budget) and suggests the next free port —
+/// the F7 conflict helper. Starting an already-running rule is a no-op
+/// reported as started. Children run in their own process group and die
+/// with the app (no orphans).
+///
+/// # Errors
+///
+/// Fails when the host id is unknown, the store can't be read, or the
+/// rule's spec is malformed (hand-edited `hosts.toml` — the editor
+/// validates on save). Port conflicts and spawn failures are result-side.
+#[tauri::command]
+pub async fn forward_start(
+    manager: State<'_, ForwardManager>,
+    hosts: State<'_, HostsStore>,
+    host_id: String,
+    rule: Forward,
+) -> Result<ForwardStartResult, String> {
+    let host = resolve_host(&hosts, &host_id)?;
+    Ok(match manager.start(&host, &rule).await? {
+        StartOutcome::Started { rule_key } | StartOutcome::AlreadyRunning { rule_key } => {
+            ForwardStartResult {
+                started: true,
+                rule_key: Some(rule_key),
+                error: None,
+            }
+        }
+        StartOutcome::PortInUse {
+            message,
+            suggested_port,
+        } => ForwardStartResult {
+            started: false,
+            rule_key: None,
+            error: Some(ForwardStartError {
+                kind: "port_in_use",
+                message,
+                suggested_port,
+            }),
+        },
+        StartOutcome::SpawnFailed { message } => ForwardStartResult {
+            started: false,
+            rule_key: None,
+            error: Some(ForwardStartError {
+                kind: "spawn_failed",
+                message,
+                suggested_port: None,
+            }),
+        },
+    })
+}
+
+/// Stops a forward rule: SIGTERMs its whole process group and ends its
+/// monitor. Unknown keys are a no-op (idempotent toggle-off).
+///
+/// **Payload:** `{ ruleKey }` · **Result:** `null` · **Emits:** nothing
+/// (the frontend drops the rule's status itself; a stop never races a
+/// red — the monitor goes quiet instead).
+///
+/// # Errors
+///
+/// Never fails.
+#[tauri::command]
+pub fn forward_stop(manager: State<'_, ForwardManager>, rule_key: String) -> Result<(), String> {
+    manager.stop(&rule_key);
+    Ok(())
 }
 
 /// Returns the device-local UI state from `state.json` (PLAN.md §4).
