@@ -7,6 +7,12 @@ import { paletteEntries, type PaletteActionEntry } from "../../state/actions";
 import { actionSubject, hostSubject, snippetSubject } from "../../state/frecency";
 import { rankHosts, sshCommandOf, useHosts } from "../../state/hosts";
 import { ledInfoOf, useReach } from "../../state/reach";
+import {
+  peerAsHost,
+  peerLedInfo,
+  splitPeersAgainstHosts,
+  useTailnet,
+} from "../../state/tailnet";
 import { rankSnippets, useSnippets } from "../../state/snippets";
 import { findLeafBySession } from "../../state/splits";
 import { useSessions } from "../../state/sessions";
@@ -80,9 +86,23 @@ export function CommandPalette() {
       .map((result) => result.item);
   }, [mode, query]);
 
+  const tailnetPeers = useTailnet((s) => s.peers);
+  const tailnetUser = useTailnet((s) => s.defaultUser);
+
+  // Tailnet peers join quick-connect as ephemeral hosts (F9); peers that
+  // duplicate an existing host's hostname stay collapsed into that row.
+  const hostPool = useMemo<Host[]>(() => {
+    const { visible } = splitPeersAgainstHosts(tailnetPeers, hosts);
+    return [...hosts, ...visible.map((peer) => peerAsHost(peer, tailnetUser))];
+  }, [hosts, tailnetPeers, tailnetUser]);
+  const peerById = useMemo(
+    () => new Map(tailnetPeers.map((peer) => [peer.id, peer] as const)),
+    [tailnetPeers],
+  );
+
   const hostRows = useMemo<Host[]>(
-    () => (mode === null ? [] : rankHosts(hosts, query, frecency).slice(0, MAX_HOSTS)),
-    [mode, hosts, query, frecency],
+    () => (mode === null ? [] : rankHosts(hostPool, query, frecency).slice(0, MAX_HOSTS)),
+    [mode, hostPool, query, frecency],
   );
 
   const snippetRows = useMemo<Snippet[]>(
@@ -176,9 +196,9 @@ export function CommandPalette() {
       event.metaKey &&
       event.key.toLowerCase() === "e"
     ) {
-      // ⌘E edits the selected host (imported rows adopt first — F1 keeps
-      // them read-only, so the editor is the wrong door for them).
-      if (selectedItem.host.source !== "ssh_config") {
+      // ⌘E edits the selected host (imported/tailnet rows adopt first —
+      // they're read-only, so the editor is the wrong door for them).
+      if (selectedItem.host.source === "setu") {
         event.preventDefault();
         closePalette();
         openEditor(selectedItem.host.id);
@@ -257,7 +277,13 @@ export function CommandPalette() {
             const index = items.findIndex(
               (i) => i.kind === "host" && i.host.id === host.id,
             );
-            const led = ledInfoOf(host, reachByHost, sessions, probing);
+            // Tailnet rows show Tailscale's own online state, not probe
+            // results — the sidebar's LED semantics (§3).
+            const peer = host.source === "tailscale" ? peerById.get(host.id) : undefined;
+            const led =
+              peer !== undefined
+                ? peerLedInfo(peer, sessions)
+                : ledInfoOf(host, reachByHost, sessions, probing);
             return (
               <li key={`host:${host.id}`}>
                 <button

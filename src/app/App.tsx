@@ -16,6 +16,7 @@ import { wireForwards } from "../state/forwards";
 import { useHosts } from "../state/hosts";
 import { initReach } from "../state/reach";
 import { activeSessionOf, useSessions } from "../state/sessions";
+import { initTailnet } from "../state/tailnet";
 import { useSnippets } from "../state/snippets";
 import { useUiChrome } from "../state/ui";
 import { initUiState } from "../state/uiState";
@@ -55,6 +56,8 @@ export function App() {
     // Forwards: wire forward:update and the auto-start-on-connect
     // subscription (F7, Phase 6).
     wireForwards();
+    // Tailnet: poll peers every 30s while visible (F9, Phase 7).
+    initTailnet();
   }, []);
 
   useEffect(() => {

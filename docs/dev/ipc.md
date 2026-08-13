@@ -37,9 +37,10 @@ network changes. See [pty.md](pty.md) for the pipeline behind it.
 | Emits      | `pty:data:{sessionId}` from spawn onward; one final `pty:exit:{sessionId}`                                                                                                       |
 | Fails when | the PTY can't be opened, the child can't be spawned, `kind` is `"ssh"`/`"mosh"` without a `hostId`, the host id is unknown, or mosh isn't installed. No session after a failure. |
 
-The Rust core resolves `hostId` itself (from `hosts.toml`, or a live
-`~/.ssh/config` parse for `sshcfg:` ids) and builds the argv — argv never
-crosses IPC. Imported rows connect via their **bare alias**, so system ssh
+The Rust core resolves `hostId` itself (from `hosts.toml`, a live
+`~/.ssh/config` parse for `sshcfg:` ids, or a fresh `tailscale status
+--json` for `ts:` peer ids — both stateless by design) and builds the
+argv — argv never crosses IPC. Imported rows connect via their **bare alias**, so system ssh
 applies the user's real config (ProxyJump included); Setu rows get explicit
 `-p`/`-i`/`user@hostname` flags, plus `-- <startup>` when set. First-connect
 host-key prompts appear in the terminal itself.
@@ -129,17 +130,20 @@ the host keep running — the frontend marks their tabs "(orphaned)" (F1).
 
 ### `host_adopt`
 
-Copy an imported `~/.ssh/config` row into `hosts.toml` as an editable
-`source: "setu"` record. The config file itself is never touched. An
-alias-only row (no `HostName`) adopts with `hostname` set to the alias —
-exactly what ssh would have resolved.
+Copy an ephemeral row into `hosts.toml` as an editable `source: "setu"`
+record: an imported `~/.ssh/config` alias (F1), or — Phase 7 — a tailnet
+peer (F9, "Adopt as host"). The original source is never touched. An
+alias-only config row (no `HostName`) adopts with `hostname` set to the
+alias — exactly what ssh would have resolved. An adopted peer keeps its
+MagicDNS name as the hostname, gets a fresh uuid, and becomes a normal
+probed host.
 
-|            |                                                                                                                                               |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Payload    | `{ hostId: string }` (an `sshcfg:` id)                                                                                                        |
-| Result     | the new persisted `Host`                                                                                                                      |
-| Emits      | nothing                                                                                                                                       |
-| Fails when | the id isn't `sshcfg:`, the alias no longer exists in the config, the copy fails validation (e.g. missing `IdentityFile`), or the write fails |
+|            |                                                                                                                                                     |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ hostId: string }` (an `sshcfg:` or `ts:` id)                                                                                                     |
+| Result     | the new persisted `Host`                                                                                                                            |
+| Emits      | nothing                                                                                                                                             |
+| Fails when | the id is neither `sshcfg:` nor `ts:`, the alias/peer no longer exists, the copy fails validation (e.g. missing `IdentityFile`), or the write fails |
 
 ### `snippet_list`
 
@@ -589,6 +593,42 @@ the command never becomes an arbitrary-path oracle.
 | Result     | `{ found: boolean, path?: string }` (absolute, when found) |
 | Emits      | nothing                                                    |
 | Fails when | `name` isn't on the allow-list                             |
+
+### `tailscale_peers`
+
+List tailnet peers via `tailscale status --json` (F9). Pull model: the
+tailnet store polls every 30 s and pauses while the app is hidden. Peers
+are **ephemeral** — never persisted; their `ts:{nodeId}` ids resolve
+through a fresh status call at spawn time (the `sshcfg:` mirror,
+PLAN.md §5). Peer LEDs mirror Tailscale's own online state; tailnet rows
+are never TCP-probed (§3). The self node is excluded, and `defaultUser`
+carries the `[tailnet] default_user` setting (fallback: the local
+`$USER`) so one-click connects know who to log in as.
+
+An absent binary — the search covers the Homebrew/App-bundle locations
+the minimal GUI `PATH` can't see — or a stopped/logged-out daemon is a
+normal `{ available: false, reason }` answer: the sidebar section hides,
+nothing errors (F9 edge case).
+
+|            |                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| Payload    | `{}`                                                                                                               |
+| Result     | `{ available, reason?, defaultUser, peers: [{ id, dnsName, hostName, os, online, lastSeen?, tags, tsSsh }] }`      |
+| Emits      | nothing                                                                                                            |
+| Fails when | settings can't be read, or the command can't run at all (absent/stopped/logged-out states are answers, not errors) |
+
+### `tailscale_ping`
+
+Run `tailscale ping` against a peer — F9's "ping to wake path": warms
+the connection path to a dozing peer (3 pings, 2 s each). Background
+execution; the frontend toasts the summary line.
+
+|            |                                                                     |
+| ---------- | ------------------------------------------------------------------- |
+| Payload    | `{ target: string }` (MagicDNS name)                                |
+| Result     | `{ ok: boolean, summary: string }` (the command's last output line) |
+| Emits      | nothing                                                             |
+| Fails when | tailscale isn't installed, or the command can't run at all          |
 
 ## Events
 

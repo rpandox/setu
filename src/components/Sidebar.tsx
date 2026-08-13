@@ -6,9 +6,11 @@ import { renderMiniMarkdown } from "../features/hosts/miniMarkdown";
 import { sidebarSections, sshCommandOf, useHosts } from "../state/hosts";
 import { ledInfoOf, useReach } from "../state/reach";
 import { useSessions } from "../state/sessions";
+import { splitPeersAgainstHosts, useTailnet } from "../state/tailnet";
 import { useUiPrefs } from "../state/uiState";
 import { HostLed, ReachChip } from "./HostLed";
 import { SelectionBar } from "./SelectionBar";
+import { TailnetSection } from "./TailnetSection";
 
 /**
  * Props for the {@link Sidebar} component.
@@ -58,6 +60,9 @@ export function Sidebar({ collapsed }: SidebarProps) {
   const setSelected = useHosts((s) => s.setSelected);
   const clearSelection = useHosts((s) => s.clearSelection);
 
+  const tailnetAvailable = useTailnet((s) => s.available);
+  const tailnetPeers = useTailnet((s) => s.peers);
+
   const collapsedSections = useUiPrefs((s) => s.collapsedSections);
   const setCollapsedSections = useUiPrefs((s) => s.setCollapsedSections);
   const collapsedKeys = useMemo(() => new Set(collapsedSections), [collapsedSections]);
@@ -70,6 +75,12 @@ export function Sidebar({ collapsed }: SidebarProps) {
 
   const sections = sidebarSections(hosts, query);
   const searching = query.trim() !== "";
+  // A peer whose MagicDNS name matches an existing host collapses into
+  // that row with a badge (F9 edge case); the rest form the section.
+  const { visible: visiblePeers, badged } = useMemo(
+    () => splitPeersAgainstHosts(tailnetPeers, hosts),
+    [tailnetPeers, hosts],
+  );
   /**
    * Selectable = editable; imported rows are read-only until adopted.
    *
@@ -224,6 +235,14 @@ export function Sidebar({ collapsed }: SidebarProps) {
                             <HostLed led={led} />
                             <span className="host-label">{host.label}</span>
                             <span className="host-detail">{rowDetail(host)}</span>
+                            {badged.has(host.hostname.toLowerCase()) && (
+                              <span
+                                className="tailnet-badge"
+                                title="Also a tailnet peer (same MagicDNS name)"
+                              >
+                                ts
+                              </span>
+                            )}
                             <ReachChip led={led} />
                           </button>
                           <span className="host-actions">
@@ -317,6 +336,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
               </section>
             );
           })}
+          {tailnetAvailable && <TailnetSection peers={visiblePeers} query={query} />}
         </nav>
         <SelectionBar />
       </div>

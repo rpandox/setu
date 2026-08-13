@@ -21,6 +21,7 @@
 //! - [`keygen`] — `ssh-keygen` driven through a hidden PTY (F8).
 //! - [`agent`] — ssh-agent introspection via `ssh-add -l` (F8).
 //! - [`binaries`] — locating optional tools (mosh, tailscale, claude).
+//! - [`tailscale`] — the tailnet as a host source: peers, ping, adopt (F9).
 //! - [`ipc`] — the Tauri command surface, mirrored by `src/ipc/contract.ts`.
 
 #![deny(missing_docs)]
@@ -40,6 +41,7 @@ pub mod sftp;
 pub mod snippets;
 pub mod ssh_config;
 pub mod store;
+pub mod tailscale;
 pub mod ui_state;
 
 /// Builds and runs the Tauri application.
@@ -140,6 +142,8 @@ pub fn run() {
             ipc::keys_generate,
             ipc::agent_list,
             ipc::binary_check,
+            ipc::tailscale_peers,
+            ipc::tailscale_ping,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

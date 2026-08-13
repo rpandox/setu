@@ -806,6 +806,56 @@ export interface BinaryCheckResult {
 }
 
 /**
+ * One tailnet peer (F9, Phase 7). Ephemeral: peers are never persisted —
+ * `id` (`ts:{nodeId}`) feeds `pty_spawn` / `sftp_connect` / `host_adopt`
+ * like any host id, resolved by a fresh `tailscale status --json` core-side.
+ */
+export interface TailscalePeer {
+  /** Stable host id, `ts:{nodeId}`. */
+  id: string;
+  /** MagicDNS name without the trailing dot. */
+  dnsName: string;
+  /** The device's short hostname — the row label. */
+  hostName: string;
+  /** OS as Tailscale reports it (`linux`, `macOS`, `windows`, …). */
+  os: string;
+  /** Tailscale's own online state — the LED, never a TCP probe (§3). */
+  online: boolean;
+  /** RFC 3339 last-seen for dimmed offline rows, when known. */
+  lastSeen?: string;
+  /** ACL tags (`tag:prod`, …). */
+  tags: string[];
+  /** Whether the peer runs Tailscale SSH (key-free connect badge). */
+  tsSsh: boolean;
+}
+
+/** Result of `tailscale_peers`. */
+export interface TailscalePeersResult {
+  /** Whether the Tailnet section should exist at all. */
+  available: boolean;
+  /** One plain sentence when unavailable ("not installed", "logged out"…). */
+  reason?: string;
+  /** The default login user for one-click connects (`[tailnet]` setting). */
+  defaultUser: string;
+  /** Live peers, self excluded. */
+  peers: TailscalePeer[];
+}
+
+/** Payload for `tailscale_ping` — F9's "ping to wake path". */
+export interface TailscalePingPayload {
+  /** The peer's MagicDNS name. */
+  target: string;
+}
+
+/** Result of `tailscale_ping`. */
+export interface TailscalePingResult {
+  /** Whether a pong arrived within the budget. */
+  ok: boolean;
+  /** The command's last output line, for the toast. */
+  summary: string;
+}
+
+/**
  * Invokable commands, keyed by command name.
  *
  * Phase 1 shipped the `pty_*` family; Phase 2 adds SSH spawning and the
@@ -945,6 +995,14 @@ export interface IpcCommands {
    * tailscale detection, Phase 13 claude). Allow-listed names only.
    */
   binary_check: { payload: BinaryCheckPayload; result: BinaryCheckResult };
+  /**
+   * List tailnet peers (F9). Pull model: the tailnet store polls every
+   * 30s, pausing while the app is hidden. Unavailable states hide the
+   * sidebar section — they are answers, not errors.
+   */
+  tailscale_peers: { payload: Record<string, never>; result: TailscalePeersResult };
+  /** Warm the path to a dozing peer (`tailscale ping`) — toast the result. */
+  tailscale_ping: { payload: TailscalePingPayload; result: TailscalePingResult };
 }
 
 /**

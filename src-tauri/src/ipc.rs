@@ -30,9 +30,9 @@ use crate::reach::{ProbeTarget, ReachEvents, ReachProber, ReachState, TargetSour
 use crate::settings::SettingsStore;
 use crate::sftp::{HostTarget, SftpEntry, SftpEvents, SftpManager};
 use crate::snippets::{ImportOutcome, Snippet, SnippetUpsertOutcome, SnippetsStore};
-use crate::store::{FieldError, Forward, Host, HostsStore, UpsertOutcome};
+use crate::store::{FieldError, Forward, Host, HostSource, HostsStore, UpsertOutcome};
 use crate::ui_state::{UiState, UiStateStore};
-use crate::{agent, binaries, connect, keychain, keygen, reach, sftp, ssh_config};
+use crate::{agent, binaries, connect, keychain, keygen, reach, sftp, ssh_config, tailscale};
 
 /// What kind of process a PTY session drives (mirrors `PtyKind` in
 /// `contract.ts`).
@@ -366,12 +366,13 @@ impl TargetSource for AppTargetSource {
 /// # Errors
 ///
 /// Fails when the PTY cannot be opened, the child cannot be spawned, `kind`
-/// is `"ssh"` without a `hostId`, or the host id is unknown. No session is
-/// created on failure.
+/// is `"ssh"`/`"mosh"` without a `hostId`, the host id is unknown, or mosh
+/// isn't installed. No session is created on failure.
 #[tauri::command]
-pub fn pty_spawn(
+pub async fn pty_spawn(
     manager: State<'_, PtyManager>,
     hosts: State<'_, HostsStore>,
+    settings: State<'_, SettingsStore>,
     kind: PtyKind,
     cols: u16,
     rows: u16,
@@ -383,14 +384,14 @@ pub fn pty_spawn(
             .map(|session_id| PtySpawnResult { session_id }),
         PtyKind::Ssh => {
             let host_id = host_id.ok_or("hostId is required for ssh sessions")?;
-            let host = resolve_host(&hosts, &host_id)?;
+            let host = resolve_host(&hosts, &settings, &host_id).await?;
             manager
                 .spawn_command(connect::ssh_command(&host), cols, rows)
                 .map(|session_id| PtySpawnResult { session_id })
         }
         PtyKind::Mosh => {
             let host_id = host_id.ok_or("hostId is required for mosh sessions")?;
-            let host = resolve_host(&hosts, &host_id)?;
+            let host = resolve_host(&hosts, &settings, &host_id).await?;
             // The absolute path matters twice: a GUI app's minimal PATH
             // can't see Homebrew's mosh, for the check or the spawn.
             let mosh = binaries::find("mosh")
@@ -407,14 +408,23 @@ pub fn pty_spawn(
 }
 
 /// Resolves a host id to its record: `sshcfg:` ids come from a fresh parse
-/// of `~/.ssh/config`, everything else from the store.
-fn resolve_host(hosts: &HostsStore, host_id: &str) -> Result<Host, String> {
+/// of `~/.ssh/config`, `ts:` ids from a fresh `tailscale status --json`
+/// (both stateless by design — PLAN.md §5), everything else from the store.
+async fn resolve_host(
+    hosts: &HostsStore,
+    settings: &SettingsStore,
+    host_id: &str,
+) -> Result<Host, String> {
     if let Some(alias) = host_id.strip_prefix(ssh_config::ID_PREFIX) {
         return ssh_config_rows()
             .into_iter()
             .find(|entry| entry.alias == alias)
             .map(|entry| ssh_config::to_host(&entry))
             .ok_or_else(|| format!("unknown ssh config alias: {alias}"));
+    }
+    if host_id.starts_with(tailscale::ID_PREFIX) {
+        let user = settings.tailnet()?.default_user;
+        return tailscale::resolve_peer_host(host_id, &user).await;
     }
     hosts
         .get(host_id)?
@@ -577,23 +587,44 @@ pub fn host_delete(hosts: State<'_, HostsStore>, host_id: String) -> Result<(), 
     hosts.delete(&host_id)
 }
 
-/// Adopts an imported `~/.ssh/config` row: copies it into `hosts.toml` as
-/// an editable `source = "setu"` record (F1). The original config file is
-/// never touched.
+/// Adopts an ephemeral row into `hosts.toml` as an editable
+/// `source = "setu"` record: an imported `~/.ssh/config` alias (F1) or a
+/// tailnet peer (F9, Phase 7). The original source — config file or
+/// tailnet — is never touched.
 ///
-/// **Payload:** `{ hostId }` (an `sshcfg:` id) · **Result:** the new
-/// persisted `Host` · **Emits:** nothing.
+/// **Payload:** `{ hostId }` (an `sshcfg:` or `ts:` id) · **Result:** the
+/// new persisted `Host` · **Emits:** nothing.
 ///
 /// # Errors
 ///
-/// Fails when the id is not an `sshcfg:` id, the alias no longer exists in
-/// the config, the copied record fails validation (e.g. its `IdentityFile`
-/// is missing on disk), or the store cannot be written.
+/// Fails when the id is neither an `sshcfg:` nor a `ts:` id, the alias or
+/// peer no longer exists, the copied record fails validation (e.g. an
+/// `IdentityFile` missing on disk), or the store cannot be written.
 #[tauri::command]
-pub fn host_adopt(hosts: State<'_, HostsStore>, host_id: String) -> Result<Host, String> {
+pub async fn host_adopt(
+    hosts: State<'_, HostsStore>,
+    settings: State<'_, SettingsStore>,
+    host_id: String,
+) -> Result<Host, String> {
+    if host_id.starts_with(tailscale::ID_PREFIX) {
+        let user = settings.tailnet()?.default_user;
+        let mut host = tailscale::resolve_peer_host(&host_id, &user).await?;
+        // A fresh uuid, a normal probed row: adoption promotes the peer to
+        // a first-class Setu host (its MagicDNS name stays the hostname).
+        host.id = String::new();
+        host.source = HostSource::Setu;
+        host.reachability = true;
+        return match hosts.upsert(host)? {
+            UpsertOutcome::Saved(host) => Ok(*host),
+            UpsertOutcome::Invalid(errors) => Err(errors
+                .first()
+                .map(|e| format!("{}: {}", e.field, e.message))
+                .unwrap_or_else(|| "validation failed".to_string())),
+        };
+    }
     let alias = host_id
         .strip_prefix(ssh_config::ID_PREFIX)
-        .ok_or_else(|| format!("not an ssh config host: {host_id}"))?;
+        .ok_or_else(|| format!("not an adoptable host: {host_id}"))?;
     let entry = ssh_config_rows()
         .into_iter()
         .find(|entry| entry.alias == alias)
@@ -792,10 +823,11 @@ pub struct ForwardStartResult {
 pub async fn forward_start(
     manager: State<'_, ForwardManager>,
     hosts: State<'_, HostsStore>,
+    settings: State<'_, SettingsStore>,
     host_id: String,
     rule: Forward,
 ) -> Result<ForwardStartResult, String> {
-    let host = resolve_host(&hosts, &host_id)?;
+    let host = resolve_host(&hosts, &settings, &host_id).await?;
     Ok(match manager.start(&host, &rule).await? {
         StartOutcome::Started { rule_key } | StartOutcome::AlreadyRunning { rule_key } => {
             ForwardStartResult {
@@ -1004,9 +1036,10 @@ pub struct SftpTransferResult {
 pub async fn sftp_connect(
     manager: State<'_, SftpManager>,
     hosts: State<'_, HostsStore>,
+    settings: State<'_, SettingsStore>,
     host_id: String,
 ) -> Result<SftpConnectResult, String> {
-    let host = resolve_host(&hosts, &host_id)?;
+    let host = resolve_host(&hosts, &settings, &host_id).await?;
     let target = HostTarget::from_host(&host)?;
     Ok(match manager.connect(target).await? {
         sftp::ConnectOutcome::Connected(sftp_session_id) => SftpConnectResult {
@@ -1610,6 +1643,131 @@ pub fn binary_check(name: String) -> Result<BinaryCheckResult, String> {
             found: false,
             path: None,
         },
+    })
+}
+
+/// One tailnet peer in [`TailscalePeersResult`] (mirrors `TailscalePeer`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TailscalePeerPayload {
+    /// Stable host id (`ts:{nodeId}`) — feeds `pty_spawn`, `sftp_connect`,
+    /// and `host_adopt` like any other host id.
+    pub id: String,
+    /// MagicDNS name without the trailing dot.
+    pub dns_name: String,
+    /// The device's short hostname (the row label).
+    pub host_name: String,
+    /// OS as Tailscale reports it (`linux`, `macOS`, `windows`, …).
+    pub os: String,
+    /// Tailscale's own online state — the LED, never a probe (§3).
+    pub online: bool,
+    /// RFC 3339 last-seen for dimmed offline rows, when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen: Option<String>,
+    /// ACL tags (`tag:prod`, …).
+    pub tags: Vec<String>,
+    /// Whether the peer runs Tailscale SSH (the key-free `ts-ssh` badge).
+    pub ts_ssh: bool,
+}
+
+/// Result of [`tailscale_peers`] (mirrors `TailscalePeersResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TailscalePeersResult {
+    /// Whether the Tailnet section should exist at all.
+    pub available: bool,
+    /// One plain sentence when unavailable (`"not installed"`,
+    /// `"logged out"`, `"stopped"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The default login user for one-click connects.
+    pub default_user: String,
+    /// Live peers, self excluded.
+    pub peers: Vec<TailscalePeerPayload>,
+}
+
+/// Lists tailnet peers via `tailscale status --json` (F9). Pull model:
+/// the frontend polls every 30 s and pauses while hidden — peers are
+/// ephemeral and never persisted. Peer LEDs mirror Tailscale's own online
+/// state; these rows are never TCP-probed (§3).
+///
+/// **Payload:** `{}` · **Result:** `{ available, reason?, defaultUser,
+/// peers }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when settings can't be read or the command can't run at all. An
+/// absent binary or a stopped/logged-out daemon is `{ available: false,
+/// reason }` — the section hides, nothing errors (F9 edge case).
+#[tauri::command]
+pub async fn tailscale_peers(
+    settings: State<'_, SettingsStore>,
+) -> Result<TailscalePeersResult, String> {
+    let user = settings.tailnet()?.default_user;
+    let status = tailscale::status(&user).await?;
+    Ok(TailscalePeersResult {
+        available: status.available,
+        reason: status.reason,
+        default_user: status.default_user,
+        peers: status
+            .peers
+            .into_iter()
+            .map(|peer| TailscalePeerPayload {
+                id: peer.id,
+                dns_name: peer.dns_name,
+                host_name: peer.host_name,
+                os: peer.os,
+                online: peer.online,
+                last_seen: peer.last_seen,
+                tags: peer.tags,
+                ts_ssh: peer.ts_ssh,
+            })
+            .collect(),
+    })
+}
+
+/// Result of [`tailscale_ping`] (mirrors `TailscalePingResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TailscalePingResult {
+    /// Whether the ping got a pong within the budget.
+    pub ok: bool,
+    /// The command's last output line — `"pong from … in 23ms"` or the
+    /// failure text, for the toast.
+    pub summary: String,
+}
+
+/// Runs `tailscale ping` against a peer (F9's "ping to wake path"): warms
+/// the connection path to a dozing peer. Background execution with a
+/// toast — no pane involved.
+///
+/// **Payload:** `{ target }` (MagicDNS name) · **Result:** `{ ok,
+/// summary }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when tailscale isn't installed or the command can't run; an
+/// unreachable peer is `{ ok: false, summary }`, not an error.
+#[tauri::command]
+pub async fn tailscale_ping(target: String) -> Result<TailscalePingResult, String> {
+    let binary =
+        binaries::find("tailscale").ok_or("tailscale isn't installed — nothing to ping with")?;
+    let output = tokio::process::Command::new(&binary)
+        .args(["ping", "-c", "3", "--timeout", "2s", &target])
+        .output()
+        .await
+        .map_err(|e| format!("couldn't run tailscale ping: {e}"))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let summary = text
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("no response")
+        .trim()
+        .to_string();
+    Ok(TailscalePingResult {
+        ok: output.status.success(),
+        summary,
     })
 }
 
