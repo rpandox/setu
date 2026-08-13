@@ -60,12 +60,13 @@ export interface BroadcastState {
   pruneAgainst(tabs: Tab[]): void;
   /** Opens the paste-guard dialog for a multi-line broadcast paste. */
   requestPasteGuard(pending: PendingPaste): void;
-  /** Closes the dialog without pasting. */
+  /** Closes the dialog without pasting; the pane regains keyboard focus. */
   cancelPasteGuard(): void;
   /**
    * Confirms the guarded paste: the (possibly edited) text goes through the
    * focused pane's normal xterm paste path, so bracketed paste and the
-   * fan-out resolver apply exactly as if it were typed.
+   * fan-out resolver apply exactly as if it were typed. The pane regains
+   * keyboard focus afterwards.
    */
   confirmPasteGuard(text: string): void;
 }
@@ -152,7 +153,9 @@ export const useBroadcast = create<BroadcastState>((set, get) => ({
   },
 
   cancelPasteGuard(): void {
+    const pending = get().pendingPaste;
     set((state) => ({ ...state, pendingPaste: null }));
+    if (pending) refocusPane(pending.sessionId);
   },
 
   confirmPasteGuard(text: string): void {
@@ -160,8 +163,23 @@ export const useBroadcast = create<BroadcastState>((set, get) => ({
     if (!pending) return;
     set((state) => ({ ...state, pendingPaste: null }));
     getSessionTerminal(pending.sessionId)?.term.paste(text);
+    refocusPane(pending.sessionId);
   },
 }));
+
+/**
+ * Hands focus back to a pane's terminal after the guard dialog closes.
+ * Without this, focus falls to `<body>` and the next ⌘V dies silently —
+ * no pane capture handler in its path, so no guard and no paste. Deferred
+ * a frame for the same WKWebView reason as in `TerminalPane`.
+ *
+ * @param sessionId - The pane whose terminal should regain focus.
+ */
+function refocusPane(sessionId: string): void {
+  requestAnimationFrame(() => {
+    getSessionTerminal(sessionId)?.term.focus();
+  });
+}
 
 /** Minimum ms between "skipped dead panes" toasts (one per burst, F4). */
 const DEAD_SKIP_TOAST_MS = 2000;
