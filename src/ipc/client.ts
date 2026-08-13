@@ -6,7 +6,13 @@
 
 import { invoke, type InvokeArgs } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { IpcCommands, PtyExitEvent, ReachUpdate } from "./contract";
+import type {
+  HostkeyPromptEvent,
+  IpcCommands,
+  PtyExitEvent,
+  ReachUpdate,
+  SftpProgressEvent,
+} from "./contract";
 
 /**
  * Invokes a Tauri command with its contract-typed payload and result.
@@ -77,5 +83,40 @@ export function onReachUpdate(
 ): Promise<UnlistenFn> {
   return listen<ReachUpdate>("reach:update", (event) => {
     onUpdate(event.payload);
+  });
+}
+
+/**
+ * Subscribes to `hostkey:prompt` — an unknown host key awaiting the user's
+ * FingerprintDialog verdict (F5). One channel for all hosts; the payload's
+ * `hostId` routes it. Answer with `ipcInvoke("hostkey_trust", …)`; the
+ * pending `sftp_connect` stays parked until then.
+ *
+ * @param onPrompt - Called with each prompt, in arrival order.
+ * @returns A promise resolving to the unlisten function.
+ */
+export function onHostkeyPrompt(
+  onPrompt: (prompt: HostkeyPromptEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<HostkeyPromptEvent>("hostkey:prompt", (event) => {
+    onPrompt(event.payload);
+  });
+}
+
+/**
+ * Subscribes to `sftp:progress:{transferId}` — throttled progress for one
+ * transfer, closed by exactly one terminal `done`/`failed`/`cancelled`
+ * event (F5). Speed and ETA derive from successive `bytes` readings.
+ *
+ * @param transferId - The transfer to listen to.
+ * @param onProgress - Called with each progress payload, in arrival order.
+ * @returns A promise resolving to the unlisten function.
+ */
+export function onSftpProgress(
+  transferId: string,
+  onProgress: (progress: SftpProgressEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<SftpProgressEvent>(`sftp:progress:${transferId}`, (event) => {
+    onProgress(event.payload);
   });
 }

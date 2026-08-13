@@ -70,6 +70,9 @@ pub fn run() {
             app.manage(ui_state::UiStateStore::new(
                 app.path().app_data_dir()?.join("state.json"),
             ));
+            app.manage(sftp::SftpManager::new(Arc::new(ipc::TauriSftpEvents::new(
+                app.handle().clone(),
+            ))));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -86,6 +89,24 @@ pub fn run() {
             ipc::reach_set_visible,
             ipc::ui_state_get,
             ipc::ui_state_set,
+            ipc::sftp_connect,
+            ipc::hostkey_trust,
+            ipc::sftp_disconnect,
+            ipc::sftp_list,
+            ipc::sftp_stat,
+            ipc::sftp_mkdir,
+            ipc::sftp_rename,
+            ipc::sftp_delete,
+            ipc::sftp_chmod,
+            ipc::sftp_local_list,
+            ipc::sftp_local_stat,
+            ipc::sftp_local_mkdir,
+            ipc::sftp_local_rename,
+            ipc::sftp_local_delete,
+            ipc::sftp_local_chmod,
+            ipc::sftp_upload,
+            ipc::sftp_download,
+            ipc::sftp_cancel,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -97,6 +118,9 @@ pub fn run() {
             ) {
                 app.state::<pty::PtyManager>().kill_all();
                 app.state::<reach::ReachProber>().stop();
+                // SFTP teardown is async (protocol goodbyes); block briefly
+                // so no connection or transfer outlives the app.
+                tauri::async_runtime::block_on(app.state::<sftp::SftpManager>().kill_all());
             }
         });
 }

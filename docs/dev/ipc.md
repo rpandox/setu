@@ -213,6 +213,153 @@ partial update. Writes are atomic (temp file + rename).
 | Emits      | nothing                                                                                             |
 | Fails when | the existing file can't be read or parsed (corrupt files are never overwritten), or the write fails |
 
+### `sftp_connect`
+
+Open an SFTP session to a host (F5). This is the app's only in-protocol SSH
+use — interactive terminals drive system `ssh` instead. Auth ladder: every
+ssh-agent identity, then the host's identity file when one is configured
+(passphrase-less; password auth arrives with the Keychain in Phase 7).
+
+Host-key policy: a key matching `~/.ssh/known_hosts` connects silently; an
+**unknown** key emits `hostkey:prompt` and parks this command until
+`hostkey_trust` answers it; a **mismatched** or **revoked** key fails hard —
+never a prompt. Trusting appends one line to `known_hosts` (the app's only
+known_hosts write, append-only).
+
+|            |                                                                                                                                                                                                       |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ hostId: string }`                                                                                                                                                                                  |
+| Result     | `{ sftpSessionId: string }` — keys every later `sftp_*` command                                                                                                                                       |
+| Emits      | one `hostkey:prompt` when the key is unknown                                                                                                                                                          |
+| Fails when | the host id is unknown, the record has no hostname (alias-only imports must be adopted first), the host is unreachable, the key is mismatched/revoked/declined, auth is exhausted, or sftp can't start |
+
+### `hostkey_trust`
+
+Answer a pending `hostkey:prompt` with the FingerprintDialog verdict.
+
+|            |                                                                                              |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| Payload    | `{ hostId: string, accept: boolean }`                                                        |
+| Result     | `null` (the parked `sftp_connect` resumes on `true`, fails on `false`)                       |
+| Emits      | nothing                                                                                      |
+| Fails when | no prompt is pending for the host (already resolved, or the connect died dialog-open) |
+
+### `sftp_disconnect`
+
+Close an SFTP session; its running transfers are cancelled first.
+
+|            |                                                              |
+| ---------- | ------------------------------------------------------------ |
+| Payload    | `{ sftpSessionId: string }`                                  |
+| Result     | `null`                                                       |
+| Emits      | one terminal `sftp:progress:{transferId}` per cancelled transfer |
+| Fails when | never — unknown ids are a no-op (idempotent close)           |
+
+### `sftp_list` · `sftp_local_list`
+
+List a directory — remote over the session, local via Rust `std::fs` — in
+the one shared `SftpEntry` shape:
+
+```ts
+{ name, size, mtimeMs, mode, isDir, isSymlink, linkTarget? }
+```
+
+Symlink rows describe the **link** (`isDir: false`, `linkTarget` set);
+following happens via the stat commands on double-click. The listing is
+complete — the hidden-file toggle filters in the frontend.
+
+|            |                                                                                     |
+| ---------- | ----------------------------------------------------------------------------------- |
+| Payload    | `{ sftpSessionId: string, path: string }` · local: `{ path: string }`               |
+| Result     | `{ entries: SftpEntry[] }` — name-sorted, `.`/`..` omitted                          |
+| Emits      | nothing                                                                             |
+| Fails when | the session is unknown (remote) or the directory can't be read — permission denied surfaces verbatim |
+
+### `sftp_stat` · `sftp_local_stat`
+
+Stat one path, **following** symlinks — the explicit follow half of the F5
+symlink behavior.
+
+|            |                                                                       |
+| ---------- | --------------------------------------------------------------------- |
+| Payload    | `{ sftpSessionId: string, path: string }` · local: `{ path: string }` |
+| Result     | one `SftpEntry`                                                       |
+| Emits      | nothing                                                               |
+| Fails when | the path doesn't resolve (broken links included)                      |
+
+### `sftp_mkdir` · `sftp_local_mkdir`
+
+Create a directory.
+
+|            |                                                                       |
+| ---------- | --------------------------------------------------------------------- |
+| Payload    | `{ sftpSessionId: string, path: string }` · local: `{ path: string }` |
+| Result     | `null`                                                                |
+| Emits      | nothing                                                               |
+| Fails when | the target exists or the server/OS refuses                            |
+
+### `sftp_rename` · `sftp_local_rename`
+
+Rename (move) a file or directory.
+
+|            |                                                                                         |
+| ---------- | --------------------------------------------------------------------------------------- |
+| Payload    | `{ sftpSessionId: string, from: string, to: string }` · local: `{ from, to }`           |
+| Result     | `null`                                                                                  |
+| Emits      | nothing                                                                                 |
+| Fails when | the server/OS refuses — many SFTP servers won't overwrite an existing target |
+
+### `sftp_delete` · `sftp_local_delete`
+
+Delete a file, or a directory **recursively**. The remote walk happens
+client-side (SFTP's RMDIR takes only empty directories) and never follows
+symlinks — links are removed as links.
+
+|            |                                                                                   |
+| ---------- | --------------------------------------------------------------------------------- |
+| Payload    | `{ sftpSessionId: string, path: string, isDir: boolean }` · local: `{ path, isDir }` |
+| Result     | `null`                                                                            |
+| Emits      | nothing                                                                           |
+| Fails when | the server/OS refuses — the remote walk stops at the first error                  |
+
+### `sftp_chmod` · `sftp_local_chmod`
+
+Set a path's permission bits (the chmod dialog works on both panes).
+
+|            |                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------- |
+| Payload    | `{ sftpSessionId: string, path: string, mode: number }` · local: `{ path, mode }`  |
+| Result     | `null`                                                                             |
+| Emits      | nothing                                                                            |
+| Fails when | `mode` exceeds `0o7777` or the server/OS refuses                                   |
+
+### `sftp_upload` · `sftp_download`
+
+Start a transfer and return immediately; progress streams as events. The
+backend moves single files, streaming in 256 KiB chunks (a 200 GB file
+never sits in memory); the **queue** — concurrency 3, auto-retry ×1 on
+retryable failures, folder expansion into per-file transfers — lives in the
+frontend sftp store.
+
+|            |                                                                                                                     |
+| ---------- | ------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ sftpSessionId: string, localPath: string, remotePath: string }`                                                  |
+| Result     | `{ transferId: string }`                                                                                            |
+| Emits      | throttled `sftp:progress:{transferId}` (`state: "running"`, ~10/s), then exactly one terminal event                 |
+| Fails when | the session is unknown, the source can't be read/statted, or it is a directory. Mid-transfer failures arrive as events |
+
+### `sftp_cancel`
+
+Cancel a running transfer. The partial destination file is removed
+(best-effort) and the terminal `"cancelled"` event follows.
+
+|            |                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------- |
+| Payload    | `{ transferId: string }`                                                           |
+| Result     | `null`                                                                             |
+| Emits      | one terminal `sftp:progress:{transferId}`                                          |
+| Fails when | never — unknown ids are a no-op, so cancelling can't race a transfer that finished |
+
 ## Events
 
 ### `pty:data:{sessionId}`
@@ -242,3 +389,28 @@ Payload: `{ hostId: string, state: "up" | "down", rttMs?: number }` —
 `rttMs` is the TCP connect latency, present only for `"up"`. A host that
 accepts the connect but would refuse an ssh login still reports `"up"`: the
 LED shows reachability, not auth.
+
+### `hostkey:prompt`
+
+An SFTP connect met a host key that isn't in `~/.ssh/known_hosts` (F5). The
+FingerprintDialog shows the fingerprint; the pending `sftp_connect` stays
+parked until `hostkey_trust` delivers the verdict. One channel for all
+hosts — the payload carries the host id. Mismatched or revoked keys never
+prompt; they fail the connect directly.
+
+Payload: `{ hostId: string, hostLabel: string, algorithm: string,
+fingerprint: string }` — `fingerprint` is OpenSSH-format `SHA256:<base64>`,
+exactly what `ssh-keygen -lf` prints.
+
+### `sftp:progress:{transferId}`
+
+Progress for one transfer. `"running"` events are throttled (~10/s);
+exactly one terminal event — `"done"`, `"failed"`, or `"cancelled"` —
+closes the channel. The store derives speed and ETA from successive
+`bytes` readings.
+
+Payload: `{ bytes: number, total: number, state: "running" | "done" |
+"failed" | "cancelled", error?: string, retryable?: boolean }` — `total` is
+`0` when the size is unknown; `error`/`retryable` appear on `"failed"`
+only, and `retryable: true` (dropped connection, timeout) is what the
+queue's auto-retry ×1 keys on.
