@@ -23,11 +23,11 @@
 /**
  * What kind of process a PTY session drives.
  *
- * Phase 2 implements `"local"` ($SHELL as a login shell) and `"ssh"`
- * (system `ssh -tt` to a known host). `"mosh"` arrives in Phase 7 — the
- * contract types exactly what exists, nothing speculative.
+ * `"local"` runs $SHELL as a login shell; `"ssh"` runs system `ssh -tt`
+ * to a known host; `"mosh"` (Phase 7) runs system `mosh` — the host's
+ * `use_mosh` toggle routes here after a `binary_check` preflight.
  */
-export type PtyKind = "local" | "ssh";
+export type PtyKind = "local" | "ssh" | "mosh";
 
 /**
  * Payload for `pty_spawn` — a discriminated union on `kind`.
@@ -48,6 +48,16 @@ export type PtySpawnPayload =
   | {
       /** System `ssh -tt` with keepalive flags (F3). */
       kind: "ssh";
+      /** Id of the host to connect to (`Host.id`). */
+      hostId: string;
+      /** Initial terminal width, in columns. */
+      cols: number;
+      /** Initial terminal height, in rows. */
+      rows: number;
+    }
+  | {
+      /** System `mosh` — UDP roaming, survives network changes (Phase 7). */
+      kind: "mosh";
       /** Id of the host to connect to (`Host.id`). */
       hostId: string;
       /** Initial terminal width, in columns. */
@@ -781,6 +791,20 @@ export interface AgentListResult {
   note?: string;
 }
 
+/** Payload for `binary_check` (Phase 7). */
+export interface BinaryCheckPayload {
+  /** The tool to look for — allow-listed: "mosh", "tailscale", "claude". */
+  name: "mosh" | "tailscale" | "claude";
+}
+
+/** Result of `binary_check`. */
+export interface BinaryCheckResult {
+  /** Whether the tool is installed (PATH or a well-known location). */
+  found: boolean;
+  /** The resolved absolute path, when found. */
+  path?: string;
+}
+
 /**
  * Invokable commands, keyed by command name.
  *
@@ -916,6 +940,11 @@ export interface IpcCommands {
   keys_generate: { payload: KeysGeneratePayload; result: KeysGenerateResult };
   /** List the ssh-agent's identities (`ssh-add -l`) for the Keys panel. */
   agent_list: { payload: Record<string, never>; result: AgentListResult };
+  /**
+   * Whether an optional system tool is installed (mosh preflight,
+   * tailscale detection, Phase 13 claude). Allow-listed names only.
+   */
+  binary_check: { payload: BinaryCheckPayload; result: BinaryCheckResult };
 }
 
 /**

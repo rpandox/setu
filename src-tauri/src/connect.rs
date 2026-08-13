@@ -125,7 +125,70 @@ pub fn forward_argv(host: &Host, kind: &str, spec: &str) -> Vec<String> {
 /// Builds the spawnable command for `host`: [`ssh_argv`] plus the standard
 /// terminal environment ([`apply_terminal_env`]).
 pub fn ssh_command(host: &Host) -> CommandBuilder {
-    let argv = ssh_argv(host);
+    command_from(ssh_argv(host))
+}
+
+/// Builds the exact `mosh` argv for `host` (F3 matrix row, Phase 7):
+///
+/// ```text
+/// mosh [--ssh=ssh -p N -i <key>] <user@hostname | alias> [-- <startup…>]
+/// ```
+///
+/// No `-tt` and no keepalive flags — mosh manages its own terminal and
+/// runs over UDP with built-in roaming (that's the point). Port and
+/// identity travel inside `--ssh` (mosh only uses ssh for the initial
+/// handshake); imported rows keep their bare alias. The startup command
+/// splits on whitespace into separate args after `--`, exactly as it
+/// would be typed on a mosh command line.
+pub fn mosh_argv(host: &Host, mosh_path: &str) -> Vec<String> {
+    let mut argv: Vec<String> = vec![mosh_path.to_string()];
+    if host.source != HostSource::SshConfig {
+        let mut ssh_parts: Vec<String> = Vec::new();
+        if host.port != 22 {
+            ssh_parts.push(format!("-p {}", host.port));
+        }
+        let identity = host.identity.trim();
+        if identity != "agent" && !identity.is_empty() {
+            let expanded = expand_tilde(identity).to_string_lossy().into_owned();
+            // mosh shell-splits the --ssh value; a space in the path must
+            // stay one word.
+            if expanded.contains(' ') {
+                ssh_parts.push(format!("-i '{expanded}'"));
+            } else {
+                ssh_parts.push(format!("-i {expanded}"));
+            }
+        }
+        if !ssh_parts.is_empty() {
+            argv.push(format!("--ssh=ssh {}", ssh_parts.join(" ")));
+        }
+    }
+    if host.source == HostSource::SshConfig {
+        argv.push(host.label.clone());
+    } else if host.user.is_empty() {
+        argv.push(host.hostname.clone());
+    } else {
+        argv.push(format!("{}@{}", host.user, host.hostname));
+    }
+    let startup = host.startup.trim();
+    if !startup.is_empty() {
+        argv.push("--".into());
+        argv.extend(startup.split_whitespace().map(String::from));
+    }
+    argv
+}
+
+/// Builds the spawnable mosh command for `host`. `mosh_path` is the
+/// absolute path from [`crate::binaries::find`] — a GUI app's minimal
+/// `PATH` usually can't see Homebrew's mosh, so the resolved path is used
+/// for spawning too.
+pub fn mosh_command(host: &Host, mosh_path: &str) -> CommandBuilder {
+    command_from(mosh_argv(host, mosh_path))
+}
+
+/// Wraps an argv in a [`CommandBuilder`] with the standard terminal
+/// environment (UTF-8 locale included — mosh refuses to start without
+/// one).
+fn command_from(argv: Vec<String>) -> CommandBuilder {
     let mut cmd = CommandBuilder::new(&argv[0]);
     for arg in &argv[1..] {
         cmd.arg(arg);
@@ -270,6 +333,59 @@ mod tests {
         expected
             .extend(["-L", "8080:localhost:8080", "pandox@hermes.example.net"].map(String::from));
         assert_eq!(argv, expected);
+    }
+
+    #[test]
+    fn mosh_argv_uses_plain_destination_without_tty_flags() {
+        let argv = mosh_argv(&setu_host(), "/opt/homebrew/bin/mosh");
+        assert_eq!(
+            argv,
+            vec!["/opt/homebrew/bin/mosh", "pandox@hermes.example.net"]
+        );
+    }
+
+    #[test]
+    fn mosh_argv_carries_port_and_identity_inside_ssh() {
+        let mut host = setu_host();
+        host.port = 2222;
+        host.identity = "/tmp/id_ed25519".into();
+        let argv = mosh_argv(&host, "mosh");
+        assert_eq!(
+            argv,
+            vec![
+                "mosh",
+                "--ssh=ssh -p 2222 -i /tmp/id_ed25519",
+                "pandox@hermes.example.net",
+            ]
+        );
+    }
+
+    #[test]
+    fn mosh_argv_quotes_identity_paths_with_spaces() {
+        let mut host = setu_host();
+        host.identity = "/tmp/my keys/id".into();
+        let argv = mosh_argv(&host, "mosh");
+        assert_eq!(argv[1], "--ssh=ssh -i '/tmp/my keys/id'");
+    }
+
+    #[test]
+    fn mosh_argv_splits_startup_into_separate_args() {
+        let mut host = setu_host();
+        host.startup = "tmux new -A -s main".into();
+        let argv = mosh_argv(&host, "mosh");
+        let tail: Vec<&str> = argv.iter().skip(2).map(String::as_str).collect();
+        assert_eq!(tail, vec!["--", "tmux", "new", "-A", "-s", "main"]);
+    }
+
+    #[test]
+    fn mosh_argv_keeps_the_bare_alias_for_imports() {
+        let mut host = setu_host();
+        host.source = HostSource::SshConfig;
+        host.port = 2222;
+        host.identity = "~/.ssh/id_ed25519".into();
+        let argv = mosh_argv(&host, "mosh");
+        // The alias carries the user's real ssh config — no --ssh flags.
+        assert_eq!(argv, vec!["mosh", "hermes"]);
     }
 
     #[test]

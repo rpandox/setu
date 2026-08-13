@@ -187,6 +187,9 @@ export const useSnippets = create<SnippetsState>((set, get) => ({
       // themselves proceed concurrently inside each PTY child.
       for (const host of targets) {
         const sessionId = await useSessions.getState().openSshTab(host);
+        // A null session means the mosh preflight blocked the connect
+        // (Phase 7) — skip the host; the toast already explained.
+        if (sessionId === null) continue;
         // The write lands in the PTY's stdin buffer immediately; ssh hands
         // it to the remote shell once the session opens (PLAN.md §5).
         await ipcInvoke("pty_write", { sessionId, data });

@@ -57,6 +57,9 @@ export function HostEditor() {
   const [passwordStored, setPasswordStored] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
   const [keychainError, setKeychainError] = useState<string | null>(null);
+  // The mosh toggle's inline preflight (F3 mosh row): warn at edit time,
+  // don't block the save — the record stores intent either way.
+  const [moshMissing, setMoshMissing] = useState(false);
 
   useEffect(() => {
     setDraft(original);
@@ -65,6 +68,7 @@ export function HostEditor() {
     setPasswordInput("");
     setPasswordStored(false);
     setKeychainError(null);
+    setMoshMissing(false);
     if (original.id === "") return;
     let cancelled = false;
     ipcInvoke("keychain_has", { kind: "password", hostId: original.id })
@@ -523,7 +527,31 @@ export function HostEditor() {
               />
               Reachability LED (Phase 4)
             </label>
+            <label className="hosteditor-toggle">
+              <input
+                type="checkbox"
+                checked={draft.use_mosh}
+                onChange={(event) => {
+                  const useMosh = event.target.checked;
+                  patch({ use_mosh: useMosh });
+                  if (!useMosh) {
+                    setMoshMissing(false);
+                    return;
+                  }
+                  void ipcInvoke("binary_check", { name: "mosh" })
+                    .then((result) => setMoshMissing(!result.found))
+                    .catch(() => setMoshMissing(true));
+                }}
+              />
+              Prefer mosh
+            </label>
           </div>
+          {moshMissing && (
+            <p className="hosteditor-hint" role="status">
+              mosh isn't installed (<code>brew install mosh</code>). The toggle can stay
+              on, but connects will fail until it is.
+            </p>
+          )}
 
           <footer className="hosteditor-footer">
             <button className="hosteditor-cancel" type="button" onClick={closeEditor}>

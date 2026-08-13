@@ -20,11 +20,13 @@
 //! - [`keychain`] — the Keychain doorway: SFTP passwords & key passphrases (F8).
 //! - [`keygen`] — `ssh-keygen` driven through a hidden PTY (F8).
 //! - [`agent`] — ssh-agent introspection via `ssh-add -l` (F8).
+//! - [`binaries`] — locating optional tools (mosh, tailscale, claude).
 //! - [`ipc`] — the Tauri command surface, mirrored by `src/ipc/contract.ts`.
 
 #![deny(missing_docs)]
 
 pub mod agent;
+pub mod binaries;
 pub mod connect;
 pub mod forwards;
 pub mod ipc;
@@ -137,6 +139,7 @@ pub fn run() {
             ipc::keychain_has,
             ipc::keys_generate,
             ipc::agent_list,
+            ipc::binary_check,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

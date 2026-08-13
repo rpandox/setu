@@ -26,22 +26,30 @@ commit as [`src/ipc/contract.ts`](../../src/ipc/contract.ts) and
 
 Spawn a PTY session — `"local"` runs `$SHELL` (fallback `/bin/zsh`) as a
 login shell; `"ssh"` runs system `ssh -tt` to a known host with keepalive
-flags (`ServerAliveInterval=30`, `ServerAliveCountMax=3`). See
-[pty.md](pty.md) for the pipeline behind it.
+flags (`ServerAliveInterval=30`, `ServerAliveCountMax=3`); `"mosh"`
+(Phase 7) runs system `mosh` to a known host — UDP roaming, survives
+network changes. See [pty.md](pty.md) for the pipeline behind it.
 
-|            |                                                                                                                                                          |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Payload    | `{ kind: "local", cols: number, rows: number }` · `{ kind: "ssh", hostId: string, cols: number, rows: number }`                                          |
-| Result     | `{ sessionId: string }`                                                                                                                                  |
-| Emits      | `pty:data:{sessionId}` from spawn onward; one final `pty:exit:{sessionId}`                                                                               |
-| Fails when | the PTY can't be opened, the child can't be spawned, `kind` is `"ssh"` without a `hostId`, or the host id is unknown. No session exists after a failure. |
+|            |                                                                                                                                                                                  |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ kind: "local", cols: number, rows: number }` · `{ kind: "ssh" \| "mosh", hostId: string, cols: number, rows: number }`                                                        |
+| Result     | `{ sessionId: string }`                                                                                                                                                          |
+| Emits      | `pty:data:{sessionId}` from spawn onward; one final `pty:exit:{sessionId}`                                                                                                       |
+| Fails when | the PTY can't be opened, the child can't be spawned, `kind` is `"ssh"`/`"mosh"` without a `hostId`, the host id is unknown, or mosh isn't installed. No session after a failure. |
 
 The Rust core resolves `hostId` itself (from `hosts.toml`, or a live
 `~/.ssh/config` parse for `sshcfg:` ids) and builds the argv — argv never
 crosses IPC. Imported rows connect via their **bare alias**, so system ssh
 applies the user's real config (ProxyJump included); Setu rows get explicit
 `-p`/`-i`/`user@hostname` flags, plus `-- <startup>` when set. First-connect
-host-key prompts appear in the terminal itself. `"mosh"` arrives in Phase 7.
+host-key prompts appear in the terminal itself.
+
+For `"mosh"`, port and identity travel inside `--ssh=ssh …` (mosh only uses
+ssh for the handshake), the startup command splits on whitespace after
+`--`, and the binary is resolved to an **absolute path** — a GUI app's
+minimal `PATH` can't see Homebrew's mosh. The frontend routes a host's
+`use_mosh` toggle here after a `binary_check` preflight: a missing mosh is
+a toast and no session — never a silent fallback to ssh (PLAN.md §5).
 
 ### `pty_write`
 
@@ -565,6 +573,22 @@ identities. An absent or unreachable agent is a normal answer
 | Result     | `{ available: boolean, keys: [{ algorithm, fingerprint, comment }], note?: string }` |
 | Emits      | nothing                                                                              |
 | Fails when | never                                                                                |
+
+### `binary_check`
+
+Whether an optional system tool is installed (Phase 7). One command
+serves the mosh preflight, tailscale detection, and Phase 13's `claude`
+check (PLAN.md §5 row). The search covers `PATH` plus the well-known
+Homebrew directories — a GUI-launched app inherits launchd's minimal
+`PATH`, which can't see `/opt/homebrew/bin`. Names are allow-listed so
+the command never becomes an arbitrary-path oracle.
+
+|            |                                                            |
+| ---------- | ---------------------------------------------------------- |
+| Payload    | `{ name: "mosh" \| "tailscale" \| "claude" }`              |
+| Result     | `{ found: boolean, path?: string }` (absolute, when found) |
+| Emits      | nothing                                                    |
+| Fails when | `name` isn't on the allow-list                             |
 
 ## Events
 

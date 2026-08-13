@@ -32,12 +32,10 @@ use crate::sftp::{HostTarget, SftpEntry, SftpEvents, SftpManager};
 use crate::snippets::{ImportOutcome, Snippet, SnippetUpsertOutcome, SnippetsStore};
 use crate::store::{FieldError, Forward, Host, HostsStore, UpsertOutcome};
 use crate::ui_state::{UiState, UiStateStore};
-use crate::{agent, connect, keychain, keygen, reach, sftp, ssh_config};
+use crate::{agent, binaries, connect, keychain, keygen, reach, sftp, ssh_config};
 
-/// What kind of process a PTY session drives.
-///
-/// Phase 2 implements `local` and `ssh`; `mosh` arrives in Phase 7
-/// (mirrors `PtyKind` in `contract.ts`).
+/// What kind of process a PTY session drives (mirrors `PtyKind` in
+/// `contract.ts`).
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PtyKind {
@@ -45,6 +43,9 @@ pub enum PtyKind {
     Local,
     /// System `ssh -tt` to a known host (`hostId` names it).
     Ssh,
+    /// System `mosh` to a known host (Phase 7; the host's `use_mosh`
+    /// toggle routes here, preflighted by [`binary_check`]).
+    Mosh,
 }
 
 /// Result of a successful [`pty_spawn`] (mirrors `PtySpawnResult`).
@@ -385,6 +386,21 @@ pub fn pty_spawn(
             let host = resolve_host(&hosts, &host_id)?;
             manager
                 .spawn_command(connect::ssh_command(&host), cols, rows)
+                .map(|session_id| PtySpawnResult { session_id })
+        }
+        PtyKind::Mosh => {
+            let host_id = host_id.ok_or("hostId is required for mosh sessions")?;
+            let host = resolve_host(&hosts, &host_id)?;
+            // The absolute path matters twice: a GUI app's minimal PATH
+            // can't see Homebrew's mosh, for the check or the spawn.
+            let mosh = binaries::find("mosh")
+                .ok_or("mosh isn't installed — brew install mosh, or turn the toggle off")?;
+            manager
+                .spawn_command(
+                    connect::mosh_command(&host, &mosh.to_string_lossy()),
+                    cols,
+                    rows,
+                )
                 .map(|session_id| PtySpawnResult { session_id })
         }
     }
@@ -1554,6 +1570,47 @@ pub struct AgentListResult {
     /// One plain sentence for the guidance banner, when something's off.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+}
+
+/// Result of [`binary_check`] (mirrors `BinaryCheckResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BinaryCheckResult {
+    /// Whether the tool is installed (on `PATH` or a well-known location).
+    pub found: bool,
+    /// The resolved absolute path, when found.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+/// Reports whether an optional system tool is installed (Phase 7) — the
+/// mosh preflight, tailscale detection, and Phase 13's `claude` check all
+/// share it (PLAN.md §5 row). Names are allow-listed so the command never
+/// becomes an arbitrary-path oracle.
+///
+/// **Payload:** `{ name }` · **Result:** `{ found, path? }` · **Emits:**
+/// nothing.
+///
+/// # Errors
+///
+/// Fails when `name` isn't on the allow-list (`mosh`, `tailscale`,
+/// `claude`).
+#[tauri::command]
+pub fn binary_check(name: String) -> Result<BinaryCheckResult, String> {
+    const ALLOWED: [&str; 3] = ["mosh", "tailscale", "claude"];
+    if !ALLOWED.contains(&name.as_str()) {
+        return Err(format!("unknown binary: {name}"));
+    }
+    Ok(match binaries::find(&name) {
+        Some(path) => BinaryCheckResult {
+            found: true,
+            path: Some(path.display().to_string()),
+        },
+        None => BinaryCheckResult {
+            found: false,
+            path: None,
+        },
+    })
 }
 
 /// Lists the ssh-agent's identities via `ssh-add -l` (F8) — fingerprints
