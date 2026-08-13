@@ -11,6 +11,31 @@
   background: var(--bg-0);
 }
 
+/* Mid-drag the whole panel advertises the copy gesture. */
+.sftp-panel--dragging,
+.sftp-panel--dragging * {
+  cursor: copy;
+}
+
+/* The chip trailing the pointer during a pane⇄pane drag. Positioned by
+   JS transform; parked offscreen until the first move. */
+.sftp-drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 40;
+  transform: translate(-200px, -200px);
+  padding: calc(var(--pad) / 4) calc(var(--pad) / 2);
+  background: var(--bg-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 .sftp-panel-head {
   display: flex;
   align-items: center;

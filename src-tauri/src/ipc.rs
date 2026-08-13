@@ -946,54 +946,63 @@ pub fn sftp_local_chmod(path: String, mode: u32) -> Result<(), String> {
     sftp::local_chmod(std::path::Path::new(&path), mode)
 }
 
-/// Starts an upload (local → remote) and returns immediately with its
-/// transfer id; progress streams as events. The queue — concurrency 3,
-/// auto-retry ×1 on retryable failures — lives in the frontend store.
+/// Starts an upload (local → remote) and returns immediately; progress
+/// streams as events. The queue — concurrency 3, auto-retry ×1 on
+/// retryable failures — lives in the frontend store.
 ///
-/// **Payload:** `{ sftpSessionId, localPath, remotePath }` · **Result:**
-/// `{ transferId }` · **Emits:** throttled
+/// **Payload:** `{ sftpSessionId, localPath, remotePath, transferId }` ·
+/// **Result:** `{ transferId }` (echoed) · **Emits:** throttled
 /// `sftp:progress:{transferId}` (`state: "running"`), then exactly one
 /// terminal `"done"` / `"failed"` / `"cancelled"`.
+///
+/// `transferId` is minted by the frontend (a UUID) so its event listener
+/// can be registered *before* this command flies — a localhost transfer
+/// can finish in milliseconds, and a terminal event emitted before the
+/// listener exists would strand the queue row as running forever.
 ///
 /// Cancel and failure both clean up the partial remote file (best-effort).
 ///
 /// # Errors
 ///
-/// Fails when the session is unknown, the local file can't be read, or the
+/// Fails when the session is unknown, the local file can't be read, the
 /// local path is a directory (the store expands folders into per-file
-/// transfers). Failures mid-transfer arrive as events, not command errors.
+/// transfers), or `transferId` is empty/already in flight. Failures
+/// mid-transfer arrive as events, not command errors.
 #[tauri::command]
 pub async fn sftp_upload(
     manager: State<'_, SftpManager>,
     sftp_session_id: String,
     local_path: String,
     remote_path: String,
+    transfer_id: String,
 ) -> Result<SftpTransferResult, String> {
     manager
-        .upload(&sftp_session_id, &local_path, &remote_path)
+        .upload(&sftp_session_id, &local_path, &remote_path, &transfer_id)
         .await
         .map(|transfer_id| SftpTransferResult { transfer_id })
 }
 
 /// Starts a download (remote → local); see [`sftp_upload`] for the
-/// event/queue contract. Cleanup covers the partial local file.
+/// event/queue contract, including the client-minted `transferId`.
+/// Cleanup covers the partial local file.
 ///
-/// **Payload:** `{ sftpSessionId, remotePath, localPath }` · **Result:**
-/// `{ transferId }` · **Emits:** as [`sftp_upload`].
+/// **Payload:** `{ sftpSessionId, remotePath, localPath, transferId }` ·
+/// **Result:** `{ transferId }` (echoed) · **Emits:** as [`sftp_upload`].
 ///
 /// # Errors
 ///
-/// Fails when the session is unknown, the remote path can't be statted, or
-/// it is a directory.
+/// Fails when the session is unknown, the remote path can't be statted,
+/// it is a directory, or `transferId` is empty/already in flight.
 #[tauri::command]
 pub async fn sftp_download(
     manager: State<'_, SftpManager>,
     sftp_session_id: String,
     remote_path: String,
     local_path: String,
+    transfer_id: String,
 ) -> Result<SftpTransferResult, String> {
     manager
-        .download(&sftp_session_id, &remote_path, &local_path)
+        .download(&sftp_session_id, &remote_path, &local_path, &transfer_id)
         .await
         .map(|transfer_id| SftpTransferResult { transfer_id })
 }

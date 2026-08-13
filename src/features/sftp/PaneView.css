@@ -17,6 +17,10 @@
   border-color: var(--neon);
 }
 
+.sftp-pane--drop .sftp-pane-scroll {
+  background: var(--bg-2);
+}
+
 .sftp-pane-head {
   display: flex;
   align-items: center;
@@ -89,6 +93,7 @@
 }
 
 .sftp-pane-column:hover {
+  background: var(--bg-2);
   color: var(--ink-1);
 }
 

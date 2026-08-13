@@ -456,11 +456,19 @@ export interface SftpTransferPayload {
   localPath: string;
   /** Absolute remote file path (target for uploads, source for downloads). */
   remotePath: string;
+  /**
+   * Client-minted UUID keying the `sftp:progress:{transferId}` stream and
+   * `sftp_cancel`. Minted before the command flies so the progress
+   * listener already exists when the backend starts emitting — a fast
+   * transfer's terminal event must never race the subscription. The
+   * backend rejects an empty or in-flight id.
+   */
+  transferId: string;
 }
 
 /** Result of `sftp_upload` / `sftp_download`. */
 export interface SftpTransferResult {
-  /** Keys the `sftp:progress:{transferId}` stream and `sftp_cancel`. */
+  /** Echo of the payload's `transferId`. */
   transferId: string;
 }
 

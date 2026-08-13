@@ -11,7 +11,7 @@
 
 import "./SftpPanel.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import { onOsFileDrop } from "../../ipc/client";
 import { useHosts } from "../../state/hosts";
@@ -50,7 +50,9 @@ export function SftpPanel() {
   const showHidden = useSftp((s) => s.showHidden);
   const remotePath = useSftp((s) => s.panes.remote.path);
   const hostkeyPrompt = useSftp((s) => s.hostkeyPrompt);
+  const drag = useSftp((s) => s.drag);
   const store = useSftp.getState();
+  const ghostRef = useRef<HTMLDivElement | null>(null);
 
   // Finder → app drop-to-upload, live while the panel shows a connection.
   useEffect(() => {
@@ -70,12 +72,37 @@ export function SftpPanel() {
     };
   }, [open, connState]);
 
+  // Mid-drag: the ghost chip trails the pointer (style-only writes, no
+  // re-render per move) and Esc abandons the drag.
+  useEffect(() => {
+    if (drag === null) return;
+    const onMove = (event: MouseEvent): void => {
+      const ghost = ghostRef.current;
+      if (ghost !== null) {
+        ghost.style.transform = `translate(${event.clientX + 14}px, ${event.clientY + 12}px)`;
+      }
+    };
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") useSftp.getState().cancelDrag();
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [drag]);
+
   if (!open) return null;
 
   const duckUrl = hostId !== null ? cyberduckUrl(hostId, remotePath) : null;
 
   return (
-    <div className="sftp-panel" role="region" aria-label={`SFTP — ${hostLabel}`}>
+    <div
+      className={`sftp-panel${drag !== null ? " sftp-panel--dragging" : ""}`}
+      role="region"
+      aria-label={`SFTP — ${hostLabel}`}
+    >
       <header className="sftp-panel-head">
         <h2 className="sftp-panel-title">
           <span className={`sftp-panel-dot sftp-panel-dot--${connState}`} aria-hidden />
@@ -131,6 +158,12 @@ export function SftpPanel() {
           </div>
           <TransferQueue />
         </>
+      )}
+
+      {drag !== null && (
+        <div ref={ghostRef} className="sftp-drag-ghost" aria-hidden>
+          {drag.count} {drag.count === 1 ? "item" : "items"}
+        </div>
       )}
 
       {hostkeyPrompt !== null && (

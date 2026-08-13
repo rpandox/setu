@@ -21,9 +21,6 @@ import { useToast } from "./toast";
 /** Captured progress callbacks by transfer id. */
 const progressCbs = new Map<string, (p: SftpProgressEvent) => void>();
 
-/** Transfer-id mint for the mocked upload/download commands. */
-let mintedTransfers = 0;
-
 /**
  * A listing entry.
  *
@@ -64,7 +61,10 @@ function mockIpc(overrides: Record<string, (payload: never) => unknown> = {}): v
       }
       case "sftp_upload":
       case "sftp_download":
-        return Promise.resolve({ transferId: `x-${++mintedTransfers}` });
+        // The id is client-minted (in the payload) and echoed back.
+        return Promise.resolve({
+          transferId: (payload as { transferId: string }).transferId,
+        });
       default:
         return Promise.resolve(null);
     }
@@ -74,7 +74,6 @@ function mockIpc(overrides: Record<string, (payload: never) => unknown> = {}): v
 beforeEach(() => {
   vi.clearAllMocks();
   progressCbs.clear();
-  mintedTransfers = 0;
   resetSftpForTests();
   useToast.setState({ message: null, variant: "info", seq: 0 });
   localHomeDir.mockResolvedValue("/Users/pandox");
@@ -271,6 +270,107 @@ describe("the transfer queue", () => {
     );
     useSftp.getState().clearFinished();
     expect(useSftp.getState().transfers.every((t) => t.state !== "done")).toBe(true);
+  });
+});
+
+describe("the fast-transfer race", () => {
+  it("registers the progress listener before the transfer command flies", async () => {
+    const order: string[] = [];
+    onSftpProgress.mockImplementation((transferId: string, cb: never) => {
+      order.push("listen");
+      progressCbs.set(transferId, cb);
+      return Promise.resolve(() => undefined);
+    });
+    mockIpc({
+      sftp_upload: (payload: { transferId: string }) => {
+        order.push("invoke");
+        return { transferId: payload.transferId };
+      },
+    });
+    useSftp.getState().toggleForHost("h1", "hermes");
+    await settle(() => useSftp.getState().connState === "connected");
+    await useSftp.getState().uploadDroppedPaths(["/d/a"]);
+    await settle(() => order.includes("invoke"));
+    expect(order).toEqual(["listen", "invoke"]);
+  });
+
+  it("a terminal event that beats the command's return still lands", async () => {
+    mockIpc({
+      sftp_download: (payload: { transferId: string }) => {
+        // The backend finished before the command's promise resolved —
+        // the pre-registered listener must catch the terminal event.
+        progressCbs.get(payload.transferId)?.({ bytes: 5, total: 5, state: "done" });
+        return { transferId: payload.transferId };
+      },
+    });
+    useSftp.getState().toggleForHost("h1", "hermes");
+    await settle(() => useSftp.getState().connState === "connected");
+    await settle(() => useSftp.getState().panes.remote.path === "/home/pandox");
+
+    await useSftp.getState().openEntry("remote", entry({ name: "tiny.txt", size: 5 }));
+    await settle(() => useSftp.getState().transfers[0]?.state === "done");
+    expect(useSftp.getState().transfers[0].bytes).toBe(5);
+  });
+});
+
+describe("pane⇄pane pointer drag", () => {
+  /** Connects and selects one local entry, ready to drag. */
+  async function connectAndSelect(): Promise<void> {
+    mockIpc({
+      sftp_local_list: () => ({ entries: [entry({ name: "file.bin" })] }),
+    });
+    useSftp.getState().toggleForHost("h1", "hermes");
+    await settle(() => useSftp.getState().connState === "connected");
+    await settle(() => useSftp.getState().panes.local.entries.length === 1);
+    useSftp.getState().setSelection("local", ["file.bin"]);
+  }
+
+  it("a cross-pane release queues the source selection", async () => {
+    await connectAndSelect();
+    useSftp.getState().beginDrag("local");
+    expect(useSftp.getState().drag).toEqual({ from: "local", count: 1 });
+    useSftp.getState().setDragOver("remote");
+    useSftp.getState().endDrag();
+    await settle(() => useSftp.getState().transfers.length === 1);
+    expect(useSftp.getState().transfers[0].direction).toBe("upload");
+    expect(useSftp.getState().drag).toBeNull();
+    expect(useSftp.getState().dragOver).toBeNull();
+  });
+
+  it("a release outside a pane (or over the source) transfers nothing", async () => {
+    await connectAndSelect();
+    useSftp.getState().beginDrag("local");
+    useSftp.getState().endDrag();
+    expect(useSftp.getState().transfers).toHaveLength(0);
+
+    useSftp.getState().beginDrag("local");
+    useSftp.getState().setDragOver("local");
+    useSftp.getState().endDrag();
+    expect(useSftp.getState().transfers).toHaveLength(0);
+  });
+
+  it("a host switch clears an in-flight drag", async () => {
+    await connectAndSelect();
+    useSftp.getState().beginDrag("local");
+    useSftp.getState().setDragOver("remote");
+    useSftp.getState().toggleForHost("h2", "other-host");
+    expect(useSftp.getState().drag).toBeNull();
+    expect(useSftp.getState().dragOver).toBeNull();
+  });
+
+  it("an empty selection never starts a drag; Esc abandons one", async () => {
+    await connectAndSelect();
+    useSftp.getState().setSelection("local", []);
+    useSftp.getState().beginDrag("local");
+    expect(useSftp.getState().drag).toBeNull();
+
+    useSftp.getState().setSelection("local", ["file.bin"]);
+    useSftp.getState().beginDrag("local");
+    useSftp.getState().setDragOver("remote");
+    useSftp.getState().cancelDrag();
+    expect(useSftp.getState().drag).toBeNull();
+    expect(useSftp.getState().dragOver).toBeNull();
+    expect(useSftp.getState().transfers).toHaveLength(0);
   });
 });
 

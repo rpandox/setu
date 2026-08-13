@@ -353,12 +353,19 @@ never sits in memory); the **queue** — concurrency 3, auto-retry ×1 on
 retryable failures, folder expansion into per-file transfers — lives in the
 frontend sftp store.
 
-|            |                                                                                                                        |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Payload    | `{ sftpSessionId: string, localPath: string, remotePath: string }`                                                     |
-| Result     | `{ transferId: string }`                                                                                               |
-| Emits      | throttled `sftp:progress:{transferId}` (`state: "running"`, ~10/s), then exactly one terminal event                    |
-| Fails when | the session is unknown, the source can't be read/statted, or it is a directory. Mid-transfer failures arrive as events |
+`transferId` is minted by the **frontend** (a UUID) and sent in the
+payload, so the `sftp:progress:{transferId}` listener can be registered
+_before_ the command flies. The other order loses: a small transfer can
+finish in single-digit milliseconds, and a terminal event emitted before
+the listener exists strands the queue row as running forever. The backend
+rejects an empty or currently-in-flight id.
+
+|            |                                                                                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ sftpSessionId: string, localPath: string, remotePath: string, transferId: string }`                                                                  |
+| Result     | `{ transferId: string }` (echo of the payload's)                                                                                                        |
+| Emits      | throttled `sftp:progress:{transferId}` (`state: "running"`, ~10/s), then exactly one terminal event                                                     |
+| Fails when | the session is unknown, the source can't be read/statted, it is a directory, or `transferId` is empty/in flight. Mid-transfer failures arrive as events |
 
 ### `sftp_cancel`
 

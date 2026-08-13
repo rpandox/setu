@@ -4,12 +4,20 @@
  * `@tanstack/react-virtual` keeps 10k-entry directories at 60fps (§5,
  * Phase 5 row). Selection takes ⌘ (toggle) and ⇧ (range); double-click
  * enters directories, follows symlinks, and sends files to the other
- * pane; rows drag across panes.
+ * pane.
+ *
+ * Rows drag across panes with plain mouse events — press, move past a
+ * small threshold, release over the other pane. HTML5 drag-and-drop is
+ * off the table: Tauri's native drag layer (which Finder→app drops
+ * require) swallows webview drops on macOS, so `dragstart` fires but the
+ * drop never delivers (§5, Phase 5 review row). A press on an
+ * already-selected row keeps the selection until a clean release, so a
+ * multi-selection can be dragged (Finder semantics).
  */
 
 import "./PaneView.css";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { SftpEntry } from "../../ipc/contract";
 import { type PaneSide, useSftp } from "../../state/sftp";
@@ -30,8 +38,8 @@ type PaneDialog = "mkdir" | "rename" | "delete" | "chmod" | null;
 /** Row height in px — fixed so the virtualizer never measures. */
 const ROW_HEIGHT = 26;
 
-/** The MIME type carrying cross-pane drags. */
-const DRAG_MIME = "application/x-setu-sftp";
+/** Pointer travel (px) that turns a press into a drag, not a click. */
+const DRAG_THRESHOLD_PX = 4;
 
 /** Props for {@link PaneView}. */
 export interface PaneViewProps {
@@ -59,11 +67,31 @@ export function PaneView({ side, title }: PaneViewProps) {
   const pane = useSftp((s) => s.panes[side]);
   const sort = useSftp((s) => s.sorts[side]);
   const showHidden = useSftp((s) => s.showHidden);
+  const drag = useSftp((s) => s.drag);
+  const dragOver = useSftp((s) => s.dragOver);
   const store = useSftp.getState();
 
   const [dialog, setDialog] = useState<PaneDialog>(null);
-  const [dropTarget, setDropTarget] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  /** The armed (pressed, not yet dragging) row press, if any. */
+  const pressRef = useRef<{
+    x: number;
+    y: number;
+    collapseTo: string | null;
+    dragStarted: boolean;
+  } | null>(null);
+  /** Detaches the armed press's window listeners, if any. */
+  const pressCleanupRef = useRef<(() => void) | null>(null);
+
+  // Unmounting mid-press (the panel hides on ⇧⌘S with the button held)
+  // must not orphan the window listeners or leave a drag in the store.
+  useEffect(
+    () => () => {
+      if (pressRef.current?.dragStarted) useSftp.getState().cancelDrag();
+      pressCleanupRef.current?.();
+    },
+    [],
+  );
 
   const visible = sortEntries(filterHidden(pane.entries, showHidden), sort);
   const selected = new Set(pane.selected);
@@ -107,9 +135,59 @@ export function PaneView({ side, title }: PaneViewProps) {
   }
 
   /**
+   * Arms a row press: window listeners watch for the drag threshold and
+   * the release. A press that never travels stays a click; one that does
+   * becomes the pane⇄pane drag (dropped by `endDrag` via the store's
+   * `dragOver`, which the panes maintain with mouse enter/leave).
+   *
+   * @param event - The arming mousedown.
+   * @param collapseTo - Entry to collapse the selection to on a clean
+   *   release (a plain press on an already-selected row defers its
+   *   collapse so multi-selections can be dragged), or `null`.
+   */
+  function armPress(event: React.MouseEvent, collapseTo: string | null): void {
+    pressRef.current = {
+      x: event.clientX,
+      y: event.clientY,
+      collapseTo,
+      dragStarted: false,
+    };
+    const onMove = (move: MouseEvent): void => {
+      const press = pressRef.current;
+      if (!press || press.dragStarted) return;
+      const traveled = Math.hypot(move.clientX - press.x, move.clientY - press.y);
+      if (traveled < DRAG_THRESHOLD_PX) return;
+      press.dragStarted = true;
+      press.collapseTo = null;
+      useSftp.getState().beginDrag(side);
+    };
+    const detach = (): void => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      pressCleanupRef.current = null;
+      pressRef.current = null;
+    };
+    const onUp = (): void => {
+      const press = pressRef.current;
+      detach();
+      const sftp = useSftp.getState();
+      if (sftp.drag !== null) {
+        sftp.endDrag();
+        return;
+      }
+      if (press !== null && press.collapseTo !== null) {
+        sftp.setSelection(side, [press.collapseTo]);
+      }
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    pressCleanupRef.current = detach;
+  }
+
+  /**
    * Moves the single selection with arrow keys.
    *
-   * @param delta - Rows to move by (�1).
+   * @param delta - Rows to move by (±1).
    */
   function moveSelection(delta: number): void {
     if (visible.length === 0) return;
@@ -127,26 +205,17 @@ export function PaneView({ side, title }: PaneViewProps) {
   const sendLabel = side === "local" ? "Upload →" : "← Download";
   const send = side === "local" ? store.sendLocalSelection : store.sendRemoteSelection;
 
+  const isDropTarget = drag !== null && drag.from !== side && dragOver === side;
+
   return (
     <section
-      className={`sftp-pane${dropTarget ? " sftp-pane--drop" : ""}`}
+      className={`sftp-pane${isDropTarget ? " sftp-pane--drop" : ""}`}
       aria-label={`${title} files`}
-      onDragOver={(event) => {
-        if (event.dataTransfer.types.includes(DRAG_MIME)) {
-          event.preventDefault();
-          setDropTarget(true);
-        }
+      onMouseEnter={() => {
+        if (useSftp.getState().drag !== null) store.setDragOver(side);
       }}
-      onDragLeave={() => setDropTarget(false)}
-      onDrop={(event) => {
-        setDropTarget(false);
-        const raw = event.dataTransfer.getData(DRAG_MIME);
-        if (raw === "") return;
-        event.preventDefault();
-        const { pane: source } = JSON.parse(raw) as { pane: PaneSide };
-        // A cross-pane drop transfers the source pane's selection here.
-        if (source === "local" && side === "remote") void store.sendLocalSelection();
-        if (source === "remote" && side === "local") void store.sendRemoteSelection();
+      onMouseLeave={() => {
+        if (useSftp.getState().dragOver === side) store.setDragOver(null);
       }}
     >
       <header className="sftp-pane-head">
@@ -224,6 +293,12 @@ export function PaneView({ side, title }: PaneViewProps) {
         role="listbox"
         aria-label={`${title} entries`}
         tabIndex={0}
+        onMouseDown={() => {
+          // WebKit does not move focus into a tabIndex container when a
+          // child is clicked, which would leave the arrow keys dead
+          // after any mouse selection (live-run find).
+          scrollRef.current?.focus();
+        }}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown") {
             event.preventDefault();
@@ -254,16 +329,21 @@ export function PaneView({ side, title }: PaneViewProps) {
                 key={entry.name}
                 role="option"
                 aria-selected={isSelected}
-                draggable
                 className={`sftp-row${isSelected ? " sftp-row--selected" : ""}`}
                 style={{ transform: `translateY(${row.start}px)` }}
-                onMouseDown={(event) => clickSelect(entry, event)}
-                onDoubleClick={() => void store.openEntry(side, entry)}
-                onDragStart={(event) => {
-                  if (!selected.has(entry.name)) store.setSelection(side, [entry.name]);
-                  event.dataTransfer.setData(DRAG_MIME, JSON.stringify({ pane: side }));
-                  event.dataTransfer.effectAllowed = "copy";
+                onMouseDown={(event) => {
+                  if (event.button !== 0) return;
+                  const plain = !event.metaKey && !event.shiftKey;
+                  if (plain && isSelected) {
+                    // Defer the collapse: this press may drag the whole
+                    // selection.
+                    armPress(event, entry.name);
+                  } else {
+                    clickSelect(entry, event);
+                    armPress(event, null);
+                  }
                 }}
+                onDoubleClick={() => void store.openEntry(side, entry)}
               >
                 <span className="sftp-col-name">
                   <span className="sftp-row-glyph">

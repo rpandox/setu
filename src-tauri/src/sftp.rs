@@ -298,14 +298,20 @@ impl SftpManager {
     ///
     /// # Errors
     ///
-    /// Fails when the session is unknown or the local file can't be
-    /// opened/statted. Failures *during* the transfer arrive as
+    /// Fails when the session is unknown, the local file can't be
+    /// opened/statted, or `transfer_id` is empty/already in flight.
+    /// Failures *during* the transfer arrive as
     /// [`SftpEvents::on_failed`] instead.
+    ///
+    /// `transfer_id` is minted by the caller so the event listener can
+    /// exist *before* the transfer starts — a fast transfer's terminal
+    /// event must never race the subscription.
     pub async fn upload(
         &self,
         sftp_session_id: &str,
         local_path: &str,
         remote_path: &str,
+        transfer_id: &str,
     ) -> Result<String, String> {
         let sftp = self.session(sftp_session_id).await?;
         let meta = tokio::fs::metadata(local_path)
@@ -317,7 +323,8 @@ impl SftpManager {
             return Err(format!("{local_path} is a directory — upload its files"));
         }
         let total = meta.len();
-        let (transfer_id, token) = self.register_transfer(sftp_session_id);
+        let token = self.register_transfer(sftp_session_id, transfer_id)?;
+        let transfer_id = transfer_id.to_string();
         let events = Arc::clone(&self.events);
         let transfers = Arc::clone(&self.transfers);
         let (id, local, remote) = (
@@ -348,14 +355,15 @@ impl SftpManager {
     ///
     /// # Errors
     ///
-    /// Fails when the session is unknown or the remote path can't be
-    /// statted. Failures *during* the transfer arrive as
-    /// [`SftpEvents::on_failed`] instead.
+    /// Fails when the session is unknown, the remote path can't be
+    /// statted, or `transfer_id` is empty/already in flight. Failures
+    /// *during* the transfer arrive as [`SftpEvents::on_failed`] instead.
     pub async fn download(
         &self,
         sftp_session_id: &str,
         remote_path: &str,
         local_path: &str,
+        transfer_id: &str,
     ) -> Result<String, String> {
         let sftp = self.session(sftp_session_id).await?;
         let meta = sftp
@@ -366,7 +374,8 @@ impl SftpManager {
             return Err(format!("{remote_path} is a directory — download its files"));
         }
         let total = meta.size.unwrap_or(0);
-        let (transfer_id, token) = self.register_transfer(sftp_session_id);
+        let token = self.register_transfer(sftp_session_id, transfer_id)?;
+        let transfer_id = transfer_id.to_string();
         let events = Arc::clone(&self.events);
         let transfers = Arc::clone(&self.transfers);
         let (id, local, remote) = (
@@ -406,21 +415,31 @@ impl SftpManager {
         }
     }
 
-    /// Mints a transfer id and registers its cancellation token.
+    /// Registers a caller-minted transfer id and its cancellation token.
+    ///
+    /// Rejects an empty id (it would key an unusable event channel) and a
+    /// duplicate id (two transfers would share one cancel token).
     fn register_transfer(
         &self,
         sftp_session_id: &str,
-    ) -> (String, tokio_util::sync::CancellationToken) {
-        let transfer_id = uuid::Uuid::new_v4().to_string();
+        transfer_id: &str,
+    ) -> Result<tokio_util::sync::CancellationToken, String> {
+        if transfer_id.is_empty() {
+            return Err("transferId must not be empty".to_string());
+        }
         let token = tokio_util::sync::CancellationToken::new();
-        self.transfers.lock().expect("transfers lock").insert(
-            transfer_id.clone(),
+        let mut transfers = self.transfers.lock().expect("transfers lock");
+        if transfers.contains_key(transfer_id) {
+            return Err(format!("transferId {transfer_id} is already in flight"));
+        }
+        transfers.insert(
+            transfer_id.to_string(),
             TransferEntry {
                 token: token.clone(),
                 sftp_session_id: sftp_session_id.to_string(),
             },
         );
-        (transfer_id, token)
+        Ok(token)
     }
 
     /// Cancels every transfer matching `pick` (session teardown paths).
@@ -1400,17 +1419,32 @@ mod tests {
     #[test]
     fn cancel_is_idempotent_and_scoped() {
         let manager = SftpManager::new(RecordingEvents::new());
-        let (id_a, token_a) = manager.register_transfer("sess-1");
-        let (_id_b, token_b) = manager.register_transfer("sess-2");
+        let token_a = manager
+            .register_transfer("sess-1", "t-a")
+            .expect("register a");
+        let token_b = manager
+            .register_transfer("sess-2", "t-b")
+            .expect("register b");
 
         manager.cancel("unknown-id"); // no-op, no panic
-        manager.cancel(&id_a);
+        manager.cancel("t-a");
         assert!(token_a.is_cancelled());
         assert!(!token_b.is_cancelled(), "other transfers untouched");
 
         // Session-scoped cancellation (the disconnect path).
         manager.cancel_transfers(|t| t.sftp_session_id == "sess-2");
         assert!(token_b.is_cancelled());
+    }
+
+    #[test]
+    fn register_transfer_rejects_empty_and_in_flight_ids() {
+        let manager = SftpManager::new(RecordingEvents::new());
+        assert!(manager.register_transfer("sess-1", "").is_err());
+        manager
+            .register_transfer("sess-1", "t-1")
+            .expect("first register");
+        let dup = manager.register_transfer("sess-1", "t-1");
+        assert!(dup.is_err(), "an in-flight id must not re-register");
     }
 
     #[test]

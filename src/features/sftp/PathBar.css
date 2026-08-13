@@ -7,8 +7,11 @@
   align-items: center;
   gap: calc(var(--pad) / 4);
   min-width: 0;
-  flex: 1;
-  padding: 0 calc(var(--pad) / 2);
+  /* A compact bar in the pane's column flex — never a grower (a stray
+     flex: 1 here once floated the crumbs mid-pane, live-run find). */
+  flex: none;
+  padding: calc(var(--pad) / 4) calc(var(--pad) / 2);
+  border-bottom: 1px solid var(--line);
   overflow: hidden;
   white-space: nowrap;
 }

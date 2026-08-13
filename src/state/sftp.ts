@@ -79,6 +79,19 @@ export interface TransferItem {
 /** Max transfers moving at once (F5: queue with concurrency 3). */
 const MAX_RUNNING = 3;
 
+/**
+ * An in-flight pane⇄pane pointer drag. HTML5 drag-and-drop is unusable
+ * here — Tauri's native drag layer (which Finder→app drops need) swallows
+ * webview drops on macOS — so the panes drag with plain mouse events and
+ * this bit of state (PLAN.md §5, Phase 5 review row).
+ */
+export interface DragState {
+  /** The pane the drag started in. */
+  from: PaneSide;
+  /** How many entries ride the drag (the source selection's size). */
+  count: number;
+}
+
 /** Max completion suggestions the path bar shows. */
 const MAX_COMPLETIONS = 8;
 
@@ -106,6 +119,10 @@ export interface SftpState {
   transfers: TransferItem[];
   /** The pending host-key prompt driving the FingerprintDialog. */
   hostkeyPrompt: HostkeyPromptEvent | null;
+  /** The in-flight pane⇄pane drag, or `null`. */
+  drag: DragState | null;
+  /** The pane the pointer is over mid-drag (the drop target), or `null`. */
+  dragOver: PaneSide | null;
 
   /** ⇧⌘S: shows the panel for a host (connecting as needed) or hides it. */
   toggleForHost(hostId: string, hostLabel: string): void;
@@ -151,6 +168,14 @@ export interface SftpState {
   clearFinished(): void;
   /** Path-bar completion: subdirectories of the draft's parent. */
   completePath(pane: PaneSide, draft: string): Promise<string[]>;
+  /** Starts a pointer drag from a pane's selection (no-op when empty). */
+  beginDrag(from: PaneSide): void;
+  /** Tracks which pane the pointer is over mid-drag. */
+  setDragOver(pane: PaneSide | null): void;
+  /** Ends the drag: a cross-pane drop transfers, anything else cancels. */
+  endDrag(): void;
+  /** Abandons the drag without dropping (Esc). */
+  cancelDrag(): void;
 }
 
 /** A fresh, empty pane. */
@@ -261,68 +286,93 @@ export const useSftp = create<SftpState>((set, get) => {
       patchTransfer(item.clientId, { state: "failed", error: "not connected" });
       return;
     }
-    patchTransfer(item.clientId, { state: "running", bytes: 0, speedBps: 0 });
+    // The id is minted HERE and the listener registered BEFORE the command
+    // flies: a localhost transfer can finish in single-digit milliseconds,
+    // and a terminal event emitted before the subscription exists would
+    // strand the row as "running" forever (live-run find).
+    const transferId = crypto.randomUUID();
+    patchTransfer(item.clientId, {
+      state: "running",
+      bytes: 0,
+      speedBps: 0,
+      transferId,
+    });
+    const unlisten = await onSftpProgress(transferId, (progress) => {
+      if (progress.state === "running") {
+        const now = Date.now();
+        const last = lastTick.get(item.clientId);
+        const speedBps =
+          last && now > last.at
+            ? ((progress.bytes - last.bytes) / (now - last.at)) * 1000
+            : 0;
+        lastTick.set(item.clientId, { bytes: progress.bytes, at: now });
+        patchTransfer(item.clientId, {
+          bytes: progress.bytes,
+          total: progress.total,
+          speedBps,
+        });
+        return;
+      }
+      dropHandles(item.clientId);
+      if (progress.state === "done") {
+        patchTransfer(item.clientId, {
+          state: "done",
+          bytes: progress.bytes,
+          total: progress.total,
+          speedBps: 0,
+        });
+        // The destination pane gained a file — show it.
+        void get().refresh(item.direction === "upload" ? "remote" : "local");
+      } else if (progress.state === "cancelled") {
+        patchTransfer(item.clientId, { state: "cancelled", speedBps: 0 });
+      } else {
+        const current = get().transfers.find((t) => t.clientId === item.clientId);
+        if (progress.retryable && current && !current.retried) {
+          // Auto-retry ×1 (F5): transient failures re-queue themselves.
+          patchTransfer(item.clientId, {
+            state: "queued",
+            retried: true,
+            transferId: null,
+            bytes: 0,
+            speedBps: 0,
+          });
+        } else {
+          patchTransfer(item.clientId, {
+            state: "failed",
+            error: progress.error ?? "transfer failed",
+            speedBps: 0,
+          });
+        }
+      }
+      pump();
+    });
+    unlistenByClient.set(item.clientId, unlisten);
     try {
       const command = item.direction === "upload" ? "sftp_upload" : "sftp_download";
-      const { transferId } = await ipcInvoke(command, {
+      await ipcInvoke(command, {
         sftpSessionId,
         localPath: item.localPath,
         remotePath: item.remotePath,
+        transferId,
       });
-      patchTransfer(item.clientId, { transferId });
-      const unlisten = await onSftpProgress(transferId, (progress) => {
-        if (progress.state === "running") {
-          const now = Date.now();
-          const last = lastTick.get(item.clientId);
-          const speedBps =
-            last && now > last.at
-              ? ((progress.bytes - last.bytes) / (now - last.at)) * 1000
-              : 0;
-          lastTick.set(item.clientId, { bytes: progress.bytes, at: now });
-          patchTransfer(item.clientId, {
-            bytes: progress.bytes,
-            total: progress.total,
-            speedBps,
-          });
-          return;
-        }
-        dropHandles(item.clientId);
-        if (progress.state === "done") {
-          patchTransfer(item.clientId, {
-            state: "done",
-            bytes: progress.bytes,
-            total: progress.total,
-            speedBps: 0,
-          });
-          // The destination pane gained a file — show it.
-          void get().refresh(item.direction === "upload" ? "remote" : "local");
-        } else if (progress.state === "cancelled") {
-          patchTransfer(item.clientId, { state: "cancelled", speedBps: 0 });
-        } else {
-          const current = get().transfers.find((t) => t.clientId === item.clientId);
-          if (progress.retryable && current && !current.retried) {
-            // Auto-retry ×1 (F5): transient failures re-queue themselves.
-            patchTransfer(item.clientId, {
-              state: "queued",
-              retried: true,
-              transferId: null,
-              bytes: 0,
-              speedBps: 0,
-            });
-          } else {
-            patchTransfer(item.clientId, {
-              state: "failed",
-              error: progress.error ?? "transfer failed",
-              speedBps: 0,
-            });
-          }
-        }
-        pump();
-      });
-      unlistenByClient.set(item.clientId, unlisten);
     } catch (error) {
       // The command itself refused (source unreadable, session gone).
-      patchTransfer(item.clientId, { state: "failed", error: String(error) });
+      // Drop only OUR listener — a terminal event may have raced this
+      // rejection and re-queued the row, whose next attempt owns the
+      // map slot by now.
+      unlisten();
+      if (unlistenByClient.get(item.clientId) === unlisten) {
+        unlistenByClient.delete(item.clientId);
+        lastTick.delete(item.clientId);
+      }
+      const current = get().transfers.find((t) => t.clientId === item.clientId);
+      if (current?.state === "running") {
+        patchTransfer(item.clientId, {
+          state: "failed",
+          error: String(error),
+          speedBps: 0,
+        });
+      }
       pump();
     }
   }
@@ -477,6 +527,10 @@ export const useSftp = create<SftpState>((set, get) => {
       panes: { local: emptyPane(), remote: emptyPane() },
       transfers: [],
       hostkeyPrompt: null,
+      // A drag can't survive a host switch — releasing over the new
+      // host's pane must not transfer the old host's selection.
+      drag: null,
+      dragOver: null,
     });
     void (async () => {
       try {
@@ -514,6 +568,8 @@ export const useSftp = create<SftpState>((set, get) => {
     panes: { local: emptyPane(), remote: emptyPane() },
     transfers: [],
     hostkeyPrompt: null,
+    drag: null,
+    dragOver: null,
 
     toggleForHost(hostId: string, hostLabel: string): void {
       const state = get();
@@ -829,6 +885,30 @@ export const useSftp = create<SftpState>((set, get) => {
         return [];
       }
     },
+
+    beginDrag(from: PaneSide): void {
+      const count = get().panes[from].selected.length;
+      if (count === 0) return;
+      set({ drag: { from, count }, dragOver: null });
+    },
+
+    setDragOver(pane: PaneSide | null): void {
+      if (get().drag === null) return;
+      set({ dragOver: pane });
+    },
+
+    endDrag(): void {
+      const { drag, dragOver } = get();
+      set({ drag: null, dragOver: null });
+      if (drag === null || dragOver === null || dragOver === drag.from) return;
+      // The drop transfers the source pane's selection to the other side.
+      if (drag.from === "local") void get().sendLocalSelection();
+      else void get().sendRemoteSelection();
+    },
+
+    cancelDrag(): void {
+      set({ drag: null, dragOver: null });
+    },
   };
 });
 
@@ -856,5 +936,7 @@ export function resetSftpForTests(): void {
     },
     transfers: [],
     hostkeyPrompt: null,
+    drag: null,
+    dragOver: null,
   });
 }

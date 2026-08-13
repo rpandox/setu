@@ -539,7 +539,12 @@ async fn live_acceptance_walk() {
 
     let started = Instant::now();
     manager
-        .upload(&session, big_local.to_str().unwrap(), &remote_big)
+        .upload(
+            &session,
+            big_local.to_str().unwrap(),
+            &remote_big,
+            "up-200m",
+        )
         .await
         .expect("start 200MB upload");
     let (terminal, progress_events) = run_to_terminal(&mut xfer_rx, "200MB upload").await;
@@ -566,7 +571,12 @@ async fn live_acceptance_walk() {
     // ... and the download back.
     let restored = scratch.join("restored-200m.bin");
     manager
-        .download(&session, &remote_big, restored.to_str().unwrap())
+        .download(
+            &session,
+            &remote_big,
+            restored.to_str().unwrap(),
+            "down-200m",
+        )
         .await
         .expect("start 200MB download");
     let (terminal, _) = run_to_terminal(&mut xfer_rx, "200MB download").await;
@@ -582,7 +592,12 @@ async fn live_acceptance_walk() {
     }
     let remote_partial = format!("{work_str}/cancel-4g.bin");
     let transfer_id = manager
-        .upload(&session, sparse.to_str().unwrap(), &remote_partial)
+        .upload(
+            &session,
+            sparse.to_str().unwrap(),
+            &remote_partial,
+            "cancel-4g",
+        )
         .await
         .expect("start cancellable upload");
     // Wait until it is demonstrably mid-flight, then cancel.
@@ -615,7 +630,12 @@ async fn live_acceptance_walk() {
         "the proxy port is a new known_hosts identity"
     );
     manager
-        .upload(&doomed_session, sparse.to_str().unwrap(), &remote_partial)
+        .upload(
+            &doomed_session,
+            sparse.to_str().unwrap(),
+            &remote_partial,
+            "doomed-4g",
+        )
         .await
         .expect("start doomed upload");
     let first = next_xfer(&mut xfer_rx, "first progress of doomed upload").await;
