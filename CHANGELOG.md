@@ -7,6 +7,59 @@ one entry.
 
 ## [Unreleased]
 
+### Fixed — Phase 5 live-run findings
+
+- Downloads (and any fast transfer) no longer hang as "running" forever:
+  the transfer id is now minted by the frontend and the progress listener
+  registered _before_ the command flies, so a transfer that finishes in
+  milliseconds can't emit its terminal event into the void. The IPC
+  payload for `sftp_upload`/`sftp_download` gained `transferId`
+  ([docs](docs/dev/ipc.md)).
+- Pane⇄pane drag now actually drops: the HTML5 drag-and-drop it used is
+  swallowed by Tauri's native drag layer on macOS (which Finder→app
+  drops require), so rows now drag with plain mouse events — press, move
+  4 px, release over the other pane. A drag shows a count chip at the
+  pointer, highlights the target pane, and Esc abandons it. Pressing an
+  already-selected row keeps the selection through the drag (Finder
+  semantics), so multi-selections drag intact.
+- A dropped link that raced the stall guard ("session closed" from the
+  sftp layer) now classifies retryable, so the queue's auto-retry covers
+  it.
+- Scrollbars everywhere are now drawn by the app (a quiet token-colored
+  thumb), not the system default; the SFTP drop target got a clearer
+  highlight.
+
+### Added — Phase 5: SFTP
+
+- The SFTP panel (F5): ⇧⌘S overlays a dual-pane file browser — local |
+  remote — on the focused SSH session's host; the terminal keeps running
+  underneath. Sortable columns (name/size/modified/mode), hidden-file
+  toggle, breadcrumb path bar with Tab completion, virtualized listings
+  (10k-entry directories scroll smoothly), and file ops on both panes:
+  new folder, rename, recursive delete (confirmed), chmod (octal +
+  checkboxes). Symlinks show their target and follow on double-click.
+- Transfers: drag between panes (both directions, folders recurse), drop
+  files from Finder to upload, double-click to send a file across. The
+  queue runs three at once with live progress/speed/ETA; cancel removes
+  the partial file; transient failures (dropped connection, timeout)
+  auto-retry once, and a link that stalls a chunk for 30 s fails
+  retryable instead of hanging the slot. Files stream in 256 KiB chunks —
+  multi-GB transfers never sit in memory. The whole engine is exercised
+  end-to-end against a real local OpenSSH server by an ignored-by-default
+  integration suite (`cargo test --test live_sftp -- --ignored`).
+- Host-key trust (F5): the app's only in-protocol SSH use verifies
+  servers against `~/.ssh/known_hosts` (hashed entries included). Unknown
+  keys show the fingerprint dialog and append on explicit trust — the
+  only known_hosts write in the app; changed or revoked keys refuse to
+  connect, never prompt. Auth is agent-first, then the host's identity
+  file (passwords arrive with the Keychain in Phase 7).
+- "Open in Cyberduck": hands the current remote directory to your
+  `sftp://` handler as the escape hatch.
+- New IPC: the `sftp_*` command family (connect/disconnect, list,
+  realpath, stat, mkdir, rename, delete, chmod, local twins,
+  upload/download/cancel), `hostkey_trust`, and the `hostkey:prompt` +
+  `sftp:progress:{transferId}` events ([docs](docs/dev/ipc.md)).
+
 ### Added — Phase 4: design polish & the live board
 
 - The live LED board (F1): a Rust reachability prober lights every host

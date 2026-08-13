@@ -1,4 +1,5 @@
 import "./TerminalArea.css";
+import { SftpPanel } from "../features/sftp/SftpPanel";
 import { FindBar } from "../features/terminal/FindBar";
 import { SplitContainer } from "../features/splits/SplitContainer";
 import { activeSessionOf, useSessions } from "../state/sessions";
@@ -9,7 +10,8 @@ import { activeSessionOf, useSessions } from "../state/sessions";
  * renders one {@link SplitContainer} per tab: all tabs (and every pane in
  * them) stay mounted so xterm state survives tab switches, and inactive
  * tabs hide with `visibility` — never `display: none`, which would zero
- * their measurements and break fitting.
+ * their measurements and break fitting. The SFTP panel (F5) overlays the
+ * whole area when toggled (⇧⌘S); the panes underneath keep running.
  *
  * @returns The terminal area element.
  */
@@ -46,6 +48,7 @@ export function TerminalArea() {
           onClose={closeFind}
         />
       )}
+      <SftpPanel />
     </main>
   );
 }

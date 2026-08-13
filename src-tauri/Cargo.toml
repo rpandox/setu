@@ -26,5 +26,10 @@ toml = "0.8"
 dirs = "5"
 # Reachability prober (F1, Phase 4): async TCP probes with timeouts on the
 # runtime Tauri already embeds; `fastrand` supplies the probe-start jitter.
-tokio = { version = "1", features = ["net", "time", "sync", "rt", "macros"] }
+tokio = { version = "1", features = ["net", "time", "sync", "rt", "macros", "fs", "io-util"] }
 fastrand = "2"
+russh = "0.62.6"
+russh-sftp = "2.4.0"
+hmac = "0.12"
+sha1 = "0.10"
+tokio-util = "0.7"

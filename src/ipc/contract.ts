@@ -314,12 +314,217 @@ export interface ReachUpdate {
 }
 
 /**
+ * One row in an SFTP pane listing — the same shape for both panes (remote
+ * via russh-sftp, local via Rust `std::fs`), so sorting, columns, and drag
+ * payloads are pane-agnostic (F5).
+ *
+ * Symlink rows describe the **link itself** (`isDir: false`, `linkTarget`
+ * set); following happens explicitly via `sftp_stat` / `sftp_local_stat`
+ * on double-click.
+ */
+export interface SftpEntry {
+  /** File name (final path component). */
+  name: string;
+  /** Size in bytes; `0` for directories and when the server omits it. */
+  size: number;
+  /** Modification time in epoch milliseconds; `0` when unknown. */
+  mtimeMs: number;
+  /** Unix permission bits (lower 12 bits; render as octal / rwx). */
+  mode: number;
+  /** Whether the entry is a directory (never true for symlinks). */
+  isDir: boolean;
+  /** Whether the entry is a symbolic link. */
+  isSymlink: boolean;
+  /** The symlink's raw target, when the entry is one and it was readable. */
+  linkTarget?: string;
+}
+
+/** Payload for `sftp_connect`. */
+export interface SftpConnectPayload {
+  /** The host to connect to (`Host.id`). */
+  hostId: string;
+}
+
+/** Result of a successful `sftp_connect`. */
+export interface SftpConnectResult {
+  /** Keys every later SFTP command and its transfers. */
+  sftpSessionId: string;
+}
+
+/** Payload for `hostkey_trust` — the FingerprintDialog verdict. */
+export interface HostkeyTrustPayload {
+  /** The host the pending prompt belongs to (`Host.id`). */
+  hostId: string;
+  /**
+   * `true` appends the key to `~/.ssh/known_hosts` (append-only, the only
+   * known_hosts write in the app) and resumes the connect; `false` fails it.
+   */
+  accept: boolean;
+}
+
+/** Payload for `sftp_disconnect`. */
+export interface SftpSessionPayload {
+  /** The session to act on. Unknown ids are a no-op (idempotent close). */
+  sftpSessionId: string;
+}
+
+/** Payload for `sftp_list`, `sftp_stat`, and `sftp_mkdir`. */
+export interface SftpPathPayload {
+  /** The session to act on. */
+  sftpSessionId: string;
+  /** Absolute remote path (`/`-separated). */
+  path: string;
+}
+
+/** Result of `sftp_list` / `sftp_local_list`. */
+export interface SftpListResult {
+  /** The directory's entries, name-sorted, `.`/`..` omitted. */
+  entries: SftpEntry[];
+}
+
+/** Result of `sftp_realpath`. */
+export interface SftpRealpathResult {
+  /** The canonical absolute path. */
+  path: string;
+}
+
+/** Payload for `sftp_rename`. */
+export interface SftpRenamePayload {
+  /** The session to act on. */
+  sftpSessionId: string;
+  /** Current absolute path. */
+  from: string;
+  /** New absolute path. */
+  to: string;
+}
+
+/** Payload for `sftp_delete`. */
+export interface SftpDeletePayload {
+  /** The session to act on. */
+  sftpSessionId: string;
+  /** Absolute path to delete. */
+  path: string;
+  /** Whether the path is a directory (deleted recursively when so). */
+  isDir: boolean;
+}
+
+/** Payload for `sftp_chmod`. */
+export interface SftpChmodPayload {
+  /** The session to act on. */
+  sftpSessionId: string;
+  /** Absolute path to modify. */
+  path: string;
+  /** Permission bits as a number (e.g. `0o755` — max `0o7777`). */
+  mode: number;
+}
+
+/** Payload for `sftp_local_list`, `sftp_local_stat`, `sftp_local_mkdir`. */
+export interface LocalPathPayload {
+  /** Absolute local path. */
+  path: string;
+}
+
+/** Payload for `sftp_local_rename`. */
+export interface LocalRenamePayload {
+  /** Current absolute path. */
+  from: string;
+  /** New absolute path. */
+  to: string;
+}
+
+/** Payload for `sftp_local_delete`. */
+export interface LocalDeletePayload {
+  /** Absolute path to delete. */
+  path: string;
+  /** Whether the path is a directory (deleted recursively when so). */
+  isDir: boolean;
+}
+
+/** Payload for `sftp_local_chmod`. */
+export interface LocalChmodPayload {
+  /** Absolute path to modify. */
+  path: string;
+  /** Permission bits as a number (max `0o7777`). */
+  mode: number;
+}
+
+/** Payload for `sftp_upload` and `sftp_download`. */
+export interface SftpTransferPayload {
+  /** The session the transfer rides. */
+  sftpSessionId: string;
+  /** Absolute local file path (source for uploads, target for downloads). */
+  localPath: string;
+  /** Absolute remote file path (target for uploads, source for downloads). */
+  remotePath: string;
+  /**
+   * Client-minted UUID keying the `sftp:progress:{transferId}` stream and
+   * `sftp_cancel`. Minted before the command flies so the progress
+   * listener already exists when the backend starts emitting — a fast
+   * transfer's terminal event must never race the subscription. The
+   * backend rejects an empty or in-flight id.
+   */
+  transferId: string;
+}
+
+/** Result of `sftp_upload` / `sftp_download`. */
+export interface SftpTransferResult {
+  /** Echo of the payload's `transferId`. */
+  transferId: string;
+}
+
+/** Payload for `sftp_cancel`. */
+export interface SftpCancelPayload {
+  /** The transfer to cancel. Unknown ids are a no-op (can't race a finish). */
+  transferId: string;
+}
+
+/**
+ * Payload of a `hostkey:prompt` event — an unknown host key awaiting the
+ * user's verdict in the FingerprintDialog (F5). Answered via
+ * `hostkey_trust`; the pending `sftp_connect` stays parked until then.
+ */
+export interface HostkeyPromptEvent {
+  /** The host being connected (`Host.id`) — echo back in `hostkey_trust`. */
+  hostId: string;
+  /** Display label for the dialog title. */
+  hostLabel: string;
+  /** Key algorithm, e.g. `"ssh-ed25519"`. */
+  algorithm: string;
+  /** OpenSSH-format `SHA256:<base64>` fingerprint. */
+  fingerprint: string;
+}
+
+/** Lifecycle of one transfer as reported by `sftp:progress:{transferId}`. */
+export type SftpTransferState = "running" | "done" | "failed" | "cancelled";
+
+/**
+ * Payload of a `sftp:progress:{transferId}` event. `"running"` events are
+ * throttled (~10/s); exactly one terminal event — `"done"`, `"failed"`, or
+ * `"cancelled"` — closes the channel. Speed and ETA are derived in the
+ * store from successive `bytes` readings.
+ */
+export interface SftpProgressEvent {
+  /** Bytes moved so far (`0` on `"failed"`/`"cancelled"` terminals). */
+  bytes: number;
+  /** Total bytes expected; `0` when the size is unknown. */
+  total: number;
+  /** Transfer lifecycle state. */
+  state: SftpTransferState;
+  /** The failure message, on `"failed"` only. */
+  error?: string;
+  /** Whether an auto-retry is worth attempting, on `"failed"` only (F5: the queue retries once). */
+  retryable?: boolean;
+}
+
+/**
  * Invokable commands, keyed by command name.
  *
  * Phase 1 shipped the `pty_*` family; Phase 2 adds SSH spawning and the
  * `hosts_*` family over `hosts.toml` and the `~/.ssh/config` import;
  * Phase 3 adds the `ui_state_*` pair over `state.json`; Phase 4 adds the
- * `reach_*` family driving the LED board.
+ * `reach_*` family driving the LED board; Phase 5 adds the `sftp_*` family
+ * (dual-pane browser + transfers) and the `hostkey_trust` half of the
+ * fingerprint trust flow.
  */
 export interface IpcCommands {
   /** Spawn a new PTY session — a local login shell or `ssh` to a host. */
@@ -359,6 +564,52 @@ export interface IpcCommands {
   ui_state_get: { payload: Record<string, never>; result: UiState };
   /** Replace `state.json` atomically (corrupt files are never overwritten). */
   ui_state_set: { payload: UiStateSetPayload; result: null };
+  /**
+   * Open an SFTP session (russh; agent → identity-file auth). May emit one
+   * `hostkey:prompt` and block until `hostkey_trust` answers it. Mismatched
+   * or revoked keys fail hard — never a prompt.
+   */
+  sftp_connect: { payload: SftpConnectPayload; result: SftpConnectResult };
+  /** Answer a pending `hostkey:prompt` (the FingerprintDialog verdict). */
+  hostkey_trust: { payload: HostkeyTrustPayload; result: null };
+  /** Close a session and cancel its transfers; unknown ids are a no-op. */
+  sftp_disconnect: { payload: SftpSessionPayload; result: null };
+  /** List a remote directory (complete listing; hidden filter is a view concern). */
+  sftp_list: { payload: SftpPathPayload; result: SftpListResult };
+  /** Canonicalize a remote path (REALPATH) — `"."` → the home path. */
+  sftp_realpath: { payload: SftpPathPayload; result: SftpRealpathResult };
+  /** Stat a remote path, following symlinks (the double-click follow). */
+  sftp_stat: { payload: SftpPathPayload; result: SftpEntry };
+  /** Create a remote directory. */
+  sftp_mkdir: { payload: SftpPathPayload; result: null };
+  /** Rename (move) a remote file or directory. */
+  sftp_rename: { payload: SftpRenamePayload; result: null };
+  /** Delete a remote file, or a directory recursively (links never followed). */
+  sftp_delete: { payload: SftpDeletePayload; result: null };
+  /** Set a remote path's permission bits. */
+  sftp_chmod: { payload: SftpChmodPayload; result: null };
+  /** List a local directory for the local pane — same shape as `sftp_list`. */
+  sftp_local_list: { payload: LocalPathPayload; result: SftpListResult };
+  /** Stat a local path, following symlinks. */
+  sftp_local_stat: { payload: LocalPathPayload; result: SftpEntry };
+  /** Create a local directory. */
+  sftp_local_mkdir: { payload: LocalPathPayload; result: null };
+  /** Rename (move) a local file or directory. */
+  sftp_local_rename: { payload: LocalRenamePayload; result: null };
+  /** Delete a local file, or a directory recursively. */
+  sftp_local_delete: { payload: LocalDeletePayload; result: null };
+  /** Set a local path's permission bits. */
+  sftp_local_chmod: { payload: LocalChmodPayload; result: null };
+  /**
+   * Start an upload; returns immediately, progress streams as
+   * `sftp:progress:{transferId}`. The queue (concurrency 3, auto-retry ×1)
+   * lives in the sftp store.
+   */
+  sftp_upload: { payload: SftpTransferPayload; result: SftpTransferResult };
+  /** Start a download; the mirror of `sftp_upload`. */
+  sftp_download: { payload: SftpTransferPayload; result: SftpTransferResult };
+  /** Cancel a running transfer; partial destination files are removed. */
+  sftp_cancel: { payload: SftpCancelPayload; result: null };
 }
 
 /**
@@ -369,9 +620,15 @@ export interface IpcCommands {
  *   that session.
  * - `reach:update` — one probe result; all hosts share the channel (the
  *   payload carries the host id).
+ * - `hostkey:prompt` — an unknown host key awaiting the FingerprintDialog
+ *   verdict; one channel, the payload carries the host id (F5).
+ * - `sftp:progress:{transferId}` — throttled transfer progress, closed by
+ *   exactly one terminal `done`/`failed`/`cancelled` event (F5).
  */
 export interface IpcEvents {
   [channel: `pty:data:${string}`]: string;
   [channel: `pty:exit:${string}`]: PtyExitEvent;
+  [channel: `sftp:progress:${string}`]: SftpProgressEvent;
   "reach:update": ReachUpdate;
+  "hostkey:prompt": HostkeyPromptEvent;
 }

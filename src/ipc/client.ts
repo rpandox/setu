@@ -6,7 +6,15 @@
 
 import { invoke, type InvokeArgs } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { IpcCommands, PtyExitEvent, ReachUpdate } from "./contract";
+import { homeDir } from "@tauri-apps/api/path";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import type {
+  HostkeyPromptEvent,
+  IpcCommands,
+  PtyExitEvent,
+  ReachUpdate,
+  SftpProgressEvent,
+} from "./contract";
 
 /**
  * Invokes a Tauri command with its contract-typed payload and result.
@@ -77,5 +85,68 @@ export function onReachUpdate(
 ): Promise<UnlistenFn> {
   return listen<ReachUpdate>("reach:update", (event) => {
     onUpdate(event.payload);
+  });
+}
+
+/**
+ * Subscribes to `hostkey:prompt` — an unknown host key awaiting the user's
+ * FingerprintDialog verdict (F5). One channel for all hosts; the payload's
+ * `hostId` routes it. Answer with `ipcInvoke("hostkey_trust", …)`; the
+ * pending `sftp_connect` stays parked until then.
+ *
+ * @param onPrompt - Called with each prompt, in arrival order.
+ * @returns A promise resolving to the unlisten function.
+ */
+export function onHostkeyPrompt(
+  onPrompt: (prompt: HostkeyPromptEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<HostkeyPromptEvent>("hostkey:prompt", (event) => {
+    onPrompt(event.payload);
+  });
+}
+
+/**
+ * Subscribes to `sftp:progress:{transferId}` — throttled progress for one
+ * transfer, closed by exactly one terminal `done`/`failed`/`cancelled`
+ * event (F5). Speed and ETA derive from successive `bytes` readings.
+ *
+ * @param transferId - The transfer to listen to.
+ * @param onProgress - Called with each progress payload, in arrival order.
+ * @returns A promise resolving to the unlisten function.
+ */
+export function onSftpProgress(
+  transferId: string,
+  onProgress: (progress: SftpProgressEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<SftpProgressEvent>(`sftp:progress:${transferId}`, (event) => {
+    onProgress(event.payload);
+  });
+}
+
+/**
+ * The user's home directory, for the SFTP local pane's starting path —
+ * wrapped here so the rest of the frontend never touches the raw Tauri
+ * path API (and tests mock this module alone).
+ *
+ * @returns The absolute home path, without a trailing slash.
+ */
+export async function localHomeDir(): Promise<string> {
+  const home = await homeDir();
+  return home.replace(/\/+$/, "");
+}
+
+/**
+ * Subscribes to OS file drops on the window (Tauri's drag-drop layer —
+ * webviews never see dropped files as HTML5 events). The SFTP panel uses
+ * it for Finder→app drop-to-upload (F5).
+ *
+ * @param onDrop - Called with the dropped absolute paths.
+ * @returns A promise resolving to the unlisten function.
+ */
+export function onOsFileDrop(onDrop: (paths: string[]) => void): Promise<UnlistenFn> {
+  return getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type === "drop" && event.payload.paths.length > 0) {
+      onDrop(event.payload.paths);
+    }
   });
 }

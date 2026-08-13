@@ -14,8 +14,10 @@
  */
 
 import { useBroadcast } from "./broadcast";
-import { tabSessionOf, useSessions } from "./sessions";
+import { activeSessionOf, tabSessionOf, useSessions } from "./sessions";
+import { useSftp } from "./sftp";
 import type { FocusDirection } from "./splits";
+import { useToast } from "./toast";
 import { useUiChrome } from "./ui";
 
 /** One §8 action: a palette row and (usually) a keyboard shortcut. */
@@ -202,6 +204,26 @@ export function actionRegistry(): AppAction[] {
       shortcut: "⇧⌘F",
       matches: (event) => cmd(event, "f", true),
       perform: () => useSessions.getState().openFind(),
+    },
+    {
+      id: "toggle-sftp",
+      title: "Toggle SFTP panel",
+      shortcut: "⇧⌘S",
+      matches: (event) => cmd(event, "s", true),
+      perform: () => {
+        const sftp = useSftp.getState();
+        // The open panel toggles away regardless of what's focused now.
+        if (sftp.open && sftp.hostId !== null) {
+          sftp.toggleForHost(sftp.hostId, sftp.hostLabel);
+          return;
+        }
+        const meta = activeSessionOf(useSessions.getState());
+        if (!meta || meta.kind !== "ssh" || !meta.hostId || meta.orphaned) {
+          useToast.getState().show("SFTP needs a focused SSH session");
+          return;
+        }
+        sftp.toggleForHost(meta.hostId, meta.hostLabel ?? meta.title);
+      },
     },
     {
       id: "toggle-sidebar",
