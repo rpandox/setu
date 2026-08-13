@@ -4305,6 +4305,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-opener",
  "tokio",
+ "tokio-util",
  "toml 0.8.2",
  "uuid",
 ]

@@ -137,6 +137,16 @@ pub struct SftpManager {
     conns: tokio::sync::Mutex<HashMap<String, SftpConn>>,
     /// One pending host-key decision per host id.
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>,
+    /// Running transfers keyed by `transferId` ([`SftpManager::cancel`]).
+    transfers: Arc<Mutex<HashMap<String, TransferEntry>>>,
+}
+
+/// Bookkeeping for one running transfer task.
+struct TransferEntry {
+    /// Cooperative cancellation signal, checked between chunks.
+    token: tokio_util::sync::CancellationToken,
+    /// The connection this transfer rides, so disconnects cancel it.
+    sftp_session_id: String,
 }
 
 impl SftpManager {
@@ -146,6 +156,7 @@ impl SftpManager {
             events,
             conns: tokio::sync::Mutex::new(HashMap::new()),
             pending: Arc::new(Mutex::new(HashMap::new())),
+            transfers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -261,8 +272,11 @@ impl SftpManager {
     }
 
     /// Closes the session `id`. Unknown ids are a no-op (idempotent close,
-    /// same contract as `pty_kill`).
+    /// same contract as `pty_kill`). Transfers riding the connection are
+    /// cancelled first; their partial-file cleanup is best-effort — the
+    /// link they'd clean over is going away.
     pub async fn disconnect(&self, id: &str) {
+        self.cancel_transfers(|entry| entry.sftp_session_id == id);
         let conn = self.conns.lock().await.remove(id);
         if let Some(conn) = conn {
             close_conn(conn).await;
@@ -271,9 +285,150 @@ impl SftpManager {
 
     /// Closes every session — the app-exit sweep (CLAUDE.md: no orphans).
     pub async fn kill_all(&self) {
+        self.cancel_transfers(|_| true);
         let conns: Vec<SftpConn> = self.conns.lock().await.drain().map(|(_, c)| c).collect();
         for conn in conns {
             close_conn(conn).await;
+        }
+    }
+
+    /// Starts an upload and returns its `transferId`. The transfer runs as
+    /// its own task; the queue (concurrency 3, auto-retry ×1) lives in the
+    /// frontend store, which starts at most three of these at once.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the session is unknown or the local file can't be
+    /// opened/statted. Failures *during* the transfer arrive as
+    /// [`SftpEvents::on_failed`] instead.
+    pub async fn upload(
+        &self,
+        sftp_session_id: &str,
+        local_path: &str,
+        remote_path: &str,
+    ) -> Result<String, String> {
+        let sftp = self.session(sftp_session_id).await?;
+        let meta = tokio::fs::metadata(local_path)
+            .await
+            .map_err(|e| format!("{local_path}: {e}"))?;
+        if meta.is_dir() {
+            // Folder uploads arrive with drag-drop batches in the store —
+            // each file is its own transfer; the backend moves files.
+            return Err(format!("{local_path} is a directory — upload its files"));
+        }
+        let total = meta.len();
+        let (transfer_id, token) = self.register_transfer(sftp_session_id);
+        let events = Arc::clone(&self.events);
+        let transfers = Arc::clone(&self.transfers);
+        let (id, local, remote) = (
+            transfer_id.clone(),
+            local_path.to_string(),
+            remote_path.to_string(),
+        );
+        tokio::spawn(async move {
+            let outcome = stream_upload(&sftp, &local, &remote, total, &token, &*events, &id).await;
+            transfers.lock().expect("transfers lock").remove(&id);
+            match outcome {
+                Ok(bytes) => events.on_done(&id, bytes, total),
+                Err(TransferHalt::Cancelled) => {
+                    let _ = sftp.remove_file(&remote).await;
+                    events.on_cancelled(&id);
+                }
+                Err(TransferHalt::Failed { message, retryable }) => {
+                    let _ = sftp.remove_file(&remote).await;
+                    events.on_failed(&id, &message, retryable);
+                }
+            }
+        });
+        Ok(transfer_id)
+    }
+
+    /// Starts a download and returns its `transferId` (see [`Self::upload`]
+    /// for the task/queue split).
+    ///
+    /// # Errors
+    ///
+    /// Fails when the session is unknown or the remote path can't be
+    /// statted. Failures *during* the transfer arrive as
+    /// [`SftpEvents::on_failed`] instead.
+    pub async fn download(
+        &self,
+        sftp_session_id: &str,
+        remote_path: &str,
+        local_path: &str,
+    ) -> Result<String, String> {
+        let sftp = self.session(sftp_session_id).await?;
+        let meta = sftp
+            .metadata(remote_path)
+            .await
+            .map_err(|e| e.to_string())?;
+        if meta.is_dir() {
+            return Err(format!("{remote_path} is a directory — download its files"));
+        }
+        let total = meta.size.unwrap_or(0);
+        let (transfer_id, token) = self.register_transfer(sftp_session_id);
+        let events = Arc::clone(&self.events);
+        let transfers = Arc::clone(&self.transfers);
+        let (id, local, remote) = (
+            transfer_id.clone(),
+            local_path.to_string(),
+            remote_path.to_string(),
+        );
+        tokio::spawn(async move {
+            let outcome =
+                stream_download(&sftp, &remote, &local, total, &token, &*events, &id).await;
+            transfers.lock().expect("transfers lock").remove(&id);
+            match outcome {
+                Ok(bytes) => events.on_done(&id, bytes, total),
+                Err(TransferHalt::Cancelled) => {
+                    let _ = tokio::fs::remove_file(&local).await;
+                    events.on_cancelled(&id);
+                }
+                Err(TransferHalt::Failed { message, retryable }) => {
+                    let _ = tokio::fs::remove_file(&local).await;
+                    events.on_failed(&id, &message, retryable);
+                }
+            }
+        });
+        Ok(transfer_id)
+    }
+
+    /// Cancels a running transfer. Unknown ids are a no-op: cancelling
+    /// something that just finished must never race into an error.
+    pub fn cancel(&self, transfer_id: &str) {
+        if let Some(entry) = self
+            .transfers
+            .lock()
+            .expect("transfers lock")
+            .get(transfer_id)
+        {
+            entry.token.cancel();
+        }
+    }
+
+    /// Mints a transfer id and registers its cancellation token.
+    fn register_transfer(
+        &self,
+        sftp_session_id: &str,
+    ) -> (String, tokio_util::sync::CancellationToken) {
+        let transfer_id = uuid::Uuid::new_v4().to_string();
+        let token = tokio_util::sync::CancellationToken::new();
+        self.transfers.lock().expect("transfers lock").insert(
+            transfer_id.clone(),
+            TransferEntry {
+                token: token.clone(),
+                sftp_session_id: sftp_session_id.to_string(),
+            },
+        );
+        (transfer_id, token)
+    }
+
+    /// Cancels every transfer matching `pick` (session teardown paths).
+    fn cancel_transfers(&self, pick: impl Fn(&TransferEntry) -> bool) {
+        for entry in self.transfers.lock().expect("transfers lock").values() {
+            if pick(entry) {
+                entry.token.cancel();
+            }
         }
     }
 }
@@ -803,6 +958,189 @@ fn validate_mode(mode: u32) -> Result<u32, String> {
     Ok(mode)
 }
 
+// ---------------------------------------------------------------------------
+// The transfer engine (F5): streaming, cancellable, progress-throttled.
+// ---------------------------------------------------------------------------
+
+/// Chunk size for transfer streaming: big enough to amortize round-trips,
+/// small enough that cancellation reacts within a chunk (256 KiB at even
+/// 10 MB/s is ~25 ms).
+const TRANSFER_CHUNK: usize = 256 * 1024;
+
+/// Minimum interval between progress events (~10/s): the F5 progress bar
+/// needs smoothness, not every write (PLAN.md §3 keeps IPC volume down).
+const PROGRESS_EVERY: Duration = Duration::from_millis(100);
+
+/// Why a transfer stopped before completing.
+enum TransferHalt {
+    /// The user cancelled; the caller cleans the partial file quietly.
+    Cancelled,
+    /// Something broke. `retryable` marks transient causes (dropped
+    /// connection, timeout) for the store's auto-retry ×1.
+    Failed {
+        /// Human-readable cause, surfaced verbatim in the queue row.
+        message: String,
+        /// Whether an immediate retry is worth attempting.
+        retryable: bool,
+    },
+}
+
+/// Failure from a local I/O error (the `std::io::ErrorKind` taxonomy).
+fn halt_from_io(error: &std::io::Error) -> TransferHalt {
+    use std::io::ErrorKind;
+    let retryable = matches!(
+        error.kind(),
+        ErrorKind::TimedOut
+            | ErrorKind::ConnectionReset
+            | ErrorKind::ConnectionAborted
+            | ErrorKind::BrokenPipe
+            | ErrorKind::UnexpectedEof
+            | ErrorKind::Interrupted
+            | ErrorKind::WouldBlock
+    );
+    TransferHalt::Failed {
+        message: error.to_string(),
+        retryable,
+    }
+}
+
+/// Failure from an SFTP-level error (the protocol status taxonomy).
+fn halt_from_sftp(error: &russh_sftp::client::error::Error) -> TransferHalt {
+    use russh_sftp::client::error::Error;
+    use russh_sftp::protocol::StatusCode;
+    let retryable = match error {
+        Error::Status(status) => matches!(
+            status.status_code,
+            StatusCode::NoConnection | StatusCode::ConnectionLost
+        ),
+        // Channel-level I/O and timeouts are the connection misbehaving.
+        Error::IO(_) | Error::Timeout => true,
+        _ => false,
+    };
+    TransferHalt::Failed {
+        message: error.to_string(),
+        retryable,
+    }
+}
+
+/// Emits progress at most every [`PROGRESS_EVERY`].
+struct ProgressThrottle {
+    /// When progress last went out.
+    last: std::time::Instant,
+}
+
+impl ProgressThrottle {
+    /// A throttle that fires immediately on first ask (bytes 0 paints the
+    /// bar without waiting 100 ms).
+    fn new() -> Self {
+        Self {
+            last: std::time::Instant::now() - PROGRESS_EVERY,
+        }
+    }
+
+    /// Whether to emit now; arms the interval when it says yes.
+    fn ready(&mut self) -> bool {
+        let now = std::time::Instant::now();
+        if now.duration_since(self.last) >= PROGRESS_EVERY {
+            self.last = now;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Streams a local file to the remote, reporting progress; the partial
+/// remote file on cancel/failure is the **caller's** cleanup.
+async fn stream_upload(
+    sftp: &russh_sftp::client::SftpSession,
+    local: &str,
+    remote: &str,
+    total: u64,
+    token: &tokio_util::sync::CancellationToken,
+    events: &dyn SftpEvents,
+    transfer_id: &str,
+) -> Result<u64, TransferHalt> {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let mut src = tokio::fs::File::open(local)
+        .await
+        .map_err(|e| halt_from_io(&e))?;
+    let mut dst = sftp.create(remote).await.map_err(|e| halt_from_sftp(&e))?;
+
+    let mut buf = vec![0u8; TRANSFER_CHUNK];
+    let mut bytes: u64 = 0;
+    let mut throttle = ProgressThrottle::new();
+    loop {
+        let read = tokio::select! {
+            biased;
+            () = token.cancelled() => return Err(TransferHalt::Cancelled),
+            read = src.read(&mut buf) => read.map_err(|e| halt_from_io(&e))?,
+        };
+        if read == 0 {
+            break;
+        }
+        // The write also reacts to cancel: a stalled server would otherwise
+        // pin a cancelled transfer until its timeout.
+        tokio::select! {
+            biased;
+            () = token.cancelled() => return Err(TransferHalt::Cancelled),
+            write = dst.write_all(&buf[..read]) => write.map_err(|e| halt_from_io(&e))?,
+        }
+        bytes += read as u64;
+        if throttle.ready() {
+            events.on_progress(transfer_id, bytes, total);
+        }
+    }
+    dst.flush().await.map_err(|e| halt_from_io(&e))?;
+    dst.close().await.map_err(|e| halt_from_io(&e))?;
+    Ok(bytes)
+}
+
+/// Streams a remote file to the local disk, reporting progress; the partial
+/// local file on cancel/failure is the **caller's** cleanup.
+async fn stream_download(
+    sftp: &russh_sftp::client::SftpSession,
+    remote: &str,
+    local: &str,
+    total: u64,
+    token: &tokio_util::sync::CancellationToken,
+    events: &dyn SftpEvents,
+    transfer_id: &str,
+) -> Result<u64, TransferHalt> {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let mut src = sftp.open(remote).await.map_err(|e| halt_from_sftp(&e))?;
+    let mut dst = tokio::fs::File::create(local)
+        .await
+        .map_err(|e| halt_from_io(&e))?;
+
+    let mut buf = vec![0u8; TRANSFER_CHUNK];
+    let mut bytes: u64 = 0;
+    let mut throttle = ProgressThrottle::new();
+    loop {
+        let read = tokio::select! {
+            biased;
+            () = token.cancelled() => return Err(TransferHalt::Cancelled),
+            read = src.read(&mut buf) => read.map_err(|e| halt_from_io(&e))?,
+        };
+        if read == 0 {
+            break;
+        }
+        tokio::select! {
+            biased;
+            () = token.cancelled() => return Err(TransferHalt::Cancelled),
+            write = dst.write_all(&buf[..read]) => write.map_err(|e| halt_from_io(&e))?,
+        }
+        bytes += read as u64;
+        if throttle.ready() {
+            events.on_progress(transfer_id, bytes, total);
+        }
+    }
+    dst.flush().await.map_err(|e| halt_from_io(&e))?;
+    Ok(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -898,6 +1236,111 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("setu-sftp-{}-{}", name, uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("scratch dir");
         dir
+    }
+
+    fn is_retryable(halt: &TransferHalt) -> bool {
+        matches!(
+            halt,
+            TransferHalt::Failed {
+                retryable: true,
+                ..
+            }
+        )
+    }
+
+    #[test]
+    fn io_errors_classify_transient_vs_permanent() {
+        use std::io::{Error as IoError, ErrorKind};
+        for kind in [
+            ErrorKind::TimedOut,
+            ErrorKind::ConnectionReset,
+            ErrorKind::BrokenPipe,
+            ErrorKind::UnexpectedEof,
+        ] {
+            assert!(
+                is_retryable(&halt_from_io(&IoError::new(kind, "x"))),
+                "{kind:?} must be retryable"
+            );
+        }
+        for kind in [ErrorKind::NotFound, ErrorKind::PermissionDenied] {
+            assert!(
+                !is_retryable(&halt_from_io(&IoError::new(kind, "x"))),
+                "{kind:?} must not be retryable"
+            );
+        }
+    }
+
+    #[test]
+    fn sftp_errors_classify_transient_vs_permanent() {
+        use russh_sftp::client::error::Error;
+        use russh_sftp::protocol::{Status, StatusCode};
+        let status = |code: StatusCode| {
+            Error::Status(Status {
+                id: 0,
+                status_code: code,
+                error_message: "x".into(),
+                language_tag: "en".into(),
+            })
+        };
+        assert!(is_retryable(&halt_from_sftp(&status(
+            StatusCode::ConnectionLost
+        ))));
+        assert!(is_retryable(&halt_from_sftp(&status(
+            StatusCode::NoConnection
+        ))));
+        assert!(is_retryable(&halt_from_sftp(&Error::Timeout)));
+        assert!(is_retryable(&halt_from_sftp(&Error::IO(
+            "broken pipe".into()
+        ))));
+        assert!(!is_retryable(&halt_from_sftp(&status(
+            StatusCode::PermissionDenied
+        ))));
+        assert!(!is_retryable(&halt_from_sftp(&status(
+            StatusCode::NoSuchFile
+        ))));
+        assert!(!is_retryable(&halt_from_sftp(&status(StatusCode::Failure))));
+    }
+
+    #[test]
+    fn permission_denied_message_survives_verbatim() {
+        use russh_sftp::client::error::Error;
+        use russh_sftp::protocol::{Status, StatusCode};
+        let halt = halt_from_sftp(&Error::Status(Status {
+            id: 0,
+            status_code: StatusCode::PermissionDenied,
+            error_message: "cannot write /var/log".into(),
+            language_tag: "en".into(),
+        }));
+        let TransferHalt::Failed { message, .. } = halt else {
+            panic!("expected Failed");
+        };
+        assert!(
+            message.contains("Permission denied") && message.contains("cannot write /var/log"),
+            "F5: permission errors surface verbatim, got {message:?}"
+        );
+    }
+
+    #[test]
+    fn progress_throttle_fires_immediately_then_holds() {
+        let mut throttle = ProgressThrottle::new();
+        assert!(throttle.ready(), "first ask paints the bar");
+        assert!(!throttle.ready(), "second ask inside the window holds");
+    }
+
+    #[test]
+    fn cancel_is_idempotent_and_scoped() {
+        let manager = SftpManager::new(RecordingEvents::new());
+        let (id_a, token_a) = manager.register_transfer("sess-1");
+        let (_id_b, token_b) = manager.register_transfer("sess-2");
+
+        manager.cancel("unknown-id"); // no-op, no panic
+        manager.cancel(&id_a);
+        assert!(token_a.is_cancelled());
+        assert!(!token_b.is_cancelled(), "other transfers untouched");
+
+        // Session-scoped cancellation (the disconnect path).
+        manager.cancel_transfers(|t| t.sftp_session_id == "sess-2");
+        assert!(token_b.is_cancelled());
     }
 
     #[test]
