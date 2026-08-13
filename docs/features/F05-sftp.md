@@ -3,6 +3,8 @@
 > Spec: [PLAN.md](../../PLAN.md) §9 F5 · Shipped in Phase 5 (remote edit
 > follows in Phase 11)
 
+![The SFTP panel: local and remote panes side by side over the running session, with a 200 MB download streaming in the transfer queue](../assets/f05-sftp.png)
+
 ## What is it?
 
 A dual-pane file browser between your Mac and any host: local files on the

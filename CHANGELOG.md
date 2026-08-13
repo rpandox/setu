@@ -7,6 +7,28 @@ one entry.
 
 ## [Unreleased]
 
+### Fixed — Phase 5 live-run findings
+
+- Downloads (and any fast transfer) no longer hang as "running" forever:
+  the transfer id is now minted by the frontend and the progress listener
+  registered _before_ the command flies, so a transfer that finishes in
+  milliseconds can't emit its terminal event into the void. The IPC
+  payload for `sftp_upload`/`sftp_download` gained `transferId`
+  ([docs](docs/dev/ipc.md)).
+- Pane⇄pane drag now actually drops: the HTML5 drag-and-drop it used is
+  swallowed by Tauri's native drag layer on macOS (which Finder→app
+  drops require), so rows now drag with plain mouse events — press, move
+  4 px, release over the other pane. A drag shows a count chip at the
+  pointer, highlights the target pane, and Esc abandons it. Pressing an
+  already-selected row keeps the selection through the drag (Finder
+  semantics), so multi-selections drag intact.
+- A dropped link that raced the stall guard ("session closed" from the
+  sftp layer) now classifies retryable, so the queue's auto-retry covers
+  it.
+- Scrollbars everywhere are now drawn by the app (a quiet token-colored
+  thumb), not the system default; the SFTP drop target got a clearer
+  highlight.
+
 ### Added — Phase 5: SFTP
 
 - The SFTP panel (F5): ⇧⌘S overlays a dual-pane file browser — local |
