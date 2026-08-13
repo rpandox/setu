@@ -14,6 +14,7 @@
 //! - [`connect`] — the `Host` → `ssh` argv spawn pipeline (F3).
 //! - [`reach`] — the TCP reachability prober behind the LED board (F1).
 //! - [`known_hosts`] — host-key verification for the in-app SFTP client (F5).
+//! - [`sftp`] — the in-app SFTP client: connections, trust flow, sessions (F5).
 //! - [`ipc`] — the Tauri command surface, mirrored by `src/ipc/contract.ts`.
 
 #![deny(missing_docs)]
@@ -24,6 +25,7 @@ pub mod known_hosts;
 pub mod pty;
 pub mod reach;
 pub mod settings;
+pub mod sftp;
 pub mod ssh_config;
 pub mod store;
 pub mod ui_state;
