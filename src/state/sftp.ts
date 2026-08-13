@@ -14,12 +14,15 @@
  *   expand here into per-file transfers.
  * - An unknown host key parks `sftp_connect` while `hostkeyPrompt` drives
  *   the FingerprintDialog; the verdict goes back via `hostkey_trust`.
+ * - A `needsSecret` connect result (F8) drives the SecretPromptDialog:
+ *   the user types the password/passphrase, `keychain_set` stores it, and
+ *   the connect retries. The secret never lives in this store.
  */
 
 import { create } from "zustand";
 
 import { ipcInvoke, localHomeDir, onHostkeyPrompt, onSftpProgress } from "../ipc/client";
-import type { HostkeyPromptEvent, SftpEntry } from "../ipc/contract";
+import type { HostkeyPromptEvent, SftpEntry, SftpNeedsSecret } from "../ipc/contract";
 import { joinPath, parentPath, splitForCompletion } from "../features/sftp/listing";
 import type { SortKey, SortSpec } from "../features/sftp/listing";
 import { cycleSort, DEFAULT_SORT } from "../features/sftp/listing";
@@ -119,6 +122,8 @@ export interface SftpState {
   transfers: TransferItem[];
   /** The pending host-key prompt driving the FingerprintDialog. */
   hostkeyPrompt: HostkeyPromptEvent | null;
+  /** The pending needs-secret stop driving the SecretPromptDialog (F8). */
+  secretPrompt: SftpNeedsSecret | null;
   /** The in-flight pane⇄pane drag, or `null`. */
   drag: DragState | null;
   /** The pane the pointer is over mid-drag (the drop target), or `null`. */
@@ -132,6 +137,14 @@ export interface SftpState {
   hide(): void;
   /** Answers the FingerprintDialog. */
   respondHostkey(accept: boolean): void;
+  /**
+   * Answers the SecretPromptDialog: stores the secret in the Keychain and
+   * retries the connect. The secret passes straight through to
+   * `keychain_set` — it is never kept here.
+   */
+  submitSecret(secret: string): Promise<void>;
+  /** Dismisses the SecretPromptDialog; the connect fails with its detail. */
+  cancelSecret(): void;
   /** Navigates a pane to an absolute path. */
   navigate(pane: PaneSide, path: string): Promise<void>;
   /** Re-lists a pane's current directory. */
@@ -527,6 +540,7 @@ export const useSftp = create<SftpState>((set, get) => {
       panes: { local: emptyPane(), remote: emptyPane() },
       transfers: [],
       hostkeyPrompt: null,
+      secretPrompt: null,
       // A drag can't survive a host switch — releasing over the new
       // host's pane must not transfer the old host's selection.
       drag: null,
@@ -540,12 +554,23 @@ export const useSftp = create<SftpState>((set, get) => {
         patchPane("local", { error: String(error) });
       }
       try {
-        const { sftpSessionId } = await ipcInvoke("sftp_connect", { hostId });
+        const result = await ipcInvoke("sftp_connect", { hostId });
         // The user may have switched hosts while we connected.
         if (get().hostId !== hostId) {
-          void ipcInvoke("sftp_disconnect", { sftpSessionId }).catch(() => undefined);
+          if (result.sftpSessionId !== undefined) {
+            void ipcInvoke("sftp_disconnect", {
+              sftpSessionId: result.sftpSessionId,
+            }).catch(() => undefined);
+          }
           return;
         }
+        if (result.needsSecret !== undefined) {
+          // The ladder stopped at a Keychain gap (F8): the dialog stores
+          // the secret and retries; connState stays "connecting".
+          set({ secretPrompt: result.needsSecret, hostkeyPrompt: null });
+          return;
+        }
+        const sftpSessionId = result.sftpSessionId;
         set({ sftpSessionId, connState: "connected", hostkeyPrompt: null });
         const { path } = await ipcInvoke("sftp_realpath", { sftpSessionId, path: "." });
         await get().navigate("remote", path);
@@ -568,6 +593,7 @@ export const useSftp = create<SftpState>((set, get) => {
     panes: { local: emptyPane(), remote: emptyPane() },
     transfers: [],
     hostkeyPrompt: null,
+    secretPrompt: null,
     drag: null,
     dragOver: null,
 
@@ -603,6 +629,30 @@ export const useSftp = create<SftpState>((set, get) => {
           useToast.getState().show(String(error), "error");
         },
       );
+    },
+
+    async submitSecret(secret: string): Promise<void> {
+      const { secretPrompt, hostId } = get();
+      if (secretPrompt === null || hostId === null) return;
+      set({ secretPrompt: null });
+      try {
+        await ipcInvoke(
+          "keychain_set",
+          secretPrompt.kind === "password"
+            ? { kind: "password", hostId, secret }
+            : { kind: "passphrase", keyPath: secretPrompt.keyPath ?? "", secret },
+        );
+      } catch (error) {
+        set({ connState: "error", connError: String(error) });
+        return;
+      }
+      get().retryConnect();
+    },
+
+    cancelSecret(): void {
+      const prompt = get().secretPrompt;
+      if (prompt === null) return;
+      set({ secretPrompt: null, connState: "error", connError: prompt.detail });
     },
 
     async navigate(pane: PaneSide, path: string): Promise<void> {
@@ -936,6 +986,7 @@ export function resetSftpForTests(): void {
     },
     transfers: [],
     hostkeyPrompt: null,
+    secretPrompt: null,
     drag: null,
     dragOver: null,
   });

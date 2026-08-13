@@ -915,12 +915,35 @@ pub fn pty_kill(manager: State<'_, PtyManager>, session_id: String) -> Result<()
     manager.kill(&session_id)
 }
 
-/// Result of a successful [`sftp_connect`] (mirrors `SftpConnectResult`).
+/// The needs-secret half of [`SftpConnectResult`] (mirrors
+/// `SftpNeedsSecret` in `contract.ts`): the auth ladder stopped at a
+/// Keychain gap the user must fill (F8). Never carries a secret.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpNeedsSecretPayload {
+    /// `"password"` or `"passphrase"`.
+    pub kind: &'static str,
+    /// The key path needing a passphrase (as configured on the host),
+    /// for `"passphrase"` only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_path: Option<String>,
+    /// One plain sentence for the prompt dialog.
+    pub detail: String,
+}
+
+/// Result of [`sftp_connect`] (mirrors `SftpConnectResult`): a session id,
+/// or the expected needs-secret stop — result-side, hosts-family style
+/// (PLAN.md §5, Phase 7 row).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SftpConnectResult {
-    /// Keys every later SFTP command and its transfers.
-    pub sftp_session_id: String,
+    /// Keys every later SFTP command and its transfers; absent on a
+    /// needs-secret stop.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sftp_session_id: Option<String>,
+    /// The secret the user must store (then retry), when auth stopped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub needs_secret: Option<SftpNeedsSecretPayload>,
 }
 
 /// Result of [`sftp_list`] / [`sftp_local_list`] (mirrors `SftpListResult`).
@@ -940,12 +963,15 @@ pub struct SftpTransferResult {
     pub transfer_id: String,
 }
 
-/// Opens an SFTP session to a host (F5) — russh + agent/key auth, never a
-/// password (Phase 7).
+/// Opens an SFTP session to a host (F5 + F8) — russh, with the auth ladder:
+/// agent identities, the identity file (Keychain passphrase for encrypted
+/// files), then the Keychain-stored SFTP password.
 ///
-/// **Payload:** `{ hostId }` · **Result:** `{ sftpSessionId }` · **Emits:**
-/// one `hostkey:prompt` when the host key is unknown, then blocks until
-/// [`hostkey_trust`] resolves it.
+/// **Payload:** `{ hostId }` · **Result:** `{ sftpSessionId }`, or
+/// `{ needsSecret: { kind, keyPath?, detail } }` when the ladder stopped at
+/// a secret the Keychain doesn't hold — store it (`keychain_set`) and call
+/// again · **Emits:** one `hostkey:prompt` when the host key is unknown,
+/// then blocks until [`hostkey_trust`] resolves it.
 ///
 /// Host-key policy (CLAUDE.md): a known key connects silently; an unknown
 /// key prompts; a mismatched or revoked key fails hard — never a prompt.
@@ -956,7 +982,7 @@ pub struct SftpTransferResult {
 /// Fails when the host id is unknown, the record has no hostname, the host
 /// is unreachable, the key is mismatched/revoked/declined, every auth
 /// method is exhausted, or the sftp subsystem can't start. No session
-/// exists after a failure.
+/// exists after a failure (nor after a needs-secret stop).
 #[tauri::command]
 pub async fn sftp_connect(
     manager: State<'_, SftpManager>,
@@ -965,10 +991,26 @@ pub async fn sftp_connect(
 ) -> Result<SftpConnectResult, String> {
     let host = resolve_host(&hosts, &host_id)?;
     let target = HostTarget::from_host(&host)?;
-    manager
-        .connect(target)
-        .await
-        .map(|sftp_session_id| SftpConnectResult { sftp_session_id })
+    Ok(match manager.connect(target).await? {
+        sftp::ConnectOutcome::Connected(sftp_session_id) => SftpConnectResult {
+            sftp_session_id: Some(sftp_session_id),
+            needs_secret: None,
+        },
+        sftp::ConnectOutcome::NeedsSecret { missing, detail } => {
+            let (kind, key_path) = match missing {
+                sftp::MissingSecret::Password => ("password", None),
+                sftp::MissingSecret::Passphrase { key_path } => ("passphrase", Some(key_path)),
+            };
+            SftpConnectResult {
+                sftp_session_id: None,
+                needs_secret: Some(SftpNeedsSecretPayload {
+                    kind,
+                    key_path,
+                    detail,
+                }),
+            }
+        }
+    })
 }
 
 /// Delivers the FingerprintDialog verdict for a pending `hostkey:prompt`.

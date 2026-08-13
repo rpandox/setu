@@ -496,11 +496,38 @@ export interface SftpConnectPayload {
   hostId: string;
 }
 
-/** Result of a successful `sftp_connect`. */
-export interface SftpConnectResult {
-  /** Keys every later SFTP command and its transfers. */
-  sftpSessionId: string;
+/**
+ * The needs-secret half of `SftpConnectResult` (F8): the auth ladder
+ * stopped at a Keychain gap. Store the secret (`keychain_set` — password
+ * keyed by the host id, passphrase keyed by `keyPath`) and call
+ * `sftp_connect` again. Never carries a secret itself.
+ */
+export interface SftpNeedsSecret {
+  /** Which secret is missing. */
+  kind: "password" | "passphrase";
+  /** The key path needing a passphrase (as configured on the host). */
+  keyPath?: string;
+  /** One plain sentence for the prompt dialog. */
+  detail: string;
 }
+
+/**
+ * Result of `sftp_connect` — a session, or the expected needs-secret stop
+ * (result-side, hosts-family style; PLAN.md §5, Phase 7 row).
+ */
+export type SftpConnectResult =
+  | {
+      /** Keys every later SFTP command and its transfers. */
+      sftpSessionId: string;
+      /** Never present alongside a session. */
+      needsSecret?: undefined;
+    }
+  | {
+      /** Never present on a needs-secret stop. */
+      sftpSessionId?: undefined;
+      /** The secret the user must store, then retry. */
+      needsSecret: SftpNeedsSecret;
+    };
 
 /** Payload for `hostkey_trust` — the FingerprintDialog verdict. */
 export interface HostkeyTrustPayload {

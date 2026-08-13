@@ -15,9 +15,12 @@
 //!    until [`SftpManager::resolve_trust`] delivers the user's decision from
 //!    the FingerprintDialog; trusting appends to `known_hosts`, declining
 //!    fails the connect.
-//! 3. Auth ladder (PLAN.md §10 Phase 5): every ssh-agent identity first,
-//!    then the host's identity file when one is configured. Password auth
-//!    arrives with the Keychain in Phase 7.
+//! 3. Auth ladder (PLAN.md §10 Phases 5 + 7): every ssh-agent identity
+//!    first, then the host's identity file (Keychain passphrase for
+//!    encrypted files), then the Keychain-stored SFTP password. A secret
+//!    the Keychain doesn't hold stops the ladder with a **result-side**
+//!    [`ConnectOutcome::NeedsSecret`] — the frontend prompts, stores via
+//!    `keychain_set`, and calls `sftp_connect` again (F8).
 //! 4. The `sftp` subsystem opens and the session joins the manager's map,
 //!    keyed by a fresh `sftpSessionId`.
 //!
@@ -37,8 +40,92 @@ use russh::keys::key::PrivateKeyWithHashAlg;
 use russh::keys::{load_secret_key, HashAlg, PublicKey};
 use tokio::sync::oneshot;
 
+use crate::keychain;
 use crate::known_hosts::{self, KeyCheck};
 use crate::store::{expand_tilde, Host};
+
+/// Reads secrets for the auth ladder. Production is the Keychain
+/// ([`KeychainSecrets`]); tests inject a map so they never touch the real
+/// login keychain.
+pub trait SecretSource: Send + Sync + 'static {
+    /// The host's stored SFTP password, if any.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the underlying store can't be queried at all.
+    fn password(&self, host_id: &str) -> Result<Option<String>, String>;
+
+    /// The stored passphrase for a key file (path as configured on the
+    /// host; the implementation normalizes it).
+    ///
+    /// # Errors
+    ///
+    /// Fails when the underlying store can't be queried at all.
+    fn passphrase(&self, key_path: &str) -> Result<Option<String>, String>;
+}
+
+/// The production [`SecretSource`]: the macOS Keychain via
+/// [`crate::keychain`].
+pub struct KeychainSecrets;
+
+impl SecretSource for KeychainSecrets {
+    fn password(&self, host_id: &str) -> Result<Option<String>, String> {
+        keychain::get(&keychain::SecretRef::Password {
+            host_id: host_id.to_string(),
+        })
+    }
+
+    fn passphrase(&self, key_path: &str) -> Result<Option<String>, String> {
+        keychain::get(&keychain::SecretRef::Passphrase {
+            key_path: key_path.to_string(),
+        })
+    }
+}
+
+/// Which missing secret stopped the auth ladder (F8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MissingSecret {
+    /// The host's SFTP password (`password:{hostId}` in the Keychain).
+    Password,
+    /// The configured identity file's passphrase
+    /// (`passphrase:{keyPath}` in the Keychain).
+    Passphrase {
+        /// The key path exactly as configured on the host — what the
+        /// prompt displays and what `keychain_set` should key on.
+        key_path: String,
+    },
+}
+
+/// Outcome of [`SftpManager::connect`] (mirrors `SftpConnectResult` in
+/// `contract.ts`): expected auth stops travel result-side, hosts-family
+/// style — only infrastructure failures reject.
+#[derive(Debug)]
+pub enum ConnectOutcome {
+    /// The session is open and registered under this `sftpSessionId`.
+    Connected(String),
+    /// The ladder stopped at a secret the Keychain doesn't hold (or holds
+    /// wrong). No session was registered; the connection was closed.
+    NeedsSecret {
+        /// Which secret is missing.
+        missing: MissingSecret,
+        /// One plain sentence for the prompt dialog (never the secret).
+        detail: String,
+    },
+}
+
+/// Internal result of the ladder itself.
+enum AuthLadder {
+    /// A rung succeeded.
+    Authenticated,
+    /// Stopped at a missing/rejected secret — becomes
+    /// [`ConnectOutcome::NeedsSecret`].
+    NeedsSecret {
+        /// Which secret is missing.
+        missing: MissingSecret,
+        /// One plain sentence for the prompt dialog.
+        detail: String,
+    },
+}
 
 /// Sink for everything the SFTP layer reports to the frontend. The Tauri
 /// bridge (`ipc.rs`) forwards these as events; tests substitute a recorder.
@@ -133,6 +220,8 @@ struct SftpConn {
 pub struct SftpManager {
     /// Event sink (the Tauri bridge in production).
     events: Arc<dyn SftpEvents>,
+    /// Secret reads for the auth ladder (the Keychain in production).
+    secrets: Arc<dyn SecretSource>,
     /// Live connections keyed by `sftpSessionId`.
     conns: tokio::sync::Mutex<HashMap<String, SftpConn>>,
     /// One pending host-key decision per host id.
@@ -150,17 +239,28 @@ struct TransferEntry {
 }
 
 impl SftpManager {
-    /// Creates a manager reporting through `events`.
+    /// Creates a manager reporting through `events`, reading secrets from
+    /// the Keychain.
     pub fn new(events: Arc<dyn SftpEvents>) -> Self {
+        Self::with_secrets(events, Arc::new(KeychainSecrets))
+    }
+
+    /// Creates a manager with an injected [`SecretSource`] — the test
+    /// seam: the live e2e suite exercises the passphrase/password rungs
+    /// without touching the real login keychain.
+    pub fn with_secrets(events: Arc<dyn SftpEvents>, secrets: Arc<dyn SecretSource>) -> Self {
         Self {
             events,
+            secrets,
             conns: tokio::sync::Mutex::new(HashMap::new()),
             pending: Arc::new(Mutex::new(HashMap::new())),
             transfers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    /// Connects to `target` and returns the new `sftpSessionId`.
+    /// Connects to `target`: [`ConnectOutcome::Connected`] carries the new
+    /// `sftpSessionId`; [`ConnectOutcome::NeedsSecret`] means the ladder
+    /// stopped at a Keychain gap the frontend must fill and retry (F8).
     ///
     /// Blocks through the whole pipeline described in the module docs —
     /// including, for unknown keys, the user's FingerprintDialog decision.
@@ -169,8 +269,8 @@ impl SftpManager {
     ///
     /// Fails on unreachable hosts, refused/mismatched/revoked/declined host
     /// keys, exhausted auth methods, and subsystem failures. No session is
-    /// registered on failure.
-    pub async fn connect(&self, target: HostTarget) -> Result<String, String> {
+    /// registered on failure or on a `NeedsSecret` stop.
+    pub async fn connect(&self, target: HostTarget) -> Result<ConnectOutcome, String> {
         let config = Arc::new(client::Config {
             inactivity_timeout: Some(Duration::from_secs(300)),
             keepalive_interval: Some(Duration::from_secs(30)),
@@ -197,7 +297,17 @@ impl SftpManager {
             }
         })?;
 
-        authenticate(&mut handle, &target).await?;
+        match authenticate(&mut handle, &target, self.secrets.as_ref()).await? {
+            AuthLadder::Authenticated => {}
+            AuthLadder::NeedsSecret { missing, detail } => {
+                // Drop the half-open connection politely: the retry after
+                // keychain_set dials fresh.
+                let _ = handle
+                    .disconnect(russh::Disconnect::ByApplication, "", "en")
+                    .await;
+                return Ok(ConnectOutcome::NeedsSecret { missing, detail });
+            }
+        }
 
         let channel = handle
             .channel_open_session()
@@ -220,7 +330,7 @@ impl SftpManager {
                 target,
             },
         );
-        Ok(id)
+        Ok(ConnectOutcome::Connected(id))
     }
 
     /// Delivers the user's FingerprintDialog verdict for `host_id` to the
@@ -462,13 +572,20 @@ async fn close_conn(conn: SftpConn) {
         .await;
 }
 
-/// Runs the Phase 5 auth ladder: every agent identity, then the configured
-/// identity file. Returns the first success.
+/// Runs the auth ladder (Phases 5 + 7): every agent identity, then the
+/// configured identity file (Keychain passphrase for encrypted files),
+/// then the Keychain-stored SFTP password. Returns the first success, or
+/// the first Keychain gap the user must fill.
 async fn authenticate(
     handle: &mut Handle<ClientHandler>,
     target: &HostTarget,
-) -> Result<(), String> {
+    secrets: &dyn SecretSource,
+) -> Result<AuthLadder, String> {
     let mut notes: Vec<String> = Vec::new();
+    // Whether the server's last failure listed `password` as an option —
+    // `None` until some rung actually failed. Gates the password rung: a
+    // pubkey-only server must never trigger a password prompt.
+    let mut password_supported: Option<bool> = None;
 
     // Rung 1 — the ssh-agent, when one is reachable.
     if std::env::var_os("SSH_AUTH_SOCK").is_some() {
@@ -487,8 +604,8 @@ async fn authenticate(
                             .authenticate_publickey_with(&target.user, key, hash, &mut agent)
                             .await
                         {
-                            Ok(result) if result.success() => return Ok(()),
-                            Ok(_) => {}
+                            Ok(result) if result.success() => return Ok(AuthLadder::Authenticated),
+                            Ok(result) => note_password_support(&result, &mut password_supported),
                             Err(e) => notes.push(format!("agent signing failed: {e}")),
                         }
                     }
@@ -503,32 +620,92 @@ async fn authenticate(
         notes.push("no ssh-agent (SSH_AUTH_SOCK unset)".into());
     }
 
-    // Rung 2 — the configured identity file.
+    // Rung 2 — the configured identity file. Encrypted files unlock with
+    // the Keychain passphrase; a missing or wrong passphrase stops the
+    // ladder so the user can store the right one and retry (F8).
     let identity = target.identity.trim();
     if identity != "agent" && !identity.is_empty() {
         let path = expand_tilde(identity);
-        match load_secret_key(&path, None) {
-            Ok(key) => {
-                let hash = if key.algorithm().is_rsa() {
-                    best_rsa_hash(handle).await
-                } else {
-                    None
-                };
-                match handle
-                    .authenticate_publickey(
-                        &target.user,
-                        PrivateKeyWithHashAlg::new(Arc::new(key), hash),
-                    )
-                    .await
-                {
-                    Ok(result) if result.success() => return Ok(()),
-                    Ok(_) => notes.push(format!("key {} was not accepted", path.display())),
-                    Err(e) => notes.push(format!("key auth failed: {e}")),
+        let loaded = match load_secret_key(&path, None) {
+            Ok(key) => Some(key),
+            Err(russh::keys::Error::KeyIsEncrypted) => match secrets.passphrase(identity)? {
+                Some(passphrase) => match load_secret_key(&path, Some(&passphrase)) {
+                    Ok(key) => Some(key),
+                    Err(_) => {
+                        return Ok(AuthLadder::NeedsSecret {
+                            missing: MissingSecret::Passphrase {
+                                key_path: identity.to_string(),
+                            },
+                            detail: format!(
+                                "The stored passphrase didn't unlock {}.",
+                                path.display()
+                            ),
+                        });
+                    }
+                },
+                None => {
+                    return Ok(AuthLadder::NeedsSecret {
+                        missing: MissingSecret::Passphrase {
+                            key_path: identity.to_string(),
+                        },
+                        detail: format!(
+                            "{} is passphrase-protected and no passphrase is stored for it.",
+                            path.display()
+                        ),
+                    });
                 }
+            },
+            Err(e) => {
+                notes.push(format!("couldn't load {}: {e}", path.display()));
+                None
             }
-            // Passphrase-protected files need the Keychain (Phase 7); the
-            // error from an encrypted key says so on its own.
-            Err(e) => notes.push(format!("couldn't load {}: {e}", path.display())),
+        };
+        if let Some(key) = loaded {
+            let hash = if key.algorithm().is_rsa() {
+                best_rsa_hash(handle).await
+            } else {
+                None
+            };
+            match handle
+                .authenticate_publickey(
+                    &target.user,
+                    PrivateKeyWithHashAlg::new(Arc::new(key), hash),
+                )
+                .await
+            {
+                Ok(result) if result.success() => return Ok(AuthLadder::Authenticated),
+                Ok(result) => {
+                    note_password_support(&result, &mut password_supported);
+                    notes.push(format!("key {} was not accepted", path.display()));
+                }
+                Err(e) => notes.push(format!("key auth failed: {e}")),
+            }
+        }
+    }
+
+    // Rung 3 — the Keychain-stored SFTP password (F8: SFTP only —
+    // interactive terminals stay agent-first by design). Skipped when the
+    // server's own method list rules passwords out.
+    if password_supported == Some(false) {
+        notes.push("the server does not accept password auth".into());
+    } else {
+        match secrets.password(&target.host_id)? {
+            Some(password) => match handle.authenticate_password(&target.user, password).await {
+                Ok(result) if result.success() => return Ok(AuthLadder::Authenticated),
+                Ok(_) => {
+                    return Ok(AuthLadder::NeedsSecret {
+                        missing: MissingSecret::Password,
+                        detail: format!("{} rejected the stored password.", target.label),
+                    });
+                }
+                Err(e) => notes.push(format!("password auth failed: {e}")),
+            },
+            None => {
+                return Ok(AuthLadder::NeedsSecret {
+                    missing: MissingSecret::Password,
+                    detail: format!("No SFTP password is stored for {}.", target.label),
+                });
+            }
         }
     }
 
@@ -537,6 +714,17 @@ async fn authenticate(
         target.label,
         notes.join("; ")
     ))
+}
+
+/// Records whether a failed auth attempt's `remaining_methods` still lists
+/// `password` — the gate for the ladder's password rung.
+fn note_password_support(result: &client::AuthResult, supported: &mut Option<bool>) {
+    if let client::AuthResult::Failure {
+        remaining_methods, ..
+    } = result
+    {
+        *supported = Some(remaining_methods.contains(&russh::MethodKind::Password));
+    }
 }
 
 /// The server's preferred RSA signature hash, when it advertises one.

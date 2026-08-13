@@ -315,10 +315,18 @@ partial update. Writes are atomic (temp file + rename).
 
 ### `sftp_connect`
 
-Open an SFTP session to a host (F5). This is the app's only in-protocol SSH
-use — interactive terminals drive system `ssh` instead. Auth ladder: every
-ssh-agent identity, then the host's identity file when one is configured
-(passphrase-less; password auth arrives with the Keychain in Phase 7).
+Open an SFTP session to a host (F5 + F8). This is the app's only
+in-protocol SSH use — interactive terminals drive system `ssh` instead.
+Auth ladder: every ssh-agent identity, then the host's identity file
+(encrypted files unlock with the Keychain passphrase), then the
+Keychain-stored SFTP password — SFTP only; terminals stay agent-first.
+
+A secret the Keychain doesn't hold (or holds wrong) is an **expected
+outcome**, not an error: the result carries `needsSecret`, the
+SecretPromptDialog collects the secret, `keychain_set` stores it, and the
+frontend calls this command again. The password rung is skipped entirely
+when the server's own method list rules passwords out — a pubkey-only
+server never triggers a password prompt.
 
 Host-key policy: a key matching `~/.ssh/known_hosts` connects silently; an
 **unknown** key emits `hostkey:prompt` and parks this command until
@@ -329,7 +337,7 @@ known_hosts write, append-only).
 |            |                                                                                                                                                                                                        |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Payload    | `{ hostId: string }`                                                                                                                                                                                   |
-| Result     | `{ sftpSessionId: string }` — keys every later `sftp_*` command                                                                                                                                        |
+| Result     | `{ sftpSessionId: string }` — keys every later `sftp_*` command · `{ needsSecret: { kind: "password" \| "passphrase", keyPath?, detail } }` — store the secret and call again                          |
 | Emits      | one `hostkey:prompt` when the key is unknown                                                                                                                                                           |
 | Fails when | the host id is unknown, the record has no hostname (alias-only imports must be adopted first), the host is unreachable, the key is mismatched/revoked/declined, auth is exhausted, or sftp can't start |
 
