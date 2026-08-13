@@ -28,3 +28,7 @@ dirs = "5"
 # runtime Tauri already embeds; `fastrand` supplies the probe-start jitter.
 tokio = { version = "1", features = ["net", "time", "sync", "rt", "macros"] }
 fastrand = "2"
+russh = "0.62.6"
+russh-sftp = "2.4.0"
+hmac = "0.12"
+sha1 = "0.10"
