@@ -4,6 +4,7 @@ import { StatusBar } from "../components/StatusBar";
 import { TabBar } from "../components/TabBar";
 import { TerminalArea } from "../components/TerminalArea";
 import { HostEditor } from "../features/hosts/HostEditor";
+import { KeysPanel } from "../features/keys/KeysPanel";
 import { CommandPalette } from "../features/palette/CommandPalette";
 import { PasteGuardDialog } from "../features/broadcast/PasteGuardDialog";
 import { SnippetDrawer } from "../features/snippets/SnippetDrawer";
@@ -106,6 +107,7 @@ export function App() {
         <StatusBar />
       </div>
       <HostEditor />
+      <KeysPanel />
       <SnippetDrawer />
       <SnippetRunDialog />
       <CommandPalette />

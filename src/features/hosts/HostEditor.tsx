@@ -5,6 +5,7 @@ import { ipcInvoke } from "../../ipc/client";
 import type { Host, HostFieldError, HostForward } from "../../ipc/contract";
 import { ruleKeyOf, useForwards } from "../../state/forwards";
 import { duplicatesOf, emptyHostDraft, useHosts } from "../../state/hosts";
+import { isHardwareKey, useKeys } from "../../state/keys";
 import { useToast } from "../../state/toast";
 
 /** The 8 identity hues (§7) — indices into the `--hue-N` tokens. */
@@ -245,18 +246,34 @@ export function HostEditor() {
             </p>
           )}
 
-          <label className="hosteditor-field">
-            <span className="hosteditor-label">Identity</span>
+          <div className="hosteditor-field">
+            <span className="hosteditor-label" id="hosteditor-identity-label">
+              Identity
+            </span>
             <input
               className="hosteditor-input hosteditor-input--mono"
               value={draft.identity}
               placeholder='"agent" or a key path'
+              aria-labelledby="hosteditor-identity-label"
               onChange={(event) => patch({ identity: event.target.value })}
             />
             {errorFor("identity") && (
               <span className="hosteditor-fielderror">{errorFor("identity")}</span>
             )}
-          </label>
+            {isHardwareKey(draft.identity) && (
+              <span className="hosteditor-hint">
+                Hardware-backed key — system ssh will ask for a touch when connecting
+                (F8).
+              </span>
+            )}
+            <button
+              className="hosteditor-keyslink"
+              type="button"
+              onClick={() => useKeys.getState().openPanel()}
+            >
+              Manage SSH keys…
+            </button>
+          </div>
 
           <div className="hosteditor-field">
             <span className="hosteditor-label" id="hosteditor-password-label">

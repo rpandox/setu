@@ -532,6 +532,40 @@ Stored/Store state from.
 | Emits      | nothing                                                                              |
 | Fails when | the address field matching `kind` is missing/empty, or the Keychain can't be queried |
 
+### `keys_generate`
+
+Generate an ed25519 keypair with the system `ssh-keygen` (F8). Two safety
+properties hold by construction:
+
+- **Passphrases never touch argv or disk.** An empty passphrase runs plain
+  `ssh-keygen -N ""` (nothing secret exists); a non-empty one is typed into
+  ssh-keygen's own prompts through a hidden PTY, then stored in the
+  Keychain at `passphrase:{path}` so SFTP can use the key immediately.
+- **Existing files are never overwritten** — a taken path is an expected
+  `error`, not a command failure.
+
+|            |                                                                                                                             |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ path: string, passphrase?: string, comment?: string }`                                                                   |
+| Result     | `{ publicKey: string }` · `{ error: { kind: "file_exists" \| "no_parent", message } }`                                      |
+| Emits      | nothing                                                                                                                     |
+| Fails when | ssh-keygen can't run/exits non-zero/stalls, or the key was made but its passphrase couldn't be stored (the message says so) |
+
+### `agent_list`
+
+List the ssh-agent's identities via `ssh-add -l` — fingerprints, comments,
+and types for the Keys panel. Read-only: Setu never adds or removes agent
+identities. An absent or unreachable agent is a normal answer
+(`available: false` plus a guidance `note`), never an error — the F8
+"agent absent → banner, not silent failure" edge case.
+
+|            |                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------ |
+| Payload    | `{}`                                                                                 |
+| Result     | `{ available: boolean, keys: [{ algorithm, fingerprint, comment }], note?: string }` |
+| Emits      | nothing                                                                              |
+| Fails when | never                                                                                |
+
 ## Events
 
 ### `pty:data:{sessionId}`

@@ -12,7 +12,8 @@
 //! (dual-pane browser + transfers) and `hostkey_trust`; Phase 6 adds the
 //! `snippet_*` family over `snippets.toml` (CRUD + packs); Phase 7 adds the
 //! `keychain_*` family (set / delete / has — never get: secrets are read
-//! only inside the core, F8). This module also
+//! only inside the core, F8), plus `keys_generate` and `agent_list` behind
+//! the Keys panel. This module also
 //! hosts the event bridges — [`TauriPtyEvents`] for `pty:data:{sessionId}` /
 //! `pty:exit:{sessionId}`, [`TauriReachEvents`] for `reach:update`, and
 //! [`TauriSftpEvents`] for `hostkey:prompt` / `sftp:progress:{transferId}` —
@@ -31,7 +32,7 @@ use crate::sftp::{HostTarget, SftpEntry, SftpEvents, SftpManager};
 use crate::snippets::{ImportOutcome, Snippet, SnippetUpsertOutcome, SnippetsStore};
 use crate::store::{FieldError, Forward, Host, HostsStore, UpsertOutcome};
 use crate::ui_state::{UiState, UiStateStore};
-use crate::{connect, keychain, reach, sftp, ssh_config};
+use crate::{agent, connect, keychain, keygen, reach, sftp, ssh_config};
 
 /// What kind of process a PTY session drives.
 ///
@@ -1456,5 +1457,130 @@ pub fn keychain_has(
 ) -> Result<KeychainHasResult, String> {
     Ok(KeychainHasResult {
         exists: keychain::has(&keychain_ref(kind, host_id, key_path)?)?,
+    })
+}
+
+/// The expected-refusal half of [`KeysGenerateResult`] (mirrors
+/// `KeysGenerateError`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeysGenerateError {
+    /// `"file_exists"` or `"no_parent"`.
+    pub kind: &'static str,
+    /// One plain sentence naming the path.
+    pub message: String,
+}
+
+/// Result of [`keys_generate`] (mirrors `KeysGenerateResult`): the public
+/// key on success, an expected refusal otherwise — hosts-family style.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeysGenerateResult {
+    /// The new `.pub` line, for the clipboard and ssh-copy-id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
+    /// The expected refusal, when nothing was written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<KeysGenerateError>,
+}
+
+/// Generates an ed25519 keypair with `ssh-keygen` (F8). A non-empty
+/// passphrase is typed into ssh-keygen's prompts through a hidden PTY —
+/// never argv — and then stored in the Keychain (`passphrase:{path}`) so
+/// SFTP can use the key immediately.
+///
+/// **Payload:** `{ path, passphrase?, comment? }` · **Result:**
+/// `{ publicKey }` or `{ error: { kind: "file_exists" | "no_parent",
+/// message } }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when ssh-keygen can't run, exits non-zero, or stalls; and when
+/// the key was generated but its passphrase couldn't be stored (the error
+/// says so — the key file exists at that point).
+#[tauri::command]
+pub fn keys_generate(
+    path: String,
+    passphrase: Option<String>,
+    comment: Option<String>,
+) -> Result<KeysGenerateResult, String> {
+    let passphrase = passphrase.unwrap_or_default();
+    let comment = comment.unwrap_or_default();
+    match keygen::generate(&path, &passphrase, &comment)? {
+        keygen::GenOutcome::Generated { public_key } => {
+            if !passphrase.is_empty() {
+                keychain::set(
+                    &keychain::SecretRef::Passphrase {
+                        key_path: path.clone(),
+                    },
+                    &passphrase,
+                )
+                .map_err(|e| {
+                    format!("the key was generated, but storing its passphrase failed: {e}")
+                })?;
+            }
+            Ok(KeysGenerateResult {
+                public_key: Some(public_key),
+                error: None,
+            })
+        }
+        keygen::GenOutcome::Refused { kind, message } => Ok(KeysGenerateResult {
+            public_key: None,
+            error: Some(KeysGenerateError { kind, message }),
+        }),
+    }
+}
+
+/// One agent identity in [`AgentListResult`] (mirrors `AgentKey`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentKeyPayload {
+    /// Key algorithm, e.g. `"ED25519"` or `"ED25519-SK"`.
+    pub algorithm: String,
+    /// OpenSSH `SHA256:<base64>` fingerprint.
+    pub fingerprint: String,
+    /// The key's comment (usually a path or `user@host`).
+    pub comment: String,
+}
+
+/// Result of [`agent_list`] (mirrors `AgentListResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentListResult {
+    /// Whether an ssh-agent is reachable at all.
+    pub available: bool,
+    /// Loaded identities (empty is normal for a fresh agent).
+    pub keys: Vec<AgentKeyPayload>,
+    /// One plain sentence for the guidance banner, when something's off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// Lists the ssh-agent's identities via `ssh-add -l` (F8) — fingerprints
+/// and comments for the Keys panel. Read-only: Setu never adds or removes
+/// agent identities.
+///
+/// **Payload:** `{}` · **Result:** `{ available, keys, note? }` ·
+/// **Emits:** nothing.
+///
+/// # Errors
+///
+/// Never fails — an absent or unreachable agent comes back as
+/// `{ available: false, note }` (the F8 guidance banner), not an error.
+#[tauri::command]
+pub fn agent_list() -> Result<AgentListResult, String> {
+    let status = agent::list();
+    Ok(AgentListResult {
+        available: status.available,
+        keys: status
+            .keys
+            .into_iter()
+            .map(|key| AgentKeyPayload {
+                algorithm: key.algorithm,
+                fingerprint: key.fingerprint,
+                comment: key.comment,
+            })
+            .collect(),
+        note: status.note,
     })
 }

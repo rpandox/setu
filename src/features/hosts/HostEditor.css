@@ -158,6 +158,24 @@
   opacity: 0.5;
 }
 
+/* The quiet "Manage SSH keys…" link under the identity field (F8). */
+.hosteditor-keyslink {
+  align-self: flex-start;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--info);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.hosteditor-keyslink:focus-visible {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}
+
 /* Quiet inline guidance (e.g. the pre-save Keychain hint). */
 .hosteditor-hint {
   margin: 0;

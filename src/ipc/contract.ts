@@ -732,6 +732,55 @@ export interface KeychainHasResult {
   exists: boolean;
 }
 
+/** Payload for `keys_generate` (F8). */
+export interface KeysGeneratePayload {
+  /** Where the private key goes (`~` allowed); `.pub` lands beside it. */
+  path: string;
+  /**
+   * Optional passphrase. Typed into ssh-keygen's prompts through a hidden
+   * PTY — never argv — and stored in the Keychain (`passphrase:{path}`).
+   */
+  passphrase?: string;
+  /** Optional key comment (`-C`). */
+  comment?: string;
+}
+
+/** The expected-refusal half of `KeysGenerateResult`. */
+export interface KeysGenerateError {
+  /** `"file_exists"` (keys are never overwritten) or `"no_parent"`. */
+  kind: "file_exists" | "no_parent";
+  /** One plain sentence naming the path. */
+  message: string;
+}
+
+/** Result of `keys_generate` — the public key, or an expected refusal. */
+export interface KeysGenerateResult {
+  /** The new `.pub` line, for the clipboard and ssh-copy-id. */
+  publicKey?: string;
+  /** The expected refusal, when nothing was written. */
+  error?: KeysGenerateError;
+}
+
+/** One ssh-agent identity, as `ssh-add -l` reports it (F8). */
+export interface AgentKey {
+  /** Key algorithm, e.g. `"ED25519"` or `"ED25519-SK"` (hardware). */
+  algorithm: string;
+  /** OpenSSH `SHA256:<base64>` fingerprint. */
+  fingerprint: string;
+  /** The key's comment — usually a path or `user@host`. */
+  comment: string;
+}
+
+/** Result of `agent_list`. */
+export interface AgentListResult {
+  /** Whether an ssh-agent is reachable at all. */
+  available: boolean;
+  /** Loaded identities (empty is normal for a fresh agent). */
+  keys: AgentKey[];
+  /** One plain sentence for the guidance banner, when something's off. */
+  note?: string;
+}
+
 /**
  * Invokable commands, keyed by command name.
  *
@@ -859,6 +908,14 @@ export interface IpcCommands {
   keychain_delete: { payload: KeychainSecretRef; result: null };
   /** Whether a Keychain entry exists — existence only, never the secret. */
   keychain_has: { payload: KeychainSecretRef; result: KeychainHasResult };
+  /**
+   * Generate an ed25519 keypair with ssh-keygen (F8). Passphrases go
+   * through a hidden PTY into the Keychain — never argv, never disk.
+   * Existing files are never overwritten (expected `error` instead).
+   */
+  keys_generate: { payload: KeysGeneratePayload; result: KeysGenerateResult };
+  /** List the ssh-agent's identities (`ssh-add -l`) for the Keys panel. */
+  agent_list: { payload: Record<string, never>; result: AgentListResult };
 }
 
 /**

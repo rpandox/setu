@@ -88,12 +88,23 @@ describe("actionRegistry", () => {
   });
 
   it("ids are unique and every action shows a shortcut", () => {
+    // Palette-only actions carry no §8 key — the one sanctioned exception
+    // to the label rule (PLAN.md §5, Phase 7 Keys-panel row).
+    const paletteOnly = new Set(["manage-ssh-keys"]);
     const actions = actionRegistry();
     const ids = actions.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);
     for (const action of actions) {
+      if (paletteOnly.has(action.id)) continue;
       expect(action.shortcut, `${action.id} needs a shortcut label`).toBeTruthy();
     }
+  });
+
+  it("palette-only actions never match a keydown", () => {
+    const manageKeys = actionRegistry().find((a) => a.id === "manage-ssh-keys");
+    if (manageKeys === undefined) throw new Error("manage-ssh-keys is missing");
+    expect(manageKeys.shortcut).toBeUndefined();
+    expect(manageKeys.matches?.(key("k", { metaKey: true })) ?? false).toBe(false);
   });
 });
 

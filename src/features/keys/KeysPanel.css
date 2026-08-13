@@ -1,0 +1,298 @@
+/* The Keys panel (F8, Phase 7): a right-side panel over a dimmed scrim —
+   the HostEditor drawer's geometry, one notch wider for fingerprints. */
+
+.keyspanel-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: flex-end;
+  background: color-mix(in srgb, var(--bg-0) 60%, transparent);
+}
+
+.keyspanel {
+  display: flex;
+  flex-direction: column;
+  width: 420px;
+  max-width: 90vw;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg-1);
+  border-left: 1px solid var(--line-strong);
+}
+
+.keyspanel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--pad) calc(var(--pad) * 2);
+  border-bottom: 1px solid var(--line);
+}
+
+.keyspanel-title {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+  color: var(--ink-1);
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.keyspanel-close {
+  display: flex;
+  align-items: center;
+  padding: calc(var(--pad) / 2);
+  background: none;
+  border: none;
+  color: var(--ink-2);
+  transition: color var(--t-fast);
+}
+
+.keyspanel-close:hover {
+  color: var(--ink-1);
+}
+
+.keyspanel-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: calc(var(--pad) * 2);
+  padding: calc(var(--pad) * 2);
+}
+
+/* Section eyebrows — the sidebar's small-caps register (§7). */
+.keyspanel-eyebrow {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.08em;
+}
+
+.keyspanel-eyebrow-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.keyspanel-refresh {
+  display: flex;
+  align-items: center;
+  padding: calc(var(--pad) / 2);
+  background: none;
+  border: none;
+  color: var(--ink-2);
+  transition: color var(--t-fast);
+}
+
+.keyspanel-refresh:hover {
+  color: var(--ink-1);
+}
+
+.keyspanel-refresh:disabled {
+  opacity: 0.5;
+}
+
+.keyspanel-hint,
+.keyspanel-footnote {
+  margin: 0;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: var(--leading);
+}
+
+.keyspanel-footnote {
+  margin-top: auto;
+  color: var(--ink-3);
+}
+
+.keyspanel-hint code,
+.keyspanel-banner code {
+  padding: 0 calc(var(--pad) / 4);
+  background: var(--bg-2);
+  border-radius: calc(var(--r-1) / 2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+/* The agent-absent guidance banner (F8 edge case: never silent). */
+.keyspanel-banner {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+  padding: var(--pad);
+  border: 1px solid var(--warn);
+  border-radius: var(--r-1);
+}
+
+.keyspanel-banner p {
+  margin: 0;
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: var(--leading);
+}
+
+.keyspanel-agentlist {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+  margin: calc(var(--pad) / 2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.keyspanel-agentkey {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--pad);
+  padding: calc(var(--pad) / 2) var(--pad);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+}
+
+.keyspanel-keytype {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.keyspanel-hwbadge {
+  padding: 0 calc(var(--pad) / 2);
+  border: 1px solid var(--info);
+  border-radius: calc(var(--r-1) / 2);
+  color: var(--info);
+  font-size: 9px;
+}
+
+.keyspanel-fingerprint {
+  overflow: hidden;
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  user-select: all;
+  white-space: nowrap;
+}
+
+.keyspanel-comment {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.keyspanel-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pad);
+  margin-top: calc(var(--pad) / 2);
+}
+
+.keyspanel-field {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+}
+
+.keyspanel-label {
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.keyspanel-input {
+  padding: calc(var(--pad) / 2) var(--pad);
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.keyspanel-input--mono {
+  font-family: var(--font-mono);
+}
+
+.keyspanel-input:focus-visible {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}
+
+.keyspanel-generate,
+.keyspanel-copy,
+.keyspanel-copyid-run {
+  align-self: flex-start;
+  padding: calc(var(--pad) / 2) var(--pad);
+  background: var(--bg-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  transition: border-color var(--t-fast);
+}
+
+.keyspanel-generate:hover,
+.keyspanel-copy:hover,
+.keyspanel-copyid-run:hover {
+  border-color: var(--ink-2);
+}
+
+.keyspanel-generate:focus-visible,
+.keyspanel-copy:focus-visible,
+.keyspanel-copyid-run:focus-visible,
+.keyspanel-refresh:focus-visible,
+.keyspanel-close:focus-visible {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}
+
+.keyspanel-generate:disabled,
+.keyspanel-copyid-run:disabled {
+  opacity: 0.5;
+}
+
+.keyspanel-error {
+  margin: calc(var(--pad) / 2) 0 0;
+  color: var(--err);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: var(--leading);
+}
+
+.keyspanel-pubkey {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+  margin-top: var(--pad);
+}
+
+.keyspanel-pubkey-text {
+  padding: var(--pad);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  user-select: all;
+  word-break: break-all;
+}
+
+.keyspanel-copyid {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+  margin-top: calc(var(--pad) / 2);
+}

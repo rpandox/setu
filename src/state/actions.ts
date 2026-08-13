@@ -14,6 +14,7 @@
  */
 
 import { useBroadcast } from "./broadcast";
+import { useKeys } from "./keys";
 import { activeSessionOf, tabSessionOf, useSessions } from "./sessions";
 import { useSftp } from "./sftp";
 import { useSnippets } from "./snippets";
@@ -232,6 +233,13 @@ export function actionRegistry(): AppAction[] {
       shortcut: "⌘J",
       matches: (event) => cmd(event, "j", false),
       perform: () => useSnippets.getState().toggleDrawer(),
+    },
+    {
+      // Palette-only (F8): §8 assigns no key; the Keys panel also opens
+      // from the HostEditor's identity field.
+      id: "manage-ssh-keys",
+      title: "Manage SSH keys",
+      perform: () => useKeys.getState().openPanel(),
     },
     {
       id: "toggle-sidebar",

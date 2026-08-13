@@ -115,7 +115,13 @@ export interface SessionsState {
    */
   findFocusSeq: number;
   /** Spawns a local shell in a fresh tab and focuses it. */
-  openLocalTab(): Promise<void>;
+  /**
+   * Opens a fresh local shell tab.
+   *
+   * @returns The new session's id (so helpers like ssh-copy-id can write
+   * a command into the pane — the Phase 6 `openSshTab` precedent).
+   */
+  openLocalTab(): Promise<string>;
   /**
    * Spawns `ssh` to a host in a fresh tab and focuses it. Returns the new
    * session's id so callers can write into the pane — the F6 "run snippet
@@ -430,7 +436,7 @@ export const useSessions = create<SessionsState>((set, get) => {
     findOpen: false,
     findFocusSeq: 0,
 
-    async openLocalTab(): Promise<void> {
+    async openLocalTab(): Promise<string> {
       const { sessionId } = await ipcInvoke("pty_spawn", {
         kind: "local",
         cols: 80,
@@ -445,6 +451,7 @@ export const useSessions = create<SessionsState>((set, get) => {
       };
       await wireSession(meta);
       placeAsTab(meta);
+      return sessionId;
     },
 
     async openSshTab(host: Host): Promise<string> {

@@ -18,14 +18,18 @@
 //! - [`sftp`] — the in-app SFTP client: connections, trust flow, sessions (F5).
 //! - [`snippets`] — plain-TOML persistence for snippets + packs (F6).
 //! - [`keychain`] — the Keychain doorway: SFTP passwords & key passphrases (F8).
+//! - [`keygen`] — `ssh-keygen` driven through a hidden PTY (F8).
+//! - [`agent`] — ssh-agent introspection via `ssh-add -l` (F8).
 //! - [`ipc`] — the Tauri command surface, mirrored by `src/ipc/contract.ts`.
 
 #![deny(missing_docs)]
 
+pub mod agent;
 pub mod connect;
 pub mod forwards;
 pub mod ipc;
 pub mod keychain;
+pub mod keygen;
 pub mod known_hosts;
 pub mod pty;
 pub mod reach;
@@ -131,6 +135,8 @@ pub fn run() {
             ipc::keychain_set,
             ipc::keychain_delete,
             ipc::keychain_has,
+            ipc::keys_generate,
+            ipc::agent_list,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
