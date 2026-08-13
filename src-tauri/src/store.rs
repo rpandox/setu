@@ -183,8 +183,9 @@ pub struct FieldError {
 }
 
 impl FieldError {
-    /// Builds an error for `field` with `message`.
-    fn new(field: &str, message: &str) -> Self {
+    /// Builds an error for `field` with `message` (shared with
+    /// [`crate::snippets`]'s validator).
+    pub(crate) fn new(field: &str, message: &str) -> Self {
         Self {
             field: field.to_string(),
             message: message.to_string(),

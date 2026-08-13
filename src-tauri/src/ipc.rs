@@ -9,7 +9,8 @@
 //! `pty_spawn` to SSH sessions and adds the `hosts_*` family over the
 //! `hosts.toml` store and the `~/.ssh/config` import; Phase 4 adds the
 //! `reach_*` family driving the LED board; Phase 5 adds the `sftp_*` family
-//! (dual-pane browser + transfers) and `hostkey_trust`. This module also
+//! (dual-pane browser + transfers) and `hostkey_trust`; Phase 6 adds the
+//! `snippet_*` family over `snippets.toml` (CRUD + packs). This module also
 //! hosts the event bridges — [`TauriPtyEvents`] for `pty:data:{sessionId}` /
 //! `pty:exit:{sessionId}`, [`TauriReachEvents`] for `reach:update`, and
 //! [`TauriSftpEvents`] for `hostkey:prompt` / `sftp:progress:{transferId}` —
@@ -24,6 +25,7 @@ use crate::pty::{PtyEvents, PtyManager};
 use crate::reach::{ProbeTarget, ReachEvents, ReachProber, ReachState, TargetSource};
 use crate::settings::SettingsStore;
 use crate::sftp::{HostTarget, SftpEntry, SftpEvents, SftpManager};
+use crate::snippets::{ImportOutcome, Snippet, SnippetUpsertOutcome, SnippetsStore};
 use crate::store::{FieldError, Host, HostsStore, UpsertOutcome};
 use crate::ui_state::{UiState, UiStateStore};
 use crate::{connect, reach, sftp, ssh_config};
@@ -533,6 +535,135 @@ pub fn host_adopt(hosts: State<'_, HostsStore>, host_id: String) -> Result<Host,
             .map(|e| format!("{}: {}", e.field, e.message))
             .unwrap_or_else(|| "validation failed".to_string())),
     }
+}
+
+/// Result of [`snippet_upsert`] (mirrors `SnippetUpsertResult`): exactly one
+/// of `snippet` (saved) or `errors` (validation failed) is populated —
+/// validation failures are expected editor outcomes, not command errors.
+#[derive(Debug, Serialize)]
+pub struct SnippetUpsertResult {
+    /// The saved record (with its assigned id), when validation passed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<Snippet>,
+    /// Field-level validation failures, when it did not.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<FieldError>,
+}
+
+/// Result of [`snippet_export`] (mirrors `SnippetExportResult`).
+#[derive(Debug, Serialize)]
+pub struct SnippetExportResult {
+    /// The pack TOML — ready to write to the file the user picked.
+    pub toml: String,
+}
+
+/// Lists every snippet in `snippets.toml`, in file order (F6).
+///
+/// **Payload:** none · **Result:** `Snippet[]` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when `snippets.toml` exists but cannot be read or parsed.
+#[tauri::command]
+pub fn snippet_list(snippets: State<'_, SnippetsStore>) -> Result<Vec<Snippet>, String> {
+    snippets.list()
+}
+
+/// Creates or updates a snippet in `snippets.toml` (empty `id` = create).
+///
+/// **Payload:** `{ snippet }` · **Result:** `{ snippet }` on success,
+/// `{ errors: [{field, message}] }` on validation failure · **Emits:**
+/// nothing.
+///
+/// Validation (F6): label and command non-empty; every `{{token}}` in the
+/// command declared in `variables` and vice versa; names
+/// `[A-Za-z_][A-Za-z0-9_]*` with no duplicates; `choices` non-empty; a
+/// `default` alongside `choices` must be one of them.
+///
+/// # Errors
+///
+/// Fails when the store cannot be read or written, or when a non-empty `id`
+/// matches no record. Validation failures are returned in the result, not
+/// as an error.
+#[tauri::command]
+pub fn snippet_upsert(
+    snippets: State<'_, SnippetsStore>,
+    snippet: Snippet,
+) -> Result<SnippetUpsertResult, String> {
+    Ok(match snippets.upsert(snippet)? {
+        SnippetUpsertOutcome::Saved(snippet) => SnippetUpsertResult {
+            snippet: Some(*snippet),
+            errors: Vec::new(),
+        },
+        SnippetUpsertOutcome::Invalid(errors) => SnippetUpsertResult {
+            snippet: None,
+            errors,
+        },
+    })
+}
+
+/// Deletes a snippet from `snippets.toml`. Unknown ids are a no-op.
+///
+/// **Payload:** `{ snippetId }` · **Result:** `null` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the store cannot be read or written.
+#[tauri::command]
+pub fn snippet_delete(
+    snippets: State<'_, SnippetsStore>,
+    snippet_id: String,
+) -> Result<(), String> {
+    snippets.delete(&snippet_id)
+}
+
+/// Imports a snippet pack — TOML text in the same `[[snippet]]` shape as
+/// the store file (the frontend owns the file dialog and passes the text).
+///
+/// **Payload:** `{ tomlText, mergeStrategy: "replace" | "keep" }` ·
+/// **Result:** `{ imported, skipped }` · **Emits:** nothing.
+///
+/// Merging is by id: `"replace"` overwrites an existing record, `"keep"`
+/// skips the incoming row. Pack rows without an id always import under a
+/// fresh UUID. The import is atomic — a pack with any invalid snippet
+/// imports nothing.
+///
+/// # Errors
+///
+/// Fails when the pack cannot be parsed, is empty, contains an invalid
+/// snippet (the message names it), `mergeStrategy` is unknown, or the
+/// store cannot be read or written.
+#[tauri::command]
+pub fn snippet_import(
+    snippets: State<'_, SnippetsStore>,
+    toml_text: String,
+    merge_strategy: String,
+) -> Result<ImportOutcome, String> {
+    let replace = match merge_strategy.as_str() {
+        "replace" => true,
+        "keep" => false,
+        other => return Err(format!("unknown merge strategy: {other}")),
+    };
+    snippets.import(&toml_text, replace)
+}
+
+/// Exports the given snippets as pack TOML, in store order (the frontend
+/// owns the save dialog and writes the returned text).
+///
+/// **Payload:** `{ ids }` · **Result:** `{ toml }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the store cannot be read or parsed, or when no id matches
+/// (there is nothing to export). Unknown ids among valid ones are ignored.
+#[tauri::command]
+pub fn snippet_export(
+    snippets: State<'_, SnippetsStore>,
+    ids: Vec<String>,
+) -> Result<SnippetExportResult, String> {
+    Ok(SnippetExportResult {
+        toml: snippets.export(&ids)?,
+    })
 }
 
 /// Returns the device-local UI state from `state.json` (PLAN.md §4).

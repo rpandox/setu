@@ -133,6 +133,72 @@ exactly what ssh would have resolved.
 | Emits      | nothing                                                                                                                                       |
 | Fails when | the id isn't `sshcfg:`, the alias no longer exists in the config, the copy fails validation (e.g. missing `IdentityFile`), or the write fails |
 
+### `snippet_list`
+
+List every snippet in `snippets.toml` (F6), in file order — which is also
+drawer order. A missing file is an empty list.
+
+|            |                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------- |
+| Payload    | none                                                                                  |
+| Result     | `Snippet[]` (`{ id, label, command, tags, variables[{ name, default?, choices? }] }`) |
+| Emits      | nothing                                                                               |
+| Fails when | `snippets.toml` exists but can't be read or parsed                                    |
+
+### `snippet_upsert`
+
+Create (empty `id`) or update a snippet. Validation: label and command
+non-empty; every `{{token}}` in the command is declared in `variables` and
+vice versa; variable names are `[A-Za-z_][A-Za-z0-9_]*` with no duplicates;
+a `choices` list is non-empty; a `default` alongside `choices` must be one
+of them. There is no `{{` escaping — a literal `{{` can't appear in a
+snippet command (PLAN.md §5).
+
+|            |                                                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ snippet: Snippet }`                                                                                                                |
+| Result     | `{ snippet }` on success · `{ errors: [{ field, message }] }` on validation failure                                                   |
+| Emits      | nothing                                                                                                                               |
+| Fails when | the store can't be read or written, or a non-empty `id` matches no record. Validation failures come back in the result, not as errors |
+
+### `snippet_delete`
+
+Delete a snippet. Unknown ids are a no-op (idempotent delete).
+
+|            |                                    |
+| ---------- | ---------------------------------- |
+| Payload    | `{ snippetId: string }`            |
+| Result     | `null`                             |
+| Emits      | nothing                            |
+| Fails when | the store can't be read or written |
+
+### `snippet_import`
+
+Import a snippet pack — TOML text in the same `[[snippet]]` shape as the
+store file. The frontend owns the open dialog and passes the file's text.
+Merging is by id: `"replace"` overwrites an existing record, `"keep"` skips
+the incoming row; pack rows without an id always import under a fresh UUID.
+The import is atomic — a pack with any invalid snippet imports nothing.
+
+|            |                                                                                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Payload    | `{ tomlText: string, mergeStrategy: "replace" \| "keep" }`                                                                                             |
+| Result     | `{ imported: number, skipped: number }`                                                                                                                |
+| Emits      | nothing                                                                                                                                                |
+| Fails when | the pack can't be parsed, is empty, contains an invalid snippet (the message names it), the strategy is unknown, or the store can't be read or written |
+
+### `snippet_export`
+
+Export snippets as pack TOML, in store order. The frontend owns the save
+dialog and writes the returned text where the user chose.
+
+|            |                                                                |
+| ---------- | -------------------------------------------------------------- |
+| Payload    | `{ ids: string[] }` (unknown ids among valid ones are ignored) |
+| Result     | `{ toml: string }`                                             |
+| Emits      | nothing                                                        |
+| Fails when | the store can't be read or parsed, or no id matches            |
+
 ### `reach_start`
 
 Start (or refresh) the reachability prober behind the LED board (F1). The

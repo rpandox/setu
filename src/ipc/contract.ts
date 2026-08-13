@@ -204,6 +204,102 @@ export interface HostIdPayload {
 }
 
 /**
+ * One `{{var}}` declaration on a snippet (F6). `default` pre-fills the run
+ * prompt; `choices` turns it into a select (a `default` alongside `choices`
+ * must be one of them).
+ */
+export interface SnippetVariable {
+  /** The token name as it appears inside `{{…}}` — `[A-Za-z_][A-Za-z0-9_]*`. */
+  name: string;
+  /** Pre-filled value for the run prompt; absent means an empty input. */
+  default?: string;
+  /** Fixed values rendered as a select instead of a free text input. */
+  choices?: string[];
+}
+
+/**
+ * One snippet record — the PLAN.md §4 `[[snippet]]` schema, mirrored
+ * verbatim from `snippets.toml` on both sides of IPC (like {@link Host}).
+ */
+export interface Snippet {
+  /** Stable UUID. Empty on a create draft. */
+  id: string;
+  /** Display label, the row's identity in the drawer and palette. */
+  label: string;
+  /** The command template; may contain `{{var}}` tokens. */
+  command: string;
+  /** Free-form tag chips (searchable in the drawer and palette). */
+  tags: string[];
+  /** Variable declarations — one per distinct `{{var}}` token. */
+  variables: SnippetVariable[];
+}
+
+/** One field-level validation failure from `snippet_upsert`. */
+export interface SnippetFieldError {
+  /** The {@link Snippet} field the message belongs to, e.g. `"command"`. */
+  field: string;
+  /** Human-readable problem statement, shown inline in the SnippetDrawer. */
+  message: string;
+}
+
+/** Payload for `snippet_upsert`: the full record (empty `id` = create). */
+export interface SnippetUpsertPayload {
+  /** The draft to validate and save. */
+  snippet: Snippet;
+}
+
+/**
+ * Result of `snippet_upsert` — exactly one side is present: `snippet` when
+ * the draft was saved, `errors` when validation rejected it (an expected
+ * editor outcome, not a command failure).
+ */
+export interface SnippetUpsertResult {
+  /** The saved record, with its assigned id. */
+  snippet?: Snippet;
+  /** Field-level validation failures. */
+  errors?: SnippetFieldError[];
+}
+
+/** Payload for `snippet_delete`. */
+export interface SnippetDeletePayload {
+  /** The snippet to delete (`Snippet.id`). Unknown ids are a no-op. */
+  snippetId: string;
+}
+
+/**
+ * Payload for `snippet_import` — pack TOML as text (the frontend owns the
+ * file dialog). Merging is by id: `"replace"` overwrites an existing
+ * record, `"keep"` skips the incoming row; pack rows without an id always
+ * import under a fresh UUID.
+ */
+export interface SnippetImportPayload {
+  /** The pack file's contents (`[[snippet]]` TOML). */
+  tomlText: string;
+  /** What to do when an incoming id already exists. */
+  mergeStrategy: "replace" | "keep";
+}
+
+/** Result of `snippet_import`. */
+export interface SnippetImportResult {
+  /** Rows written (created or overwritten, per the merge strategy). */
+  imported: number;
+  /** Rows skipped because their id already existed (strategy `"keep"`). */
+  skipped: number;
+}
+
+/** Payload for `snippet_export`. */
+export interface SnippetExportPayload {
+  /** The snippets to export (`Snippet.id`s); unknown ids are ignored. */
+  ids: string[];
+}
+
+/** Result of `snippet_export`. */
+export interface SnippetExportResult {
+  /** The pack TOML — ready to write to the file the user picked. */
+  toml: string;
+}
+
+/**
  * A node in a saved split tree (`state.json`, F4 session restore).
  *
  * Leaves carry a connection target, not live session ids: `hostId` names a
@@ -524,7 +620,8 @@ export interface SftpProgressEvent {
  * Phase 3 adds the `ui_state_*` pair over `state.json`; Phase 4 adds the
  * `reach_*` family driving the LED board; Phase 5 adds the `sftp_*` family
  * (dual-pane browser + transfers) and the `hostkey_trust` half of the
- * fingerprint trust flow.
+ * fingerprint trust flow; Phase 6 adds the `snippet_*` family over
+ * `snippets.toml` (CRUD + TOML packs).
  */
 export interface IpcCommands {
   /** Spawn a new PTY session — a local login shell or `ssh` to a host. */
@@ -547,6 +644,19 @@ export interface IpcCommands {
   host_delete: { payload: HostIdPayload; result: null };
   /** Copy an `sshcfg:` row into `hosts.toml` as an editable record. */
   host_adopt: { payload: HostIdPayload; result: Host };
+  /** List every snippet in `snippets.toml`, in file order (F6). */
+  snippet_list: { payload: Record<string, never>; result: Snippet[] };
+  /** Create (empty `id`) or update a snippet; validates before writing. */
+  snippet_upsert: { payload: SnippetUpsertPayload; result: SnippetUpsertResult };
+  /** Delete a snippet. Unknown ids are a no-op. */
+  snippet_delete: { payload: SnippetDeletePayload; result: null };
+  /**
+   * Import a snippet pack (TOML text), merging by id per `mergeStrategy`.
+   * Atomic: a pack with any invalid snippet imports nothing.
+   */
+  snippet_import: { payload: SnippetImportPayload; result: SnippetImportResult };
+  /** Export snippets as pack TOML, in store order. */
+  snippet_export: { payload: SnippetExportPayload; result: SnippetExportResult };
   /**
    * Start (or refresh) the reachability prober: the first call spawns the
    * sweep loop and probes immediately; later calls trigger a fresh sweep

@@ -15,6 +15,7 @@
 //! - [`reach`] — the TCP reachability prober behind the LED board (F1).
 //! - [`known_hosts`] — host-key verification for the in-app SFTP client (F5).
 //! - [`sftp`] — the in-app SFTP client: connections, trust flow, sessions (F5).
+//! - [`snippets`] — plain-TOML persistence for snippets + packs (F6).
 //! - [`ipc`] — the Tauri command surface, mirrored by `src/ipc/contract.ts`.
 
 #![deny(missing_docs)]
@@ -26,6 +27,7 @@ pub mod pty;
 pub mod reach;
 pub mod settings;
 pub mod sftp;
+pub mod snippets;
 pub mod ssh_config;
 pub mod store;
 pub mod ui_state;
@@ -56,6 +58,9 @@ pub fn run() {
             let events = Arc::new(ipc::TauriPtyEvents::new(app.handle().clone()));
             app.manage(pty::PtyManager::new(events));
             app.manage(store::HostsStore::new(store::HostsStore::default_path()?));
+            app.manage(snippets::SnippetsStore::new(
+                snippets::SnippetsStore::default_path()?,
+            ));
             app.manage(settings::SettingsStore::new(
                 settings::SettingsStore::default_path()?,
             ));
@@ -84,6 +89,11 @@ pub fn run() {
             ipc::host_upsert,
             ipc::host_delete,
             ipc::host_adopt,
+            ipc::snippet_list,
+            ipc::snippet_upsert,
+            ipc::snippet_delete,
+            ipc::snippet_import,
+            ipc::snippet_export,
             ipc::reach_start,
             ipc::reach_stop,
             ipc::reach_set_visible,
