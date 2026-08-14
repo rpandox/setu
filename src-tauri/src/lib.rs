@@ -39,6 +39,7 @@ pub mod pty;
 pub mod reach;
 pub mod settings;
 pub mod sftp;
+pub mod snapshots;
 pub mod snippets;
 pub mod ssh_config;
 pub mod store;

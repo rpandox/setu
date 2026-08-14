@@ -101,8 +101,9 @@ fn write_vault(
 }
 
 /// Recursively appends `dir` under `prefix`, skipping `.git` at any depth
-/// and symlinks (a backup must not wander outside the config dir).
-fn append_dir_filtered<W: std::io::Write>(
+/// and symlinks (a backup must not wander outside the config dir). Shared
+/// with [`crate::snapshots`] — the scheduled tar.gz uses the same rules.
+pub(crate) fn append_dir_filtered<W: std::io::Write>(
     tar: &mut tar::Builder<W>,
     dir: &Path,
     prefix: &Path,
