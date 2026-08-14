@@ -79,12 +79,15 @@
 .syncfooter-popover {
   position: absolute;
   bottom: calc(100% + 4px);
+
+  /* Anchored to both edges, not a fixed width: the sidebar clips its
+     overflow, so a wider box would get cut off at the sidebar border. */
+  right: var(--pad);
   left: var(--pad);
   z-index: 20;
   display: flex;
   flex-direction: column;
   gap: var(--pad);
-  width: 300px;
   padding: var(--pad) calc(var(--pad) * 1.5);
   background: var(--bg-2);
   border: 1px solid var(--line-strong);

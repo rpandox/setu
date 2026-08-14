@@ -48,9 +48,10 @@ export function StatusBar() {
 
   // Display-only mirror of the sidebar footer's dot; shown once a remote
   // exists (or a conflict demands attention) so "local mode" stays quiet.
+  // Falsy check on purpose: an absent remote must hide the chip whichever
+  // way the payload spells "none".
   const syncChip =
-    syncStatus === null ||
-    (syncStatus.remoteUrl === undefined && syncStatus.state !== "conflict")
+    syncStatus === null || (!syncStatus.remoteUrl && syncStatus.state !== "conflict")
       ? null
       : syncing
         ? "sync …"

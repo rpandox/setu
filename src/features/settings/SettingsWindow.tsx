@@ -126,65 +126,70 @@ export function SettingsWindow() {
 
   return (
     <div className="settings-window">
-      <nav className="settings-nav" aria-label="Settings sections">
-        <h1 className="settings-title">Settings</h1>
-        {SECTIONS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            className={`settings-nav-item${active === id ? " is-active" : ""}`}
-            onClick={() => setActive(id)}
-          >
-            <Icon size={14} aria-hidden /> {label}
-          </button>
-        ))}
-      </nav>
+      {/* Overlay titlebar (main-window chrome): drag strip under the
+          traffic lights; the h1 below stays clear of them. */}
+      <div className="settings-titlebar" data-tauri-drag-region />
+      <div className="settings-body">
+        <nav className="settings-nav" aria-label="Settings sections">
+          <h1 className="settings-title">Settings</h1>
+          {SECTIONS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              type="button"
+              className={`settings-nav-item${active === id ? " is-active" : ""}`}
+              onClick={() => setActive(id)}
+            >
+              <Icon size={14} aria-hidden /> {label}
+            </button>
+          ))}
+        </nav>
 
-      <div className="settings-content">
-        {!loaded ? (
-          <p className="settings-note">Loading…</p>
-        ) : loadError ? (
-          <p className="settings-error" role="alert">
-            settings.toml can’t be read: {loadError}
-          </p>
-        ) : (
-          <>
-            {active === "terminal" && (
-              <TerminalSection draft={draft} patch={patch} errorFor={errorFor} />
-            )}
-            {active === "sync" && <SyncSection draft={draft} patch={patch} />}
-            {active === "snapshots" && (
-              <SnapshotsSection draft={draft} patch={patch} errorFor={errorFor} />
-            )}
-            {active === "tailnet" && <TailnetSection draft={draft} patch={patch} />}
-            {active === "reachability" && (
-              <ReachabilitySection draft={draft} patch={patch} errorFor={errorFor} />
-            )}
-            {active === "flags" && <FlagsSection />}
-          </>
-        )}
-
-        <footer className="settings-footer">
-          {errorFor("") ? (
-            <span className="settings-error" role="alert">
-              {errorFor("")}
-            </span>
-          ) : savedFlash ? (
-            <span className="settings-saved" role="status">
-              Saved
-            </span>
+        <div className="settings-content">
+          {!loaded ? (
+            <p className="settings-note">Loading…</p>
+          ) : loadError ? (
+            <p className="settings-error" role="alert">
+              settings.toml can’t be read: {loadError}
+            </p>
           ) : (
-            <span />
+            <>
+              {active === "terminal" && (
+                <TerminalSection draft={draft} patch={patch} errorFor={errorFor} />
+              )}
+              {active === "sync" && <SyncSection draft={draft} patch={patch} />}
+              {active === "snapshots" && (
+                <SnapshotsSection draft={draft} patch={patch} errorFor={errorFor} />
+              )}
+              {active === "tailnet" && <TailnetSection draft={draft} patch={patch} />}
+              {active === "reachability" && (
+                <ReachabilitySection draft={draft} patch={patch} errorFor={errorFor} />
+              )}
+              {active === "flags" && <FlagsSection />}
+            </>
           )}
-          <button
-            type="button"
-            className="settings-save"
-            disabled={!dirty || saving}
-            onClick={() => void submit()}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-        </footer>
+
+          <footer className="settings-footer">
+            {errorFor("") ? (
+              <span className="settings-error" role="alert">
+                {errorFor("")}
+              </span>
+            ) : savedFlash ? (
+              <span className="settings-saved" role="status">
+                Saved
+              </span>
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              className="settings-save"
+              disabled={!dirty || saving}
+              onClick={() => void submit()}
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </footer>
+        </div>
       </div>
     </div>
   );

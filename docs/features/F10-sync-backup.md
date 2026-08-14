@@ -82,6 +82,8 @@ The fix is never "bypass the lint": move the secret to the Keychain
 (host editor → SFTP password; key passphrases are stored when you unlock
 them) and delete the line.
 
+![A lint block in the sidebar footer](../assets/f10-lint-block.png)
+
 ### Snapshots
 
 A `setu-config-<timestamp>.tar.gz` of the whole config dir lands in
@@ -103,10 +105,12 @@ the vault export instead ([F8](F08-keys-vault.md)).
 - **The dot turns red (conflict).** Two machines edited the same lines
   and the rebase stopped — nothing is auto-resolved, ever. The popover
   lists the conflicted files and offers **Open in Finder**: fix the
-  `<<<<<<<`/`>>>>>>>` markers in any editor, then Sync now again.
-  Don't want to deal with it? **Cancel sync** (`git rebase --abort`)
-  puts everything back exactly as before the sync; the remote's version
-  will still be there next time.
+  `<<<<<<<`/`>>>>>>>` markers in any editor, then Sync now again — the
+  same click finishes the paused rebase and pushes. While any marker
+  remains, Sync now keeps refusing (it checks the file contents, not
+  just git's bookkeeping). Don't want to deal with it? **Cancel sync**
+  (`git rebase --abort`) puts everything back exactly as before the
+  sync; the remote's version will still be there next time.
 - **"fetch failed" / "push failed".** Network down, or the remote
   refused your key. Every git call runs prompt-free with a 30 s cap, so
   a dead VPN can't hang the app — the footer shows git's own words.

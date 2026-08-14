@@ -1993,6 +1993,14 @@ pub fn settings_window_open(app: AppHandle) -> Result<(), String> {
     .title("Settings")
     .inner_size(780.0, 600.0)
     .min_inner_size(640.0, 480.0)
+    // Match the main window's chrome (tauri.conf.json): the overlay title
+    // bar keeps the Phosphor surface edge-to-edge — a stock white bar on
+    // this one window would break §7's register. The page provides its own
+    // drag region under the traffic lights.
+    .title_bar_style(tauri::TitleBarStyle::Overlay)
+    .hidden_title(true)
+    .traffic_light_position(tauri::LogicalPosition::new(12.0, 13.0))
+    .background_color(tauri::webview::Color(6, 9, 7, 255))
     .build()
     .map(|_| ())
     .map_err(|e| format!("couldn't open the Settings window: {e}"))

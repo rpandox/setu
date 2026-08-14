@@ -3,11 +3,27 @@
 
 .settings-window {
   display: flex;
+  flex-direction: column;
   width: 100vw;
   height: 100vh;
   overflow: hidden;
   background: var(--bg-0);
   color: var(--ink-1);
+}
+
+/* Overlay-titlebar drag strip (main-window chrome): the traffic lights
+   float over this dark band. */
+.settings-titlebar {
+  height: 38px;
+  flex-shrink: 0;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
 }
 
 .settings-nav {

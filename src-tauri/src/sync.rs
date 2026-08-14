@@ -67,7 +67,9 @@ pub enum SyncState {
 pub struct GitSyncStatus {
     /// The dot state.
     pub state: SyncState,
-    /// The `origin` URL, when configured.
+    /// The `origin` URL, when configured (absent — never `null` — in the
+    /// serialized payload, matching the contract's optional field).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_url: Option<String>,
     /// Whether the working tree has uncommitted changes.
     pub dirty: bool,
@@ -79,7 +81,8 @@ pub struct GitSyncStatus {
     /// Files with unresolved conflict markers while [`SyncState::Conflict`].
     pub conflict_files: Vec<String>,
     /// Unix time of the newest local commit (the popover's "last synced"
-    /// line), when any commit exists.
+    /// line), when any commit exists. Absent when none, like `remote_url`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_commit_ts: Option<i64>,
 }
 
@@ -243,7 +246,11 @@ impl SyncManager {
     /// With no remote configured the run stops after the commit (local
     /// mode, still `ok`). A lint block or a conflicted rebase comes back
     /// `ok: false` with the details result-side; the conflicted rebase is
-    /// **left in progress** on purpose.
+    /// **left in progress** on purpose. When the user has fixed the
+    /// conflicted files (F10's documented path: edit, then Sync now
+    /// again), the same click finishes the paused rebase — user-driven
+    /// resolution, never automatic: files that still carry unresolved
+    /// conflicts refuse politely.
     ///
     /// # Errors
     ///
@@ -251,20 +258,6 @@ impl SyncManager {
     /// the user can act on is in the returned [`GitSyncRunResult`].
     pub async fn run(&self, hostname: &str) -> Result<GitSyncRunResult, String> {
         let _guard = self.run_lock.lock().await;
-
-        if self.config_dir.join(".git").exists() && self.rebase_in_progress() {
-            let status = self.status().await?;
-            return Ok(GitSyncRunResult {
-                ok: false,
-                conflict_files: status.conflict_files.clone(),
-                status,
-                blocked: Vec::new(),
-                message: Some(
-                    "a previous sync stopped on conflicts — resolve them (or cancel the sync) first"
-                        .into(),
-                ),
-            });
-        }
 
         let blocked = lint_dir(&self.config_dir)?;
         if !blocked.is_empty() {
@@ -275,6 +268,47 @@ impl SyncManager {
                 conflict_files: Vec::new(),
                 message: None,
             });
+        }
+
+        if self.config_dir.join(".git").exists() && self.rebase_in_progress() {
+            // The user came back after editing the conflicted files (F10's
+            // documented path). Files still carrying conflict markers mean
+            // the resolution isn't done — keep waiting, never resolve for
+            // them. The check reads content, not git's unmerged flag: the
+            // flag would clear on `add` no matter what the file says.
+            let unmerged = self.conflicted_files().await?;
+            let still_marked: Vec<String> = unmerged
+                .into_iter()
+                .filter(|file| {
+                    std::fs::read_to_string(self.config_dir.join(file))
+                        .map(|text| has_conflict_markers(&text))
+                        .unwrap_or(false)
+                })
+                .collect();
+            if !still_marked.is_empty() {
+                return Ok(GitSyncRunResult {
+                    ok: false,
+                    status: self.status().await?,
+                    blocked: Vec::new(),
+                    conflict_files: still_marked,
+                    message: Some(
+                        "still conflicted — fix the markers (or cancel the sync) first".into(),
+                    ),
+                });
+            }
+            self.git_ok(&["add", "-A"]).await?;
+            let cont = self.git(&["rebase", "--continue"]).await?;
+            if !cont.status.success() {
+                // Later commits in the replay conflicted in turn.
+                let conflict_files = self.conflicted_files().await.unwrap_or_default();
+                return Ok(GitSyncRunResult {
+                    ok: false,
+                    status: self.status().await?,
+                    blocked: Vec::new(),
+                    conflict_files,
+                    message: Some("rebase stopped on conflicts".into()),
+                });
+            }
         }
 
         self.ensure_repo().await?;
@@ -534,6 +568,9 @@ impl SyncManager {
             .current_dir(&self.config_dir)
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes")
+            // `rebase --continue` must take its default message instead of
+            // parking the process inside an editor nobody can see.
+            .env("GIT_EDITOR", "true")
             .stdin(std::process::Stdio::null())
             .kill_on_drop(true);
         for (key, value) in &self.extra_env {
@@ -654,6 +691,14 @@ fn is_secret_assignment(line: &str) -> bool {
         return false;
     }
     true
+}
+
+/// Whether `text` still contains git conflict markers (an unresolved
+/// hand-merge; `run` keeps refusing while any remain).
+fn has_conflict_markers(text: &str) -> bool {
+    text.lines().any(|line| {
+        line.starts_with("<<<<<<< ") || line == "=======" || line.starts_with(">>>>>>> ")
+    })
 }
 
 /// Whether `line` carries an SSH public key (allow-listed base64).
@@ -977,6 +1022,42 @@ identity = \"agent\"\nuse_mosh = false\nport = 22\n";
         // "Cancel sync" restores a non-conflicted state.
         let aborted = t.manager.abort_rebase().await.expect("abort");
         assert_ne!(aborted.state, SyncState::Conflict);
+    }
+
+    #[tokio::test]
+    async fn fixed_markers_finish_the_paused_rebase_on_next_sync() {
+        let t = TempSync::new();
+        std::fs::write(t.config_dir().join("hosts.toml"), "port = 22\n").expect("write");
+        let remote = t.make_remote();
+        t.manager.set_remote(&remote).await.expect("set remote");
+        assert!(t.manager.run("machine-a").await.expect("run").ok);
+
+        raw_git(&t.root, &["clone", &remote, "checkout-b"]);
+        let b = t.root.join("checkout-b");
+        std::fs::write(b.join("hosts.toml"), "port = 2222\n").expect("write");
+        raw_commit(&b, "b: port 2222");
+        raw_git(&b, &["push", "origin", "HEAD"]);
+
+        std::fs::write(t.config_dir().join("hosts.toml"), "port = 2200\n").expect("write");
+        assert!(!t.manager.run("machine-a").await.expect("run").ok);
+        assert_eq!(
+            t.manager.status().await.expect("status").state,
+            SyncState::Conflict
+        );
+
+        // Markers still present → the sync keeps refusing (never auto).
+        let refused = t.manager.run("machine-a").await.expect("run");
+        assert!(!refused.ok);
+        assert!(refused.message.expect("message").contains("conflict"));
+
+        // The user resolves by hand (F10's documented path), then Sync now
+        // finishes the rebase and pushes.
+        std::fs::write(t.config_dir().join("hosts.toml"), "port = 2222\n").expect("write");
+        let finished = t.manager.run("machine-a").await.expect("run");
+        assert!(finished.ok, "message: {:?}", finished.message);
+        assert_eq!(finished.status.state, SyncState::Clean);
+        let remote_file = raw_git(Path::new(&remote), &["show", "HEAD:hosts.toml"]);
+        assert_eq!(remote_file, "port = 2222\n");
     }
 
     #[tokio::test]
