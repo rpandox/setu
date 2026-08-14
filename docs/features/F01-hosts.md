@@ -77,8 +77,9 @@ its ssh port but would refuse your login still shows green.
   backtick code, `[links](https://…)`, and `- ` bullets. Links open in
   your system browser.
 - **Turn probing off:** per host with `reachability = false` in the
-  editor's TOML (or `hosts.toml`); globally with `enabled = false` under
-  `[reachability]` in `~/.config/setu/settings.toml`:
+  editor's TOML (or `hosts.toml`); globally in the Settings window
+  (⌘, → Reachability, Phase 8) or by hand under `[reachability]` in
+  `~/.config/setu/settings.toml`:
 
   ```toml
   [reachability]
@@ -87,6 +88,9 @@ its ssh port but would refuse your login still shows green.
   timeout_ms = 1500     # per-probe connect timeout
   max_concurrent = 6    # probes in flight at once
   ```
+
+  Saving from the Settings window re-tunes the running prober — no
+  restart ([F10](F10-sync-backup.md)).
 
 Config files: `~/.config/setu/hosts.toml` and `settings.toml` — schema in
 [PLAN.md](../../PLAN.md) §4, format details in

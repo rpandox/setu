@@ -7,6 +7,37 @@ one entry.
 
 ## [Unreleased]
 
+### Added — Phase 8: sync & settings
+
+- Git sync (F10): `~/.config/setu` is now a git repo. The sidebar
+  footer's status dot speaks five states (synced / ahead / behind /
+  conflict / local); **Sync now** — footer, ⌘K palette, or Settings —
+  commits `setu: <hostname> <ts>`, rebases, and pushes to a remote you
+  own. No remote → local commits only. Auth rides your existing ssh
+  keys/agent; every git call is prompt-free and capped at 30 s
+  ([docs](docs/features/F10-sync-backup.md)).
+- Secrets lint (F10): a sync refuses to stage anything when a config
+  file matches secret heuristics — password/token/secret-key
+  assignments, PEM private-key headers, 40+ char base64 runs (ssh
+  _public_ keys allow-listed) — and shows each offending line with file
+  and line number in the footer popover.
+- Conflict handling (F10): a conflicted rebase is left in progress —
+  never auto-resolved. The dot turns red; the popover lists the files,
+  opens the dir in Finder, and offers **Cancel sync**
+  (`git rebase --abort`).
+- Snapshots (F10): scheduled tar.gz archives of the config dir into the
+  app data folder (weekly, keep 10 — both configurable), plus a
+  Snapshot now button. Restore = `tar -xzf`.
+- Settings window (⌘,): a real second window with Terminal (font size +
+  scrollback, **hot-applied to open terminals on save**), Sync,
+  Snapshots, Tailnet, and Reachability sections (prober re-tunes live),
+  plus the advanced track's feature flags — visible but disabled until
+  their phases ship. `settings.toml` stays hand-editable; unknown
+  tables from newer versions survive a save.
+- Status bar: the `sync ✓ / ↑ / ↓ / ✕` chip is real (visible once a
+  remote is configured), completing the §7 wireframe's sync slot.
+- New pinned Rust deps: `regex`, `flate2`, `gethostname`, `time`.
+
 ### Added — Phase 7: keys, Keychain, mosh, Tailscale
 
 - Keychain secrets (F8): SFTP passwords and key passphrases live in the

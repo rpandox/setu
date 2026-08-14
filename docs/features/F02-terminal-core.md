@@ -60,8 +60,12 @@ URL that merely mentions sudo, or `curl … | jq` paste clean. While
 broadcasting ([F04](F04-splits-broadcast.md)), the dialog also warns how
 many sessions the paste will reach.
 
-No config keys yet — profile settings (fonts, cursor styles, ligatures)
-arrive with the settings surface in a later phase.
+Config keys (Phase 8, in the Settings window — ⌘, → Terminal): `[terminal]
+font_size` (8–32 px, default 13) and `scrollback_lines` (default 10 000)
+in `~/.config/setu/settings.toml`. Both **hot-apply**: saving updates
+every open terminal immediately, no restart
+([F10](F10-sync-backup.md)). Cursor styles and ligatures arrive with the
+theme system in a later phase.
 
 ## What can go wrong?
 
