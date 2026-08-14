@@ -7,6 +7,27 @@ one entry.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-14
+
+The first release: the core track of the build plan (Phases 0–9), a
+Termius-class SSH command center, complete. Everything below shipped
+phase by phase on the way here.
+
+### Added — Phase 9: package & ship
+
+- Install path: a universal (Apple silicon + Intel) app published on
+  [GitHub Releases](https://github.com/rpandox/setu/releases) and a
+  Homebrew cask — `brew install --cask rpandox/tap/setu`. v1.0.x ships
+  unsigned; the first-launch quarantine note lives in the README and
+  the cask caveats.
+- Release engineering: `[profile.release]` tuned for size (fat LTO,
+  stripped symbols), bundle metadata (Developer Tools category, macOS
+  12 floor), and `SETU_STARTUP_PROBE=1` printing cold-launch timing.
+- [RELEASING.md](RELEASING.md): the full build → package → publish →
+  cask flow, including the signing + notarization path for v1.0.1+.
+- README rebuilt for release: install instructions, a feature table
+  linking every docs page, and the hero screenshot.
+
 ### Added — Phase 8: sync & settings
 
 - Git sync (F10): `~/.config/setu` is now a git repo. The sidebar
