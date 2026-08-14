@@ -32,13 +32,21 @@ Applications.
 
 ### First launch (unsigned build)
 
-v1.0.x releases are not yet notarized, so Gatekeeper quarantines the first
-launch. Either right-click `Setu.app` → **Open** → **Open** (once; macOS
-remembers), or:
+Setu ships unsigned — notarization needs a paid Apple Developer Program
+membership this project doesn't have — so Gatekeeper quarantines the first
+launch. Any one of these clears it:
 
-```sh
-xattr -dr com.apple.quarantine /Applications/Setu.app
-```
+- Install with quarantine off in the first place:
+
+  ```sh
+  brew install --cask --no-quarantine rpandox/tap/setu
+  ```
+
+- Right-click `Setu.app` → **Open** → **Open** (once; macOS remembers), or:
+
+  ```sh
+  xattr -dr com.apple.quarantine /Applications/Setu.app
+  ```
 
 ## What's inside
 

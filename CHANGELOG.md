@@ -17,7 +17,7 @@ phase by phase on the way here.
 
 - Install path: a universal (Apple silicon + Intel) app published on
   [GitHub Releases](https://github.com/rpandox/setu/releases) and a
-  Homebrew cask — `brew install --cask rpandox/tap/setu`. v1.0.x ships
+  Homebrew cask — `brew install --cask rpandox/tap/setu`. Releases ship
   unsigned; the first-launch quarantine note lives in the README and
   the cask caveats.
 - Release engineering: `[profile.release]` tuned for size (fat LTO,
