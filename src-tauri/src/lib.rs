@@ -42,6 +42,7 @@ pub mod sftp;
 pub mod snippets;
 pub mod ssh_config;
 pub mod store;
+pub mod sync;
 pub mod tailscale;
 pub mod ui_state;
 pub mod vault;

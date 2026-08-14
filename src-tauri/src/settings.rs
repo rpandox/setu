@@ -32,7 +32,8 @@ use serde::{Deserialize, Serialize};
 use crate::store::FieldError;
 
 /// Comment header written at the top of `settings.toml` on every save.
-const SETTINGS_HEADER: &str = "# Setu settings — written by the Settings window (⌘,), hand-editable.\n\
+const SETTINGS_HEADER: &str =
+    "# Setu settings — written by the Settings window (⌘,), hand-editable.\n\
 # Schema: PLAN.md §4 · docs/features/F10-sync-backup.md. Unknown tables are\n\
 # preserved on save. This file must never hold secrets.\n\n";
 
@@ -439,7 +440,10 @@ mod tests {
             t.store.reachability().expect("defaults"),
             ReachabilitySettings::default()
         );
-        assert_eq!(t.store.document().expect("defaults"), SettingsDocument::default());
+        assert_eq!(
+            t.store.document().expect("defaults"),
+            SettingsDocument::default()
+        );
     }
 
     #[test]

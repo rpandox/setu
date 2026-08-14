@@ -42,3 +42,10 @@ keyring = { version = "3.6.3", features = ["apple-native"] }
 # pure-Rust age (scrypt/passphrase recipient), no runtime binary needed (§5).
 age = "0.10.1"
 tar = "0.4"
+# Git sync + snapshots (F10, Phase 8): secrets-lint regexes, gzip for the
+# scheduled config-dir snapshots, the device hostname for commit messages,
+# and UTC timestamp formatting (§5 snapshot-format row).
+regex = "1"
+flate2 = "1"
+gethostname = "0.5"
+time = { version = "0.3", features = ["formatting", "macros"] }
