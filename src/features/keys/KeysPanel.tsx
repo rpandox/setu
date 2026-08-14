@@ -13,7 +13,9 @@ const DEFAULT_KEY_PATH = "~/.ssh/id_ed25519";
  * The Keys panel (F8, Phase 7; §7 component inventory): agent listing
  * with fingerprints, ed25519 key generation, and the ssh-copy-id helper.
  * Opened from the palette ("Manage SSH keys") and from the HostEditor's
- * identity field — there is no Settings window until Phase 8 (PLAN.md §5).
+ * identity field — deliberately not folded into the Phase 8 Settings
+ * window, which owns config, not key operations (PLAN.md §5 keeps the
+ * fold as an escape hatch if two homes confuse).
  *
  * Renders as a right-hand panel over a scrim, HostEditor-style. Esc or ✕
  * closes; the last generated public key survives a close so it can still

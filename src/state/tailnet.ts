@@ -5,8 +5,9 @@
  * while the app is hidden — peers are ephemeral and never persisted. Peer
  * LEDs mirror Tailscale's own online state; these rows are never
  * TCP-probed. When the binary is absent or the daemon is logged
- * out/stopped, `available` is false and the section hides entirely (the
- * settings hint line waits for the Phase 8 Settings window — §5 row).
+ * out/stopped, `available` is false and the section hides entirely.
+ * The default login user lives in Settings → Tailnet (Phase 8) and is
+ * fresh-read Rust-side on every poll.
  */
 
 import { create } from "zustand";

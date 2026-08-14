@@ -69,7 +69,8 @@ looks where installers actually put it.
   F8 ssh-copy-id helper, or adopt the peer and configure identity like
   any host.
 - **The wrong user.** One-click connects use the default tailnet user —
-  set `[tailnet] default_user`, or adopt the peer and give it its own
+  set it in the Settings window (⌘, → Tailnet, Phase 8; the
+  `[tailnet] default_user` key), or adopt the peer and give it its own
   user field.
 - **A peer shows offline but the machine is up.** Tailscale's own view
   lags a little; "Ping to wake" usually refreshes it within a poll.

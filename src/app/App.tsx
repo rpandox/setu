@@ -16,6 +16,9 @@ import { wireForwards } from "../state/forwards";
 import { useHosts } from "../state/hosts";
 import { initReach } from "../state/reach";
 import { activeSessionOf, useSessions } from "../state/sessions";
+import { initSettings } from "../state/settings";
+import { initSync } from "../state/sync";
+import { wireSettingsHotApply } from "../features/settings/hotApply";
 import { initTailnet } from "../state/tailnet";
 import { useSnippets } from "../state/snippets";
 import { useUiChrome } from "../state/ui";
@@ -58,6 +61,12 @@ export function App() {
     wireForwards();
     // Tailnet: poll peers every 30s while visible (F9, Phase 7).
     initTailnet();
+    // Settings (Phase 8): hot-apply first so the initial load already
+    // pushes font/scrollback onto any early terminal, then load + wire
+    // the settings:changed listener; the sync store follows (F10).
+    wireSettingsHotApply();
+    void initSettings();
+    void initSync();
   }, []);
 
   useEffect(() => {

@@ -42,7 +42,15 @@ export ([docs](docs/features/F08-keys-vault.md)); per-host **mosh**
 with an honest preflight ([docs](docs/features/F03-sessions.md)); and
 your **tailnet in the sidebar** — live peers with Tailscale's own
 online state as their LEDs, one-click connect, adopt-as-host, and
-ping-to-wake ([docs](docs/features/F09-tailscale.md)).
+ping-to-wake ([docs](docs/features/F09-tailscale.md)) — and now
+**sync & settings**: `~/.config/setu` as a git repo you push to your
+own private remote — Sync now from the sidebar footer's status dot, a
+secrets lint that refuses to commit credential-looking lines (shown
+verbatim), conflicts left for you with a one-click cancel, scheduled
+tar.gz snapshots — plus the Settings window (⌘,): terminal font size
+and scrollback that hot-apply to open terminals, reachability knobs,
+the tailnet user, and the advanced track's flags
+([docs](docs/features/F10-sync-backup.md)).
 
 <!-- Hero screenshot: docs/assets/hero.png (captured during Phase 4 live QA). -->
 
@@ -61,9 +69,9 @@ ping-to-wake ([docs](docs/features/F09-tailscale.md)).
 The full feature-by-feature specification lives in [PLAN.md](PLAN.md) §9.
 Highlights: host management with live reachability LEDs · tabs, splits, and
 broadcast input · snippets and runbooks · port-forward toggles ·
-Keychain-backed secrets · git-based config sync · semantic terminal
-(prompt jumps, done-notifications, global command history) · instant second
-connections via ControlMaster · fleet health sparklines · a companion CLI.
+Keychain-backed secrets · semantic terminal (prompt jumps,
+done-notifications, global command history) · instant second connections
+via ControlMaster · fleet health sparklines · a companion CLI.
 
 ## Build from source
 

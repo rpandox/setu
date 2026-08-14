@@ -39,9 +39,11 @@ pub mod pty;
 pub mod reach;
 pub mod settings;
 pub mod sftp;
+pub mod snapshots;
 pub mod snippets;
 pub mod ssh_config;
 pub mod store;
+pub mod sync;
 pub mod tailscale;
 pub mod ui_state;
 pub mod vault;
@@ -96,6 +98,14 @@ pub fn run() {
             app.manage(forwards::ForwardManager::new(Arc::new(
                 ipc::TauriForwardEvents::new(app.handle().clone()),
             )));
+            // Git sync (F10): one manager over ~/.config/setu; the run lock
+            // inside serializes Sync now, quit-hook, and Settings actions.
+            app.manage(sync::SyncManager::new(sync::SyncManager::default_dir()?));
+            // Scheduled snapshots (F10): idle scheduler, spawned right away —
+            // it re-reads settings each pass, so no restart on change.
+            app.manage(snapshots::SnapshotScheduler::new());
+            app.state::<snapshots::SnapshotScheduler>()
+                .start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -147,6 +157,15 @@ pub fn run() {
             ipc::tailscale_peers,
             ipc::tailscale_ping,
             ipc::vault_export,
+            ipc::settings_get,
+            ipc::settings_set,
+            ipc::settings_window_open,
+            ipc::git_sync_status,
+            ipc::git_sync_run,
+            ipc::git_sync_set_remote,
+            ipc::git_sync_abort,
+            ipc::sync_open_dir,
+            ipc::snapshot_now,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -156,6 +175,27 @@ pub fn run() {
                 event,
                 tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
             ) {
+                // Auto-sync on quit (F10, opt-in): once, capped at 10s so
+                // quit never hangs on a dead network; a conflicted repo is
+                // refused politely inside run() and left untouched.
+                static QUIT_SYNC: std::sync::Once = std::sync::Once::new();
+                QUIT_SYNC.call_once(|| {
+                    let auto = app
+                        .state::<settings::SettingsStore>()
+                        .document()
+                        .map(|doc| doc.sync.auto_sync_on_quit)
+                        .unwrap_or(false);
+                    if auto {
+                        let manager = app.state::<sync::SyncManager>();
+                        let _ = tauri::async_runtime::block_on(async {
+                            tokio::time::timeout(
+                                std::time::Duration::from_secs(10),
+                                manager.run(&sync::device_hostname()),
+                            )
+                            .await
+                        });
+                    }
+                });
                 app.state::<pty::PtyManager>().kill_all();
                 app.state::<reach::ReachProber>().stop();
                 // Forward children die with the app — process-group SIGTERM,

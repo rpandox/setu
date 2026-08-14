@@ -11,7 +11,8 @@ commit as [`src/ipc/contract.ts`](../../src/ipc/contract.ts) and
   are `camelCase`; Tauri converts them to the Rust arguments' `snake_case`.
   Exception: `Host` record fields are snake_case — the record mirrors the
   `hosts.toml` schema ([PLAN.md](../../PLAN.md) §4, [store.md](store.md))
-  verbatim on both sides of IPC.
+  verbatim on both sides of IPC. `SettingsDocument` follows the same rule
+  for `settings.toml` (Phase 8).
 - Commands are request/response (`invoke`); events are core→WebView pushes.
 - Session-scoped events embed the id in the channel name, e.g.
   `pty:data:{sessionId}`.
@@ -650,6 +651,146 @@ stream. The passphrase crosses IPC once and is never stored or logged.
 | Emits      | nothing                                                                                                                            |
 | Fails when | the passphrase is empty, the config dir is missing, a Keychain read is refused, or IO/encryption fails (partial files are removed) |
 
+### `settings_get`
+
+Read the whole `settings.toml` document, fresh-parsed on every call so the
+Settings window shows the file's current truth — hand edits included. A
+missing file is the documented defaults, never an error. Fields are
+snake_case: the record mirrors the TOML schema verbatim (the `Host`
+precedent).
+
+|            |                                                                                          |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| Payload    | `{}`                                                                                     |
+| Result     | `SettingsDocument` (`reachability`, `tailnet`, `terminal`, `sync`, `snapshots`, `flags`) |
+| Emits      | nothing                                                                                  |
+| Fails when | the file exists but can't be read or parsed                                              |
+
+### `settings_set`
+
+Validate and save the whole document atomically (temp file + rename —
+partial updates don't exist, the `ui_state_set` precedent). On success the
+core emits `settings:changed` to **every** window: the Settings window is
+its own webview, so the event is the only channel by which the main
+window's stores learn to hot-apply (fonts to open terminals, prober
+re-tune). The snapshot scheduler is poked so a changed interval applies
+immediately. Out-of-range values come back as per-field errors, keyed by
+TOML path.
+
+|            |                                                                 |
+| ---------- | --------------------------------------------------------------- |
+| Payload    | `{ document: SettingsDocument }`                                |
+| Result     | `{ settings?: SettingsDocument, errors: { field, message }[] }` |
+| Emits      | `settings:changed` (on success)                                 |
+| Fails when | the write itself fails (validation problems are result-side)    |
+
+### `settings_window_open`
+
+Open — or focus, when already open — the Settings window: a real second
+webview window labeled `settings`, serving the same bundle routed by the
+`?window=settings` query (PLAN.md §5, settings-window-mechanics row). ⌘,
+and the palette's "Open settings" land here.
+
+|            |                                        |
+| ---------- | -------------------------------------- |
+| Payload    | `{}`                                   |
+| Result     | `null`                                 |
+| Emits      | nothing                                |
+| Fails when | the window can't be created or focused |
+
+### `git_sync_status`
+
+Read the sync dot's state (F10): `clean` / `ahead` / `behind` /
+`conflict` / `local`, plus the remote URL, the dirty flag, ahead/behind
+counts, conflicted files, and the newest commit's Unix time. Local-only —
+it never fetches, so `behind` reflects the last fetch (a `git_sync_run`
+refreshes it). No repo yet, no remote, or no commits are states, not
+errors.
+
+|            |                                                                                               |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| Payload    | `{}`                                                                                          |
+| Result     | `GitSyncStatus` — `{ state, remoteUrl?, dirty, ahead, behind, conflictFiles, lastCommitTs? }` |
+| Emits      | nothing                                                                                       |
+| Fails when | git is missing, or a git call fails unexpectedly                                              |
+
+### `git_sync_run`
+
+"Sync now" (F10): secrets lint → `git add -A` → commit
+`setu: <hostname> <ts>` → fetch → rebase → push, each git call prompt-free
+(`GIT_TERMINAL_PROMPT=0`, ssh `BatchMode`) and capped at 30 s. Expected
+outcomes ride the result: a **lint block** fills `blocked` with the
+offending lines — nothing is staged; a **conflicted rebase** fills
+`conflictFiles` and is left in progress (never auto-resolved — resolve in
+place or `git_sync_abort`); fetch/push trouble fills `message`. With no
+remote configured the run stops after the commit — local mode, still `ok`.
+First run initializes the repo and seeds `.gitignore`; a missing git
+identity gets a repo-local `setu <setu@hostname>` fallback.
+
+|            |                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------- |
+| Payload    | `{}`                                                                               |
+| Result     | `{ ok, status, blocked: { file, lineNo, line, rule }[], conflictFiles, message? }` |
+| Emits      | `sync:update` with the fresh status                                                |
+| Fails when | git is missing, or IO fails (user-actionable outcomes are result-side)             |
+
+### `git_sync_set_remote`
+
+Point the config repo's `origin` at a URL, initializing the repo first if
+needed; an **empty** URL removes the remote and the dot returns to
+`local`. The remote lives in the repo's own `.git/config` — never in the
+synced settings.toml, which would overwrite each machine's remote on every
+pull (PLAN.md §5). URLs with whitespace or a leading `-` are refused
+(argument-injection guard).
+
+|            |                                                        |
+| ---------- | ------------------------------------------------------ |
+| Payload    | `{ url: string }`                                      |
+| Result     | `{ ok, status?, message? }`                            |
+| Emits      | `sync:update` (on success)                             |
+| Fails when | git is missing (a bad URL is `{ ok: false, message }`) |
+
+### `git_sync_abort`
+
+"Cancel sync": run `git rebase --abort`, restoring the exact pre-sync
+state — the one-click escape from `conflict` for anyone who doesn't want
+to resolve markers by hand.
+
+|            |                                        |
+| ---------- | -------------------------------------- |
+| Payload    | `{}`                                   |
+| Result     | `GitSyncStatus`                        |
+| Emits      | `sync:update`                          |
+| Fails when | no rebase is in progress, or git fails |
+
+### `sync_open_dir`
+
+Open `~/.config/setu` in Finder — the F10 conflict path ("open dir in
+Finder + a short resolution doc") and the footer popover's shortcut to
+the files.
+
+|            |                                           |
+| ---------- | ----------------------------------------- |
+| Payload    | `{}`                                      |
+| Result     | `null`                                    |
+| Emits      | nothing                                   |
+| Fails when | the dir can't be resolved or Finder balks |
+
+### `snapshot_now`
+
+Archive the config dir immediately (the Settings button):
+`setu-config-<UTC ts>.tar.gz` written atomically into the state dir's
+`snapshots/` folder, then pruned to the configured `keep`. The scheduled
+weekly snapshot uses the same engine; "when did the last one run" is the
+newest archive's mtime — there is no state file.
+
+|            |                                                      |
+| ---------- | ---------------------------------------------------- |
+| Payload    | `{}`                                                 |
+| Result     | `{ path: string }`                                   |
+| Emits      | nothing                                              |
+| Fails when | the config dir doesn't exist yet, or the write fails |
+
 ## Events
 
 ### `pty:data:{sessionId}`
@@ -719,3 +860,23 @@ Payload: `{ ruleKey: string, hostId: string, state: "starting" | "amber" |
 "green" | "red", reason?: string, proxyString?: string }` — `proxyString`
 (`socks5://localhost:PORT`) rides every `D`-rule event for the popover's
 copy button.
+
+### `settings:changed`
+
+The whole `settings.toml` document as just saved by `settings_set`
+(Phase 8). This is the **cross-window propagation channel**: the Settings
+window lives in its own webview with its own store instances, so the main
+window reloads and hot-applies from this event — terminal fonts and
+scrollback onto live terminals, a prober re-tune via `reach_start`.
+
+Payload: `SettingsDocument` — the same shape `settings_get` returns.
+
+### `sync:update`
+
+A fresh sync status after any mutating sync command (`git_sync_run`,
+`git_sync_set_remote`, `git_sync_abort`), from whichever window invoked
+it (F10). The sidebar footer's dot is the single consumer in the main
+window; the Settings sync section listens too. One channel — the payload
+is the whole status, the `reach:update` precedent.
+
+Payload: `GitSyncStatus` — the same shape `git_sync_status` returns.

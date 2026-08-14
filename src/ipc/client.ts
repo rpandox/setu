@@ -10,10 +10,12 @@ import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import type {
   ForwardStatus,
+  GitSyncStatus,
   HostkeyPromptEvent,
   IpcCommands,
   PtyExitEvent,
   ReachUpdate,
+  SettingsDocument,
   SftpProgressEvent,
 } from "./contract";
 
@@ -136,6 +138,38 @@ export function onForwardUpdate(
   onUpdate: (status: ForwardStatus) => void,
 ): Promise<UnlistenFn> {
   return listen<ForwardStatus>("forward:update", (event) => {
+    onUpdate(event.payload);
+  });
+}
+
+/**
+ * Subscribes to `settings:changed` — the whole document as just saved
+ * (Phase 8). The cross-window propagation channel: the Settings window
+ * saves, every window's settings store reloads and hot-applies from here.
+ *
+ * @param onChanged - Called with each saved document, in arrival order.
+ * @returns A promise resolving to the unlisten function.
+ */
+export function onSettingsChanged(
+  onChanged: (document: SettingsDocument) => void,
+): Promise<UnlistenFn> {
+  return listen<SettingsDocument>("settings:changed", (event) => {
+    onChanged(event.payload);
+  });
+}
+
+/**
+ * Subscribes to `sync:update` — a fresh sync status after any mutating
+ * sync command, from either window (F10). Keeps the sidebar footer dot
+ * live without polling.
+ *
+ * @param onUpdate - Called with each status, in arrival order.
+ * @returns A promise resolving to the unlisten function.
+ */
+export function onSyncUpdate(
+  onUpdate: (status: GitSyncStatus) => void,
+): Promise<UnlistenFn> {
+  return listen<GitSyncStatus>("sync:update", (event) => {
     onUpdate(event.payload);
   });
 }

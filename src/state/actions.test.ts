@@ -80,6 +80,7 @@ describe("actionRegistry", () => {
       "toggle-sftp", // ⇧⌘S (Phase 5)
       "toggle-snippet-drawer", // ⌘J (Phase 6)
       "toggle-sidebar", // ⌘/
+      "open-settings", // ⌘, (Phase 8)
     ];
     const ids = actionRegistry().map((a) => a.id);
     for (const id of expected) {
@@ -88,9 +89,10 @@ describe("actionRegistry", () => {
   });
 
   it("ids are unique and every action shows a shortcut", () => {
-    // Palette-only actions carry no §8 key — the one sanctioned exception
-    // to the label rule (PLAN.md §5, Phase 7 Keys-panel row).
-    const paletteOnly = new Set(["manage-ssh-keys"]);
+    // Palette-only actions carry no §8 key — the sanctioned exceptions
+    // (PLAN.md §5: Phase 7 Keys-panel row; Phase 8 sync — the footer is
+    // its pointer home).
+    const paletteOnly = new Set(["manage-ssh-keys", "sync-now"]);
     const actions = actionRegistry();
     const ids = actions.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);

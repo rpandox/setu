@@ -11,6 +11,7 @@ import { useToast } from "../state/toast";
 import { useUiPrefs } from "../state/uiState";
 import { HostLed, ReachChip } from "./HostLed";
 import { SelectionBar } from "./SelectionBar";
+import { SyncFooter } from "./SyncFooter";
 import { TailnetSection } from "./TailnetSection";
 
 /**
@@ -345,6 +346,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
           {tailnetAvailable && <TailnetSection peers={visiblePeers} query={query} />}
         </nav>
         <SelectionBar />
+        <SyncFooter />
       </div>
     </aside>
   );

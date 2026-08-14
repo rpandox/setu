@@ -1,0 +1,198 @@
+/* The sidebar footer (F10): sync dot + label, popover above. The dot
+   follows the HostLed treatment — state color, glow only when clean
+   (the LED discipline: glow marks "good right now"). */
+
+.syncfooter {
+  position: relative;
+  flex-shrink: 0;
+  border-top: 1px solid var(--line);
+}
+
+.syncfooter-summary {
+  display: flex;
+  gap: calc(var(--pad) / 1.5);
+  align-items: center;
+  width: 100%;
+  padding: var(--pad) calc(var(--pad) * 1.5);
+  background: none;
+  border: none;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: left;
+  transition: background var(--t-fast);
+}
+
+.syncfooter-summary:hover {
+  background: var(--bg-2);
+}
+
+.syncfooter-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.syncfooter-dot--clean {
+  background: var(--ok);
+  box-shadow: var(--glow);
+}
+
+.syncfooter-dot--ahead,
+.syncfooter-dot--behind {
+  background: var(--warn);
+}
+
+.syncfooter-dot--conflict {
+  background: var(--err);
+}
+
+.syncfooter-dot--local {
+  background: none;
+  border: 1px solid var(--ink-3);
+}
+
+.syncfooter-dot--syncing {
+  background: var(--info);
+  animation: syncfooter-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes syncfooter-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .syncfooter-dot--syncing {
+    animation: none;
+  }
+}
+
+.syncfooter-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.syncfooter-popover {
+  position: absolute;
+  bottom: calc(100% + 4px);
+
+  /* Anchored to both edges, not a fixed width: the sidebar clips its
+     overflow, so a wider box would get cut off at the sidebar border. */
+  right: var(--pad);
+  left: var(--pad);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pad);
+  padding: var(--pad) calc(var(--pad) * 1.5);
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-2);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg-0) 70%, transparent);
+}
+
+.syncfooter-row--head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.syncfooter-title {
+  color: var(--ink-1);
+  font-size: var(--text-base);
+  font-weight: 550;
+}
+
+.syncfooter-icon {
+  display: flex;
+  padding: 2px;
+  background: none;
+  border: none;
+  color: var(--ink-2);
+}
+
+.syncfooter-icon:hover {
+  color: var(--ink-1);
+}
+
+.syncfooter-detail,
+.syncfooter-blocked,
+.syncfooter-conflict {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+}
+
+.syncfooter-mono {
+  overflow: hidden;
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.syncfooter-hint {
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.syncfooter-error {
+  color: var(--err);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.syncfooter-blocked-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.syncfooter-code {
+  overflow: hidden;
+  padding: 2px calc(var(--pad) / 2);
+  background: var(--bg-1);
+  border-radius: var(--r-1);
+  color: var(--warn);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.syncfooter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--pad) / 1.5);
+}
+
+.syncfooter-action {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: calc(var(--pad) / 2) var(--pad);
+  background: var(--bg-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-size: 12px;
+  transition: background var(--t-fast);
+}
+
+.syncfooter-action:hover:not(:disabled) {
+  background: var(--bg-2);
+}
+
+.syncfooter-action:disabled {
+  color: var(--ink-3);
+}
+
+.syncfooter-action--danger {
+  color: var(--err);
+}
