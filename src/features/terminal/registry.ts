@@ -15,8 +15,12 @@ import "@xterm/xterm/css/xterm.css";
 import { phosphorTheme, terminalTypography } from "./theme";
 import { connectPtyStream } from "./stream";
 import { resolvePtyWriteTargets } from "../../state/broadcast";
+import { useSettings } from "../../state/settings";
 
-/** Scrollback kept per terminal (PLAN.md §3). */
+/**
+ * Scrollback kept per terminal (PLAN.md §3) — the fallback before the
+ * settings store loads; `[terminal] scrollback_lines` overrides it.
+ */
 export const SCROLLBACK_LINES = 10_000;
 
 /** A registered terminal and the handles components need. */
@@ -61,11 +65,17 @@ const handles = new Map<string, TerminalHandle>();
  */
 export async function createSessionTerminal(sessionId: string): Promise<TerminalHandle> {
   const { fontFamily, fontSize } = terminalTypography();
+  // Settings override the token defaults once loaded (Phase 8); a terminal
+  // created before the first load answers is corrected by the hot-apply
+  // subscription the moment the document arrives.
+  const settings = useSettings.getState();
   const term = new Terminal({
     theme: phosphorTheme(),
     fontFamily,
-    fontSize,
-    scrollback: SCROLLBACK_LINES,
+    fontSize: settings.loaded ? settings.doc.terminal.font_size : fontSize,
+    scrollback: settings.loaded
+      ? settings.doc.terminal.scrollback_lines
+      : SCROLLBACK_LINES,
     cursorBlink: true,
     allowProposedApi: true,
   });
@@ -176,4 +186,27 @@ export function getSessionTerminal(sessionId: string): TerminalHandle | undefine
  */
 export function disposeSessionTerminal(sessionId: string): void {
   handles.get(sessionId)?.dispose();
+}
+
+/**
+ * Applies terminal options to every live terminal — the Phase 8 hot-apply
+ * (F10 acceptance: a font-size change in the Settings window live-updates
+ * open terminals). Refits each pane so row/column geometry follows the
+ * new metrics; the PTY resize rides the fit's normal resize path.
+ *
+ * @param options - The new font size (px) and scrollback line count.
+ */
+export function applyTerminalOptions(options: {
+  fontSize: number;
+  scrollback: number;
+}): void {
+  for (const handle of handles.values()) {
+    handle.term.options.fontSize = options.fontSize;
+    handle.term.options.scrollback = options.scrollback;
+    try {
+      handle.fit.fit();
+    } catch {
+      // Not yet attached to a container — open() runs its own fit.
+    }
+  }
 }

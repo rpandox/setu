@@ -1,0 +1,224 @@
+/* The Settings window (Phase 8): its own webview, same tokens. Left nav,
+   scrollable content, sticky footer with the one Save button. */
+
+.settings-window {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg-0);
+  color: var(--ink-1);
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 180px;
+  flex-shrink: 0;
+  padding: calc(var(--pad) * 2) var(--pad);
+  background: var(--bg-1);
+  border-right: 1px solid var(--line);
+}
+
+.settings-title {
+  padding: 0 var(--pad) calc(var(--pad) * 1.5);
+  color: var(--ink-1);
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--pad) / 1.5);
+  padding: calc(var(--pad) * 0.75) var(--pad);
+  background: none;
+  border: none;
+  border-radius: var(--r-1);
+  color: var(--ink-2);
+  font-size: var(--text-base);
+  text-align: left;
+  transition:
+    background var(--t-fast),
+    color var(--t-fast);
+}
+
+.settings-nav-item:hover {
+  background: var(--bg-2);
+  color: var(--ink-1);
+}
+
+.settings-nav-item.is-active {
+  background: var(--bg-3);
+  color: var(--ink-1);
+}
+
+.settings-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.settings-section {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: calc(var(--pad) * 2);
+  padding: calc(var(--pad) * 3);
+}
+
+.settings-note {
+  max-width: 46ch;
+  color: var(--ink-2);
+  font-size: var(--text-base);
+  line-height: 1.45;
+}
+
+.settings-note code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  color: var(--ink-1);
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+}
+
+.settings-field--toggle {
+  flex-direction: row;
+  gap: var(--pad);
+  align-items: baseline;
+  color: var(--ink-1);
+  font-size: var(--text-base);
+}
+
+.settings-field--toggle .settings-hint {
+  display: block;
+}
+
+.settings-field--toggle.is-disabled {
+  color: var(--ink-3);
+}
+
+.settings-field-label {
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-field-control {
+  display: flex;
+  gap: var(--pad);
+  align-items: center;
+}
+
+.settings-input {
+  flex: 1;
+  min-width: 0;
+  padding: calc(var(--pad) * 0.75) var(--pad);
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+}
+
+.settings-input--number {
+  flex: 0 0 90px;
+  text-align: right;
+}
+
+.settings-unit {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+}
+
+.settings-hint {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.settings-error {
+  color: var(--err);
+  font-size: 12px;
+}
+
+.settings-saved {
+  color: var(--ok);
+  font-size: var(--text-base);
+}
+
+.settings-minor {
+  padding: calc(var(--pad) * 0.6) var(--pad);
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-size: var(--text-base);
+  white-space: nowrap;
+  transition: background var(--t-fast);
+}
+
+.settings-minor:hover:not(:disabled) {
+  background: var(--bg-3);
+}
+
+.settings-minor:disabled {
+  color: var(--ink-3);
+}
+
+.settings-sync-state {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  color: var(--ink-2);
+}
+
+.settings-sync-state--clean {
+  color: var(--ok);
+}
+
+.settings-sync-state--conflict {
+  color: var(--err);
+}
+
+.settings-sync-state--ahead,
+.settings-sync-state--behind {
+  color: var(--warn);
+}
+
+.settings-footer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding: calc(var(--pad) * 1.5) calc(var(--pad) * 3);
+  background: var(--bg-1);
+  border-top: 1px solid var(--line);
+}
+
+.settings-save {
+  padding: calc(var(--pad) * 0.75) calc(var(--pad) * 2.5);
+  background: var(--neon);
+  border: none;
+  border-radius: var(--r-1);
+  color: var(--neon-ink);
+  font-size: var(--text-base);
+  font-weight: 550;
+  transition: opacity var(--t-fast);
+}
+
+.settings-save:disabled {
+  opacity: 0.35;
+}
