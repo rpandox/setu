@@ -1,9 +1,13 @@
 import "./HostEditor.css";
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
+import { Checkbox, Select } from "../../components/controls";
+import { ipcInvoke } from "../../ipc/client";
 import type { Host, HostFieldError, HostForward } from "../../ipc/contract";
 import { ruleKeyOf, useForwards } from "../../state/forwards";
 import { duplicatesOf, emptyHostDraft, useHosts } from "../../state/hosts";
+import { isHardwareKey, useKeys } from "../../state/keys";
+import { useToast } from "../../state/toast";
 
 /** The 8 identity hues (§7) — indices into the `--hue-N` tokens. */
 const HUES = [0, 1, 2, 3, 4, 5, 6, 7] as const;
@@ -48,11 +52,36 @@ export function HostEditor() {
   const [tagInput, setTagInput] = useState("");
   const [errors, setErrors] = useState<HostFieldError[]>([]);
   const [saving, setSaving] = useState(false);
+  // Keychain state for the SFTP password row (F8). The secret itself lives
+  // only in `passwordInput` between typing and the keychain_set call — it
+  // never enters `draft` (hosts.toml's schema forbids secret fields).
+  const [passwordStored, setPasswordStored] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [keychainError, setKeychainError] = useState<string | null>(null);
+  // The mosh toggle's inline preflight (F3 mosh row): warn at edit time,
+  // don't block the save — the record stores intent either way.
+  const [moshMissing, setMoshMissing] = useState(false);
 
   useEffect(() => {
     setDraft(original);
     setTagInput("");
     setErrors([]);
+    setPasswordInput("");
+    setPasswordStored(false);
+    setKeychainError(null);
+    setMoshMissing(false);
+    if (original.id === "") return;
+    let cancelled = false;
+    ipcInvoke("keychain_has", { kind: "password", hostId: original.id })
+      .then((result) => {
+        if (!cancelled) setPasswordStored(result.exists);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setKeychainError(String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [original]);
 
   if (editorTarget === null) return null;
@@ -90,6 +119,35 @@ export function HostEditor() {
       patch({ tags: [...draft.tags, tag] });
     }
     setTagInput("");
+  };
+
+  /** Stores the typed SFTP password in the Keychain and forgets it here. */
+  const storePassword = async (): Promise<void> => {
+    setKeychainError(null);
+    try {
+      await ipcInvoke("keychain_set", {
+        kind: "password",
+        hostId: draft.id,
+        secret: passwordInput,
+      });
+      setPasswordInput("");
+      setPasswordStored(true);
+      useToast.getState().show("SFTP password stored in Keychain", "success");
+    } catch (error) {
+      setKeychainError(String(error));
+    }
+  };
+
+  /** Removes the host's SFTP password from the Keychain. */
+  const clearPassword = async (): Promise<void> => {
+    setKeychainError(null);
+    try {
+      await ipcInvoke("keychain_delete", { kind: "password", hostId: draft.id });
+      setPasswordStored(false);
+      useToast.getState().show("SFTP password removed from Keychain");
+    } catch (error) {
+      setKeychainError(String(error));
+    }
   };
 
   const submit = async (): Promise<void> => {
@@ -193,18 +251,87 @@ export function HostEditor() {
             </p>
           )}
 
-          <label className="hosteditor-field">
-            <span className="hosteditor-label">Identity</span>
+          <div className="hosteditor-field">
+            <span className="hosteditor-label" id="hosteditor-identity-label">
+              Identity
+            </span>
             <input
               className="hosteditor-input hosteditor-input--mono"
               value={draft.identity}
               placeholder='"agent" or a key path'
+              aria-labelledby="hosteditor-identity-label"
               onChange={(event) => patch({ identity: event.target.value })}
             />
             {errorFor("identity") && (
               <span className="hosteditor-fielderror">{errorFor("identity")}</span>
             )}
-          </label>
+            {isHardwareKey(draft.identity) && (
+              <span className="hosteditor-hint">
+                Hardware-backed key — system ssh will ask for a touch when connecting
+                (F8).
+              </span>
+            )}
+            <button
+              className="hosteditor-keyslink"
+              type="button"
+              onClick={() => useKeys.getState().openPanel()}
+            >
+              Manage SSH keys…
+            </button>
+          </div>
+
+          <div className="hosteditor-field">
+            <span className="hosteditor-label" id="hosteditor-password-label">
+              SFTP password
+            </span>
+            {draft.id === "" ? (
+              <p className="hosteditor-hint">
+                Save the host first, then store a password here. It goes to the macOS
+                Keychain — never to disk — and is used for SFTP only; terminal ssh stays
+                agent-first (F8).
+              </p>
+            ) : passwordStored ? (
+              <div
+                className="hosteditor-keychain"
+                aria-labelledby="hosteditor-password-label"
+              >
+                <span className="hosteditor-keychain-state">Stored in Keychain</span>
+                <button
+                  className="hosteditor-keychain-button"
+                  type="button"
+                  onClick={() => void clearPassword()}
+                >
+                  Clear
+                </button>
+              </div>
+            ) : (
+              <div
+                className="hosteditor-keychain"
+                aria-labelledby="hosteditor-password-label"
+              >
+                <input
+                  className="hosteditor-input hosteditor-keychain-input"
+                  type="password"
+                  value={passwordInput}
+                  placeholder="For SFTP only — stored in Keychain"
+                  autoComplete="new-password"
+                  aria-label="SFTP password"
+                  onChange={(event) => setPasswordInput(event.target.value)}
+                />
+                <button
+                  className="hosteditor-keychain-button"
+                  type="button"
+                  disabled={passwordInput === ""}
+                  onClick={() => void storePassword()}
+                >
+                  Store
+                </button>
+              </div>
+            )}
+            {keychainError !== null && (
+              <span className="hosteditor-fielderror">{keychainError}</span>
+            )}
+          </div>
 
           <label className="hosteditor-field">
             <span className="hosteditor-label">Group</span>
@@ -303,23 +430,21 @@ export function HostEditor() {
                     key={index}
                     title={locked ? "Toggle the forward off first to edit it" : undefined}
                   >
-                    <select
-                      className="hosteditor-input hosteditor-forward-kind"
+                    <Select
+                      className="hosteditor-forward-kind"
                       value={rule.type}
                       disabled={locked}
                       aria-label={`Forward ${index + 1} type`}
-                      onChange={(event) =>
+                      options={FORWARD_KINDS.map((kind) => ({
+                        value: kind,
+                        label: kind,
+                      }))}
+                      onChange={(kind) =>
                         patchForward(index, {
-                          type: event.target.value as HostForward["type"],
+                          type: kind as HostForward["type"],
                         })
                       }
-                    >
-                      {FORWARD_KINDS.map((kind) => (
-                        <option key={kind} value={kind}>
-                          {kind}
-                        </option>
-                      ))}
-                    </select>
+                    />
                     <input
                       className="hosteditor-input hosteditor-input--mono hosteditor-forward-spec"
                       value={rule.spec}
@@ -331,13 +456,10 @@ export function HostEditor() {
                       }
                     />
                     <label className="hosteditor-forward-auto">
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={rule.auto}
                         disabled={locked}
-                        onChange={(event) =>
-                          patchForward(index, { auto: event.target.checked })
-                        }
+                        onChange={(auto) => patchForward(index, { auto })}
                       />
                       auto
                     </label>
@@ -386,22 +508,42 @@ export function HostEditor() {
 
           <div className="hosteditor-toggles">
             <label className="hosteditor-toggle">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={draft.favorite}
-                onChange={(event) => patch({ favorite: event.target.checked })}
+                onChange={(favorite) => patch({ favorite })}
               />
               Favorite
             </label>
             <label className="hosteditor-toggle">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={draft.reachability}
-                onChange={(event) => patch({ reachability: event.target.checked })}
+                onChange={(reachability) => patch({ reachability })}
               />
               Reachability LED (Phase 4)
             </label>
+            <label className="hosteditor-toggle">
+              <Checkbox
+                checked={draft.use_mosh}
+                onChange={(useMosh) => {
+                  patch({ use_mosh: useMosh });
+                  if (!useMosh) {
+                    setMoshMissing(false);
+                    return;
+                  }
+                  void ipcInvoke("binary_check", { name: "mosh" })
+                    .then((result) => setMoshMissing(!result.found))
+                    .catch(() => setMoshMissing(true));
+                }}
+              />
+              Prefer mosh
+            </label>
           </div>
+          {moshMissing && (
+            <p className="hosteditor-hint" role="status">
+              mosh isn't installed (<code>brew install mosh</code>). The toggle can stay
+              on, but connects will fail until it is.
+            </p>
+          )}
 
           <footer className="hosteditor-footer">
             <button className="hosteditor-cancel" type="button" onClick={closeEditor}>

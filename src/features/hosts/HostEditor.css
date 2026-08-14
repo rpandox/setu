@@ -116,6 +116,75 @@
   font-size: 11px;
 }
 
+/* SFTP password row (F8): input/state + action, all Keychain-backed. */
+.hosteditor-keychain {
+  display: flex;
+  gap: calc(var(--pad) / 2);
+  align-items: center;
+}
+
+.hosteditor-keychain-input {
+  flex: 1;
+}
+
+.hosteditor-keychain-state {
+  flex: 1;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.hosteditor-keychain-button {
+  padding: calc(var(--pad) / 4) var(--pad);
+  background: var(--bg-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  transition: border-color var(--t-fast);
+}
+
+.hosteditor-keychain-button:hover {
+  border-color: var(--ink-2);
+}
+
+.hosteditor-keychain-button:focus-visible {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}
+
+.hosteditor-keychain-button:disabled {
+  opacity: 0.5;
+}
+
+/* The quiet "Manage SSH keys…" link under the identity field (F8). */
+.hosteditor-keyslink {
+  align-self: flex-start;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--info);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.hosteditor-keyslink:focus-visible {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}
+
+/* Quiet inline guidance (e.g. the pre-save Keychain hint). */
+.hosteditor-hint {
+  margin: 0;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: var(--leading);
+}
+
 /* Duplicate user@host:port — a warning, never a block (F1). */
 .hosteditor-warning {
   padding: calc(var(--pad) / 2) var(--pad);

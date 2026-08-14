@@ -8,6 +8,7 @@
 import "./dialogs.css";
 import { useEffect, useRef, useState } from "react";
 
+import { Checkbox } from "../../components/controls";
 import { parseOctal, toOctal } from "./listing";
 
 /** Props for {@link InputDialog}. */
@@ -240,8 +241,7 @@ export function ChmodDialog({
                   const bit = col.bit << row.shift;
                   return (
                     <td key={col.label}>
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         aria-label={`${row.label} ${col.label.toLowerCase()}`}
                         checked={(mode & bit) !== 0}
                         onChange={() => applyMode(mode ^ bit)}

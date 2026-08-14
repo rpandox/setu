@@ -8,6 +8,10 @@
 //! writes a scratch `known_hosts`, never the real one. It then walks:
 //!
 //! - unknown host key → prompt (auto-trusted) → append → silent reconnect
+//! - the auth ladder's **passphrase rung** (F8, Phase 7): an encrypted key
+//!   with no stored passphrase stops with `NeedsSecret`; a wrong stored
+//!   passphrase stops again; the right one connects (secrets injected via
+//!   [`sftp::SecretSource`] — the real Keychain is never touched)
 //! - the auth ladder's agent rung (a private `ssh-agent` holding the key)
 //! - listings (dotfiles, unicode, symlinks-as-links), stat-follow, mkdir,
 //!   rename, chmod, recursive delete that must NOT follow links, realpath
@@ -24,15 +28,45 @@
 //! cargo test --test live_sftp -- --ignored --nocapture
 //! ```
 
+use std::collections::HashMap;
 use std::io::Write as _;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use setu_lib::sftp::{self, HostTarget, SftpEvents, SftpManager};
+use setu_lib::sftp::{
+    self, ConnectOutcome, HostTarget, MissingSecret, SecretSource, SftpEvents, SftpManager,
+};
 use sha1::{Digest, Sha1};
 use tokio::sync::mpsc;
+
+/// Injected [`SecretSource`]: a shared map instead of the login keychain,
+/// so the passphrase-rung walk is hermetic and needs no Touch ID.
+#[derive(Default)]
+struct TestSecrets {
+    passphrases: Mutex<HashMap<String, String>>,
+}
+
+impl SecretSource for TestSecrets {
+    fn password(&self, _host_id: &str) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+
+    fn passphrase(&self, key_path: &str) -> Result<Option<String>, String> {
+        Ok(self.passphrases.lock().unwrap().get(key_path).cloned())
+    }
+}
+
+/// Connects expecting a session; a `NeedsSecret` stop is a test failure.
+async fn connect_ok(manager: &SftpManager, target: HostTarget) -> String {
+    match manager.connect(target).await.expect("connect") {
+        ConnectOutcome::Connected(id) => id,
+        ConnectOutcome::NeedsSecret { detail, .. } => {
+            panic!("unexpected needs-secret stop: {detail}")
+        }
+    }
+}
 
 /// One recorded `hostkey:prompt`.
 #[derive(Debug, Clone)]
@@ -189,8 +223,14 @@ impl SeverableProxy {
 
 /// Generates a passphrase-less ed25519 keypair at `path`.
 fn keygen(path: &Path) {
+    keygen_with_passphrase(path, "");
+}
+
+/// Generates an ed25519 keypair at `path` with the given passphrase
+/// (throwaway test keys only — a real passphrase must never ride argv).
+fn keygen_with_passphrase(path: &Path, passphrase: &str) {
     let status = Command::new("ssh-keygen")
-        .args(["-q", "-t", "ed25519", "-N", "", "-f"])
+        .args(["-q", "-t", "ed25519", "-N", passphrase, "-f"])
         .arg(path)
         .status()
         .expect("run ssh-keygen");
@@ -318,11 +358,18 @@ async fn live_acceptance_walk() {
     let host_key = scratch.join("host_key");
     let host_key2 = scratch.join("host_key2");
     let user_key = scratch.join("user_key");
+    let locked_key = scratch.join("locked_key");
     keygen(&host_key);
     keygen(&host_key2);
     keygen(&user_key);
+    keygen_with_passphrase(&locked_key, "quartz-battery-staple");
     let authorized = scratch.join("authorized_keys");
-    std::fs::copy(user_key.with_extension("pub"), &authorized).expect("authorized_keys");
+    let mut auth_text =
+        std::fs::read_to_string(user_key.with_extension("pub")).expect("user pubkey");
+    auth_text.push_str(
+        &std::fs::read_to_string(locked_key.with_extension("pub")).expect("locked pubkey"),
+    );
+    std::fs::write(&authorized, auth_text).expect("authorized_keys");
 
     let port = free_port();
     let sshd = start_sshd(&scratch, port, &host_key, &authorized);
@@ -337,7 +384,8 @@ async fn live_acceptance_walk() {
         prompts: Mutex::new(Vec::new()),
         xfer_tx,
     });
-    let manager = Arc::new(SftpManager::new(recorder.clone()));
+    let secrets = Arc::new(TestSecrets::default());
+    let manager = Arc::new(SftpManager::with_secrets(recorder.clone(), secrets.clone()));
     *recorder.manager.lock().unwrap() = Some(manager.clone());
 
     let user = std::env::var("USER").expect("USER set");
@@ -351,10 +399,7 @@ async fn live_acceptance_walk() {
     };
 
     // === Acceptance item 3: unknown key → SHA256 prompt → trust appends ==
-    let session = manager
-        .connect(target(user_key.to_str().unwrap()))
-        .await
-        .expect("first connect (unknown key, then trusted)");
+    let session = connect_ok(&manager, target(user_key.to_str().unwrap())).await;
     {
         let prompts = recorder.prompts.lock().unwrap();
         assert_eq!(prompts.len(), 1, "exactly one prompt for the unknown key");
@@ -380,16 +425,64 @@ async fn live_acceptance_walk() {
 
     // A second connect must be silent (the key now matches).
     manager.disconnect(&session).await;
-    let session = manager
-        .connect(target(user_key.to_str().unwrap()))
-        .await
-        .expect("second connect (known key)");
+    let session = connect_ok(&manager, target(user_key.to_str().unwrap())).await;
     assert_eq!(
         recorder.prompts.lock().unwrap().len(),
         1,
         "no prompt on reconnect"
     );
     eprintln!("[ok] item 3 — reconnect with the trusted key is silent");
+
+    // === F8 (Phase 7): the passphrase rung, no agent in reach =============
+    // No stored passphrase → the ladder must stop with NeedsSecret rather
+    // than fail (the frontend prompts, stores, retries).
+    let locked_path = locked_key.to_str().unwrap();
+    match manager
+        .connect(target(locked_path))
+        .await
+        .expect("connect with encrypted key (no passphrase stored)")
+    {
+        ConnectOutcome::NeedsSecret {
+            missing: MissingSecret::Passphrase { key_path },
+            ..
+        } => assert_eq!(key_path, locked_path, "prompt names the configured path"),
+        other => panic!("expected a passphrase NeedsSecret stop, got {other:?}"),
+    }
+    // A wrong stored passphrase must stop again — with the "didn't unlock"
+    // detail — so the user can replace it.
+    secrets
+        .passphrases
+        .lock()
+        .unwrap()
+        .insert(locked_path.to_string(), "wrong".into());
+    match manager
+        .connect(target(locked_path))
+        .await
+        .expect("connect with encrypted key (wrong passphrase stored)")
+    {
+        ConnectOutcome::NeedsSecret {
+            missing: MissingSecret::Passphrase { .. },
+            detail,
+        } => assert!(
+            detail.contains("didn't unlock"),
+            "detail explains the stale passphrase: {detail}"
+        ),
+        other => panic!("expected a wrong-passphrase NeedsSecret stop, got {other:?}"),
+    }
+    // The right passphrase connects.
+    secrets
+        .passphrases
+        .lock()
+        .unwrap()
+        .insert(locked_path.to_string(), "quartz-battery-staple".into());
+    let locked_session = connect_ok(&manager, target(locked_path)).await;
+    manager.disconnect(&locked_session).await;
+    assert_eq!(
+        recorder.prompts.lock().unwrap().len(),
+        1,
+        "the passphrase walk never re-prompted for the host key"
+    );
+    eprintln!("[ok] F8 — passphrase rung: missing → stop, wrong → stop, right → connect");
 
     // === Acceptance item 1: connect via the AGENT rung, browse home ======
     let agent_out = Command::new("/usr/bin/ssh-agent")
@@ -416,10 +509,7 @@ async fn live_acceptance_walk() {
     assert!(added.success(), "ssh-add failed");
     std::env::set_var("SSH_AUTH_SOCK", &sock);
 
-    let agent_session = manager
-        .connect(target("agent"))
-        .await
-        .expect("connect via ssh-agent identities");
+    let agent_session = connect_ok(&manager, target("agent")).await;
     let sftp = manager.session(&agent_session).await.expect("live session");
     let home = sftp::remote_realpath(&sftp, ".").await.expect("realpath .");
     assert!(home.starts_with('/'), "home is absolute: {home}");
@@ -620,10 +710,7 @@ async fn live_acceptance_walk() {
     let proxy = SeverableProxy::start(port).await;
     let mut doomed_target = target(user_key.to_str().unwrap());
     doomed_target.port = proxy.port;
-    let doomed_session = manager
-        .connect(doomed_target)
-        .await
-        .expect("connect through the proxy");
+    let doomed_session = connect_ok(&manager, doomed_target).await;
     assert_eq!(
         recorder.prompts.lock().unwrap().len(),
         2,

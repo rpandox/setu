@@ -26,22 +26,31 @@ commit as [`src/ipc/contract.ts`](../../src/ipc/contract.ts) and
 
 Spawn a PTY session — `"local"` runs `$SHELL` (fallback `/bin/zsh`) as a
 login shell; `"ssh"` runs system `ssh -tt` to a known host with keepalive
-flags (`ServerAliveInterval=30`, `ServerAliveCountMax=3`). See
-[pty.md](pty.md) for the pipeline behind it.
+flags (`ServerAliveInterval=30`, `ServerAliveCountMax=3`); `"mosh"`
+(Phase 7) runs system `mosh` to a known host — UDP roaming, survives
+network changes. See [pty.md](pty.md) for the pipeline behind it.
 
-|            |                                                                                                                                                          |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Payload    | `{ kind: "local", cols: number, rows: number }` · `{ kind: "ssh", hostId: string, cols: number, rows: number }`                                          |
-| Result     | `{ sessionId: string }`                                                                                                                                  |
-| Emits      | `pty:data:{sessionId}` from spawn onward; one final `pty:exit:{sessionId}`                                                                               |
-| Fails when | the PTY can't be opened, the child can't be spawned, `kind` is `"ssh"` without a `hostId`, or the host id is unknown. No session exists after a failure. |
+|            |                                                                                                                                                                                  |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ kind: "local", cols: number, rows: number }` · `{ kind: "ssh" \| "mosh", hostId: string, cols: number, rows: number }`                                                        |
+| Result     | `{ sessionId: string }`                                                                                                                                                          |
+| Emits      | `pty:data:{sessionId}` from spawn onward; one final `pty:exit:{sessionId}`                                                                                                       |
+| Fails when | the PTY can't be opened, the child can't be spawned, `kind` is `"ssh"`/`"mosh"` without a `hostId`, the host id is unknown, or mosh isn't installed. No session after a failure. |
 
-The Rust core resolves `hostId` itself (from `hosts.toml`, or a live
-`~/.ssh/config` parse for `sshcfg:` ids) and builds the argv — argv never
-crosses IPC. Imported rows connect via their **bare alias**, so system ssh
+The Rust core resolves `hostId` itself (from `hosts.toml`, a live
+`~/.ssh/config` parse for `sshcfg:` ids, or a fresh `tailscale status
+--json` for `ts:` peer ids — both stateless by design) and builds the
+argv — argv never crosses IPC. Imported rows connect via their **bare alias**, so system ssh
 applies the user's real config (ProxyJump included); Setu rows get explicit
 `-p`/`-i`/`user@hostname` flags, plus `-- <startup>` when set. First-connect
-host-key prompts appear in the terminal itself. `"mosh"` arrives in Phase 7.
+host-key prompts appear in the terminal itself.
+
+For `"mosh"`, port and identity travel inside `--ssh=ssh …` (mosh only uses
+ssh for the handshake), the startup command splits on whitespace after
+`--`, and the binary is resolved to an **absolute path** — a GUI app's
+minimal `PATH` can't see Homebrew's mosh. The frontend routes a host's
+`use_mosh` toggle here after a `binary_check` preflight: a missing mosh is
+a toast and no session — never a silent fallback to ssh (PLAN.md §5).
 
 ### `pty_write`
 
@@ -121,17 +130,20 @@ the host keep running — the frontend marks their tabs "(orphaned)" (F1).
 
 ### `host_adopt`
 
-Copy an imported `~/.ssh/config` row into `hosts.toml` as an editable
-`source: "setu"` record. The config file itself is never touched. An
-alias-only row (no `HostName`) adopts with `hostname` set to the alias —
-exactly what ssh would have resolved.
+Copy an ephemeral row into `hosts.toml` as an editable `source: "setu"`
+record: an imported `~/.ssh/config` alias (F1), or — Phase 7 — a tailnet
+peer (F9, "Adopt as host"). The original source is never touched. An
+alias-only config row (no `HostName`) adopts with `hostname` set to the
+alias — exactly what ssh would have resolved. An adopted peer keeps its
+MagicDNS name as the hostname, gets a fresh uuid, and becomes a normal
+probed host.
 
-|            |                                                                                                                                               |
-| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Payload    | `{ hostId: string }` (an `sshcfg:` id)                                                                                                        |
-| Result     | the new persisted `Host`                                                                                                                      |
-| Emits      | nothing                                                                                                                                       |
-| Fails when | the id isn't `sshcfg:`, the alias no longer exists in the config, the copy fails validation (e.g. missing `IdentityFile`), or the write fails |
+|            |                                                                                                                                                     |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ hostId: string }` (an `sshcfg:` or `ts:` id)                                                                                                     |
+| Result     | the new persisted `Host`                                                                                                                            |
+| Emits      | nothing                                                                                                                                             |
+| Fails when | the id is neither `sshcfg:` nor `ts:`, the alias/peer no longer exists, the copy fails validation (e.g. missing `IdentityFile`), or the write fails |
 
 ### `snippet_list`
 
@@ -315,10 +327,18 @@ partial update. Writes are atomic (temp file + rename).
 
 ### `sftp_connect`
 
-Open an SFTP session to a host (F5). This is the app's only in-protocol SSH
-use — interactive terminals drive system `ssh` instead. Auth ladder: every
-ssh-agent identity, then the host's identity file when one is configured
-(passphrase-less; password auth arrives with the Keychain in Phase 7).
+Open an SFTP session to a host (F5 + F8). This is the app's only
+in-protocol SSH use — interactive terminals drive system `ssh` instead.
+Auth ladder: every ssh-agent identity, then the host's identity file
+(encrypted files unlock with the Keychain passphrase), then the
+Keychain-stored SFTP password — SFTP only; terminals stay agent-first.
+
+A secret the Keychain doesn't hold (or holds wrong) is an **expected
+outcome**, not an error: the result carries `needsSecret`, the
+SecretPromptDialog collects the secret, `keychain_set` stores it, and the
+frontend calls this command again. The password rung is skipped entirely
+when the server's own method list rules passwords out — a pubkey-only
+server never triggers a password prompt.
 
 Host-key policy: a key matching `~/.ssh/known_hosts` connects silently; an
 **unknown** key emits `hostkey:prompt` and parks this command until
@@ -329,7 +349,7 @@ known_hosts write, append-only).
 |            |                                                                                                                                                                                                        |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Payload    | `{ hostId: string }`                                                                                                                                                                                   |
-| Result     | `{ sftpSessionId: string }` — keys every later `sftp_*` command                                                                                                                                        |
+| Result     | `{ sftpSessionId: string }` — keys every later `sftp_*` command · `{ needsSecret: { kind: "password" \| "passphrase", keyPath?, detail } }` — store the secret and call again                          |
 | Emits      | one `hostkey:prompt` when the key is unknown                                                                                                                                                           |
 | Fails when | the host id is unknown, the record has no hostname (alias-only imports must be adopted first), the host is unreachable, the key is mismatched/revoked/declined, auth is exhausted, or sftp can't start |
 
@@ -478,6 +498,157 @@ Cancel a running transfer. The partial destination file is removed
 | Result     | `null`                                                                             |
 | Emits      | one terminal `sftp:progress:{transferId}`                                          |
 | Fails when | never — unknown ids are a no-op, so cancelling can't race a transfer that finished |
+
+### `keychain_set`
+
+Store (or replace) a secret in the macOS Keychain under the service
+`dev.pandox.setu` (F8). Two kinds of entry exist, at deterministic
+accounts: `password:{hostId}` — a host's SFTP password — and
+`passphrase:{keyPath}` — a key file's passphrase, keyed by the
+tilde-expanded path so two hosts sharing a key share one entry.
+
+The family is deliberately **write-only**: there is no `keychain_get`
+command. A stored secret is read exclusively inside the Rust core (the
+SFTP auth ladder) and never flows toward the WebView (PLAN.md §5,
+Phase 7 row). Secrets are never logged.
+
+|            |                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| Payload    | `{ kind: "password", hostId: string, secret: string }` · `{ kind: "passphrase", keyPath: string, secret: string }` |
+| Result     | `null`                                                                                                             |
+| Emits      | nothing                                                                                                            |
+| Fails when | the address field matching `kind` is missing/empty, or the Keychain refuses the write                              |
+
+### `keychain_delete`
+
+Delete a Keychain secret. Missing entries are a no-op, so a "Clear"
+button can't race an entry that was already gone.
+
+|            |                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------- |
+| Payload    | `{ kind: "password", hostId: string }` · `{ kind: "passphrase", keyPath: string }` |
+| Result     | `null`                                                                             |
+| Emits      | nothing                                                                            |
+| Fails when | the address field matching `kind` is missing/empty, or the Keychain refuses        |
+
+### `keychain_has`
+
+Whether an entry exists at the address — existence only, never the
+secret. This is what the HostEditor's SFTP-password row renders its
+Stored/Store state from.
+
+|            |                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------ |
+| Payload    | `{ kind: "password", hostId: string }` · `{ kind: "passphrase", keyPath: string }`   |
+| Result     | `{ exists: boolean }`                                                                |
+| Emits      | nothing                                                                              |
+| Fails when | the address field matching `kind` is missing/empty, or the Keychain can't be queried |
+
+### `keys_generate`
+
+Generate an ed25519 keypair with the system `ssh-keygen` (F8). Two safety
+properties hold by construction:
+
+- **Passphrases never touch argv or disk.** An empty passphrase runs plain
+  `ssh-keygen -N ""` (nothing secret exists); a non-empty one is typed into
+  ssh-keygen's own prompts through a hidden PTY, then stored in the
+  Keychain at `passphrase:{path}` so SFTP can use the key immediately.
+- **Existing files are never overwritten** — a taken path is an expected
+  `error`, not a command failure.
+
+|            |                                                                                                                             |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ path: string, passphrase?: string, comment?: string }`                                                                   |
+| Result     | `{ publicKey: string }` · `{ error: { kind: "file_exists" \| "no_parent", message } }`                                      |
+| Emits      | nothing                                                                                                                     |
+| Fails when | ssh-keygen can't run/exits non-zero/stalls, or the key was made but its passphrase couldn't be stored (the message says so) |
+
+### `agent_list`
+
+List the ssh-agent's identities via `ssh-add -l` — fingerprints, comments,
+and types for the Keys panel. Read-only: Setu never adds or removes agent
+identities. An absent or unreachable agent is a normal answer
+(`available: false` plus a guidance `note`), never an error — the F8
+"agent absent → banner, not silent failure" edge case.
+
+|            |                                                                                      |
+| ---------- | ------------------------------------------------------------------------------------ |
+| Payload    | `{}`                                                                                 |
+| Result     | `{ available: boolean, keys: [{ algorithm, fingerprint, comment }], note?: string }` |
+| Emits      | nothing                                                                              |
+| Fails when | never                                                                                |
+
+### `binary_check`
+
+Whether an optional system tool is installed (Phase 7). One command
+serves the mosh preflight, tailscale detection, and Phase 13's `claude`
+check (PLAN.md §5 row). The search covers `PATH` plus the well-known
+Homebrew directories — a GUI-launched app inherits launchd's minimal
+`PATH`, which can't see `/opt/homebrew/bin`. Names are allow-listed so
+the command never becomes an arbitrary-path oracle.
+
+|            |                                                            |
+| ---------- | ---------------------------------------------------------- |
+| Payload    | `{ name: "mosh" \| "tailscale" \| "claude" }`              |
+| Result     | `{ found: boolean, path?: string }` (absolute, when found) |
+| Emits      | nothing                                                    |
+| Fails when | `name` isn't on the allow-list                             |
+
+### `tailscale_peers`
+
+List tailnet peers via `tailscale status --json` (F9). Pull model: the
+tailnet store polls every 30 s and pauses while the app is hidden. Peers
+are **ephemeral** — never persisted; their `ts:{nodeId}` ids resolve
+through a fresh status call at spawn time (the `sshcfg:` mirror,
+PLAN.md §5). Peer LEDs mirror Tailscale's own online state; tailnet rows
+are never TCP-probed (§3). The self node is excluded, and `defaultUser`
+carries the `[tailnet] default_user` setting (fallback: the local
+`$USER`) so one-click connects know who to log in as.
+
+An absent binary — the search covers the Homebrew/App-bundle locations
+the minimal GUI `PATH` can't see — or a stopped/logged-out daemon is a
+normal `{ available: false, reason }` answer: the sidebar section hides,
+nothing errors (F9 edge case).
+
+|            |                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------ |
+| Payload    | `{}`                                                                                                               |
+| Result     | `{ available, reason?, defaultUser, peers: [{ id, dnsName, hostName, os, online, lastSeen?, tags, tsSsh }] }`      |
+| Emits      | nothing                                                                                                            |
+| Fails when | settings can't be read, or the command can't run at all (absent/stopped/logged-out states are answers, not errors) |
+
+### `tailscale_ping`
+
+Run `tailscale ping` against a peer — F9's "ping to wake path": warms
+the connection path to a dozing peer (3 pings, 2 s each). Background
+execution; the frontend toasts the summary line.
+
+|            |                                                                     |
+| ---------- | ------------------------------------------------------------------- |
+| Payload    | `{ target: string }` (MagicDNS name)                                |
+| Result     | `{ ok: boolean, summary: string }` (the command's last output line) |
+| Emits      | nothing                                                             |
+| Fails when | tailscale isn't installed, or the command can't run at all          |
+
+### `vault_export`
+
+Export `~/.config/setu` — hosts, snippets, settings, themes — as an
+age-encrypted tarball (F8). Pure-Rust age with a passphrase (scrypt)
+recipient; restore anywhere with `age -d setu-vault.tar.age | tar -x`.
+The `.git` directory (the Phase 8 sync spine) never rides along.
+
+**Secrets are excluded by default.** The `includeSecrets` toggle — the
+second, explicit consent step F8 requires — bundles the known Keychain
+entries (every persisted host's SFTP password, every configured identity
+file's passphrase) as `keychain-secrets.toml` _inside_ the encrypted
+stream. The passphrase crosses IPC once and is never stored or logged.
+
+|            |                                                                                                                                    |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ destPath: string, passphrase: string, includeSecrets: boolean }`                                                                |
+| Result     | `{ bytes: number, secretsIncluded: number }`                                                                                       |
+| Emits      | nothing                                                                                                                            |
+| Fails when | the passphrase is empty, the config dir is missing, a Keychain read is refused, or IO/encryption fails (partial files are removed) |
 
 ## Events
 

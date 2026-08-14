@@ -2,6 +2,7 @@ import "./SnippetDrawer.css";
 import { useEffect, useMemo, useState } from "react";
 import { X } from "lucide-react";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { Checkbox } from "../../components/controls";
 import type { Snippet, SnippetFieldError } from "../../ipc/contract";
 import { rankSnippets, useSnippets } from "../../state/snippets";
 import { useToast } from "../../state/toast";
@@ -261,11 +262,7 @@ function PackButtons() {
         Export all…
       </button>
       <label className="snippetdrawer-overwrite">
-        <input
-          type="checkbox"
-          checked={overwrite}
-          onChange={(event) => setOverwrite(event.target.checked)}
-        />
+        <Checkbox checked={overwrite} onChange={setOverwrite} />
         Overwrite on id collision
       </label>
     </div>

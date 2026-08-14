@@ -15,6 +15,20 @@ Every session runs with keepalives
 (`ServerAliveInterval=30`, `ServerAliveCountMax=3`), so a dead link is
 noticed within ~90 seconds instead of hanging forever.
 
+**Prefer mosh** (Phase 7): flip the host editor's toggle and the host
+connects with system `mosh` instead — UDP roaming that shrugs off
+Wi-Fi flips, sleep, and IP changes. Port and identity ride inside
+`--ssh`; the startup command still runs (split on whitespace, as if
+typed after `--` on a mosh command line). Mosh needs `mosh-server` on
+the remote and UDP 60000–61000 open. If mosh isn't installed locally, a
+connect says so plainly (`brew install mosh`) and **nothing opens** —
+Setu never silently falls back to ssh, because a session that claims to
+be roaming-proof had better be one. Mosh sessions never use
+ControlMaster (Phase 11) — mosh has its own transport. One locale quirk
+is handled for you: macOS hands GUI apps the bare `LC_CTYPE=UTF-8`,
+which a Linux server reads as US-ASCII and `mosh-server` then refuses
+to start — Setu rewrites it to the full `en_US.UTF-8` before spawning.
+
 ## How do I use it?
 
 | Keys | Action                                        |

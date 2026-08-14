@@ -7,6 +7,48 @@ one entry.
 
 ## [Unreleased]
 
+### Added — Phase 7: keys, Keychain, mosh, Tailscale
+
+- Keychain secrets (F8): SFTP passwords and key passphrases live in the
+  macOS Keychain (service `dev.pandox.setu`) — never on disk, and never
+  readable over IPC: the app can store/replace/delete/check an entry,
+  but only the Rust core's SFTP auth ladder ever reads one. The host
+  editor gains an "SFTP password" row; interactive terminals stay
+  agent-first by design ([docs](docs/features/F08-keys-vault.md)).
+- SFTP auth ladder (F8): agent → identity file (encrypted files unlock
+  with their Keychain passphrase) → Keychain password. A missing or
+  stale secret pauses the connect with a prompt dialog that stores and
+  retries; pubkey-only servers never see a password prompt (the ladder
+  reads the server's own method list). The live e2e suite covers the
+  passphrase rung against a real sshd.
+- Keys panel (F8): agent listing with fingerprints and hardware-key
+  badges (absent agent → guidance banner), ed25519 generation whose
+  optional passphrase is typed into ssh-keygen through a hidden PTY —
+  never argv — and an ssh-copy-id helper that runs **visibly** in a new
+  terminal tab. Opened from the ⌘K palette or the host editor.
+- Vault export (F8): `~/.config/setu` as an age-encrypted `.tar.age`
+  (`age -d | tar -x` restores anywhere). Secrets are excluded unless a
+  second explicit toggle bundles the known Keychain entries inside the
+  encrypted stream. New pinned Rust deps: `keyring`, `age`, `tar`.
+- Mosh (F3): a per-host "Prefer mosh" toggle spawns system `mosh` — UDP
+  roaming that survives Wi-Fi flips and sleep. Preflight everywhere: a
+  missing binary (Homebrew paths are checked; GUI apps get a minimal
+  `PATH`) is a plain toast and no session — never a silent ssh
+  fallback ([docs](docs/features/F03-sessions.md)).
+- Tailnet (F9): a sidebar section of live Tailscale peers — LEDs mirror
+  Tailscale's own online state (no probes), offline peers dim with
+  last-seen, `ts-ssh` badges mark key-free connects. One-click connect
+  via MagicDNS + the `[tailnet] default_user` setting, "Adopt as host"
+  promotes a peer into `hosts.toml`, "Ping to wake" warms the path, and
+  peers rank in ⌘T quick-connect. Section hides without the binary
+  ([docs](docs/features/F09-tailscale.md)).
+- Custom form controls (§7): dropdowns, checkboxes, and radio buttons
+  are now drawn by the app (`Checkbox`/`Radio`/`Select` in
+  `src/components/controls.tsx`) — no native OS widget breaks the
+  Phosphor chrome. The select is a keyboard-first ARIA combobox
+  (arrows, Enter, Escape, type-ahead); checkbox and radio keep a real
+  hidden input so labels and screen readers work unchanged.
+
 ### Added — Phase 6: snippets & port forwards
 
 - Snippets (F6): command templates with `{{variable}}` prompts — free

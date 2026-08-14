@@ -80,11 +80,12 @@ are atomic: one invalid snippet imports nothing.
 
 ## settings.toml
 
-Read-only in Phase 4 — the file is yours to hand-edit until the Phase 8
-settings window writes it. A missing file (or missing keys) means the
+Read-only until the Phase 8 settings window writes it — the file is
+yours to hand-edit. A missing file (or missing keys) means the
 documented defaults; a corrupt file surfaces as an error and is never
-replaced. Phase 4 reads one table, the reachability prober's knobs
-([ipc.md](ipc.md#reach_start)):
+replaced. Two tables are read so far: the reachability prober's knobs
+(Phase 4, [ipc.md](ipc.md#reach_start)) and the tailnet default user
+(Phase 7, [ipc.md](ipc.md#tailscale_peers)):
 
 ```toml
 [reachability]
@@ -92,6 +93,9 @@ enabled = true        # global kill switch for the LED-board prober
 interval_s = 60       # seconds between probe sweeps
 timeout_ms = 1500     # per-probe TCP connect timeout
 max_concurrent = 6    # probes in flight at once
+
+[tailnet]
+default_user = ""     # login user for one-click peer connects; "" = $USER
 ```
 
 Implementation: [`src-tauri/src/settings.rs`](../../src-tauri/src/settings.rs)

@@ -13,10 +13,12 @@ import "./SftpPanel.css";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef } from "react";
 
+import { Checkbox } from "../../components/controls";
 import { onOsFileDrop } from "../../ipc/client";
 import { useHosts } from "../../state/hosts";
 import { useSftp } from "../../state/sftp";
 import { FingerprintDialog } from "../ssh/FingerprintDialog";
+import { SecretPromptDialog } from "../ssh/SecretPromptDialog";
 import { PaneView } from "./PaneView";
 import { TransferQueue } from "./TransferQueue";
 
@@ -50,6 +52,7 @@ export function SftpPanel() {
   const showHidden = useSftp((s) => s.showHidden);
   const remotePath = useSftp((s) => s.panes.remote.path);
   const hostkeyPrompt = useSftp((s) => s.hostkeyPrompt);
+  const secretPrompt = useSftp((s) => s.secretPrompt);
   const drag = useSftp((s) => s.drag);
   const store = useSftp.getState();
   const ghostRef = useRef<HTMLDivElement | null>(null);
@@ -110,11 +113,7 @@ export function SftpPanel() {
         </h2>
         <div className="sftp-panel-tools">
           <label className="sftp-panel-hidden">
-            <input
-              type="checkbox"
-              checked={showHidden}
-              onChange={() => store.toggleHidden()}
-            />
+            <Checkbox checked={showHidden} onChange={() => store.toggleHidden()} />
             Hidden files
           </label>
           {duckUrl !== null && (
@@ -173,6 +172,15 @@ export function SftpPanel() {
           fingerprint={hostkeyPrompt.fingerprint}
           onTrust={() => store.respondHostkey(true)}
           onCancel={() => store.respondHostkey(false)}
+        />
+      )}
+
+      {secretPrompt !== null && (
+        <SecretPromptDialog
+          hostLabel={hostLabel}
+          prompt={secretPrompt}
+          onSubmit={(secret) => void store.submitSecret(secret)}
+          onCancel={() => store.cancelSecret()}
         />
       )}
     </div>

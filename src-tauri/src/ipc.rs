@@ -10,7 +10,10 @@
 //! `hosts.toml` store and the `~/.ssh/config` import; Phase 4 adds the
 //! `reach_*` family driving the LED board; Phase 5 adds the `sftp_*` family
 //! (dual-pane browser + transfers) and `hostkey_trust`; Phase 6 adds the
-//! `snippet_*` family over `snippets.toml` (CRUD + packs). This module also
+//! `snippet_*` family over `snippets.toml` (CRUD + packs); Phase 7 adds the
+//! `keychain_*` family (set / delete / has — never get: secrets are read
+//! only inside the core, F8), plus `keys_generate` and `agent_list` behind
+//! the Keys panel. This module also
 //! hosts the event bridges — [`TauriPtyEvents`] for `pty:data:{sessionId}` /
 //! `pty:exit:{sessionId}`, [`TauriReachEvents`] for `reach:update`, and
 //! [`TauriSftpEvents`] for `hostkey:prompt` / `sftp:progress:{transferId}` —
@@ -27,14 +30,14 @@ use crate::reach::{ProbeTarget, ReachEvents, ReachProber, ReachState, TargetSour
 use crate::settings::SettingsStore;
 use crate::sftp::{HostTarget, SftpEntry, SftpEvents, SftpManager};
 use crate::snippets::{ImportOutcome, Snippet, SnippetUpsertOutcome, SnippetsStore};
-use crate::store::{FieldError, Forward, Host, HostsStore, UpsertOutcome};
+use crate::store::{FieldError, Forward, Host, HostSource, HostsStore, UpsertOutcome};
 use crate::ui_state::{UiState, UiStateStore};
-use crate::{connect, reach, sftp, ssh_config};
+use crate::{
+    agent, binaries, connect, keychain, keygen, reach, sftp, ssh_config, tailscale, vault,
+};
 
-/// What kind of process a PTY session drives.
-///
-/// Phase 2 implements `local` and `ssh`; `mosh` arrives in Phase 7
-/// (mirrors `PtyKind` in `contract.ts`).
+/// What kind of process a PTY session drives (mirrors `PtyKind` in
+/// `contract.ts`).
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PtyKind {
@@ -42,6 +45,9 @@ pub enum PtyKind {
     Local,
     /// System `ssh -tt` to a known host (`hostId` names it).
     Ssh,
+    /// System `mosh` to a known host (Phase 7; the host's `use_mosh`
+    /// toggle routes here, preflighted by [`binary_check`]).
+    Mosh,
 }
 
 /// Result of a successful [`pty_spawn`] (mirrors `PtySpawnResult`).
@@ -362,12 +368,13 @@ impl TargetSource for AppTargetSource {
 /// # Errors
 ///
 /// Fails when the PTY cannot be opened, the child cannot be spawned, `kind`
-/// is `"ssh"` without a `hostId`, or the host id is unknown. No session is
-/// created on failure.
+/// is `"ssh"`/`"mosh"` without a `hostId`, the host id is unknown, or mosh
+/// isn't installed. No session is created on failure.
 #[tauri::command]
-pub fn pty_spawn(
+pub async fn pty_spawn(
     manager: State<'_, PtyManager>,
     hosts: State<'_, HostsStore>,
+    settings: State<'_, SettingsStore>,
     kind: PtyKind,
     cols: u16,
     rows: u16,
@@ -379,23 +386,47 @@ pub fn pty_spawn(
             .map(|session_id| PtySpawnResult { session_id }),
         PtyKind::Ssh => {
             let host_id = host_id.ok_or("hostId is required for ssh sessions")?;
-            let host = resolve_host(&hosts, &host_id)?;
+            let host = resolve_host(&hosts, &settings, &host_id).await?;
             manager
                 .spawn_command(connect::ssh_command(&host), cols, rows)
+                .map(|session_id| PtySpawnResult { session_id })
+        }
+        PtyKind::Mosh => {
+            let host_id = host_id.ok_or("hostId is required for mosh sessions")?;
+            let host = resolve_host(&hosts, &settings, &host_id).await?;
+            // The absolute path matters twice: a GUI app's minimal PATH
+            // can't see Homebrew's mosh, for the check or the spawn.
+            let mosh = binaries::find("mosh")
+                .ok_or("mosh isn't installed — brew install mosh, or turn the toggle off")?;
+            manager
+                .spawn_command(
+                    connect::mosh_command(&host, &mosh.to_string_lossy()),
+                    cols,
+                    rows,
+                )
                 .map(|session_id| PtySpawnResult { session_id })
         }
     }
 }
 
 /// Resolves a host id to its record: `sshcfg:` ids come from a fresh parse
-/// of `~/.ssh/config`, everything else from the store.
-fn resolve_host(hosts: &HostsStore, host_id: &str) -> Result<Host, String> {
+/// of `~/.ssh/config`, `ts:` ids from a fresh `tailscale status --json`
+/// (both stateless by design — PLAN.md §5), everything else from the store.
+async fn resolve_host(
+    hosts: &HostsStore,
+    settings: &SettingsStore,
+    host_id: &str,
+) -> Result<Host, String> {
     if let Some(alias) = host_id.strip_prefix(ssh_config::ID_PREFIX) {
         return ssh_config_rows()
             .into_iter()
             .find(|entry| entry.alias == alias)
             .map(|entry| ssh_config::to_host(&entry))
             .ok_or_else(|| format!("unknown ssh config alias: {alias}"));
+    }
+    if host_id.starts_with(tailscale::ID_PREFIX) {
+        let user = settings.tailnet()?.default_user;
+        return tailscale::resolve_peer_host(host_id, &user).await;
     }
     hosts
         .get(host_id)?
@@ -558,23 +589,44 @@ pub fn host_delete(hosts: State<'_, HostsStore>, host_id: String) -> Result<(), 
     hosts.delete(&host_id)
 }
 
-/// Adopts an imported `~/.ssh/config` row: copies it into `hosts.toml` as
-/// an editable `source = "setu"` record (F1). The original config file is
-/// never touched.
+/// Adopts an ephemeral row into `hosts.toml` as an editable
+/// `source = "setu"` record: an imported `~/.ssh/config` alias (F1) or a
+/// tailnet peer (F9, Phase 7). The original source — config file or
+/// tailnet — is never touched.
 ///
-/// **Payload:** `{ hostId }` (an `sshcfg:` id) · **Result:** the new
-/// persisted `Host` · **Emits:** nothing.
+/// **Payload:** `{ hostId }` (an `sshcfg:` or `ts:` id) · **Result:** the
+/// new persisted `Host` · **Emits:** nothing.
 ///
 /// # Errors
 ///
-/// Fails when the id is not an `sshcfg:` id, the alias no longer exists in
-/// the config, the copied record fails validation (e.g. its `IdentityFile`
-/// is missing on disk), or the store cannot be written.
+/// Fails when the id is neither an `sshcfg:` nor a `ts:` id, the alias or
+/// peer no longer exists, the copied record fails validation (e.g. an
+/// `IdentityFile` missing on disk), or the store cannot be written.
 #[tauri::command]
-pub fn host_adopt(hosts: State<'_, HostsStore>, host_id: String) -> Result<Host, String> {
+pub async fn host_adopt(
+    hosts: State<'_, HostsStore>,
+    settings: State<'_, SettingsStore>,
+    host_id: String,
+) -> Result<Host, String> {
+    if host_id.starts_with(tailscale::ID_PREFIX) {
+        let user = settings.tailnet()?.default_user;
+        let mut host = tailscale::resolve_peer_host(&host_id, &user).await?;
+        // A fresh uuid, a normal probed row: adoption promotes the peer to
+        // a first-class Setu host (its MagicDNS name stays the hostname).
+        host.id = String::new();
+        host.source = HostSource::Setu;
+        host.reachability = true;
+        return match hosts.upsert(host)? {
+            UpsertOutcome::Saved(host) => Ok(*host),
+            UpsertOutcome::Invalid(errors) => Err(errors
+                .first()
+                .map(|e| format!("{}: {}", e.field, e.message))
+                .unwrap_or_else(|| "validation failed".to_string())),
+        };
+    }
     let alias = host_id
         .strip_prefix(ssh_config::ID_PREFIX)
-        .ok_or_else(|| format!("not an ssh config host: {host_id}"))?;
+        .ok_or_else(|| format!("not an adoptable host: {host_id}"))?;
     let entry = ssh_config_rows()
         .into_iter()
         .find(|entry| entry.alias == alias)
@@ -773,10 +825,11 @@ pub struct ForwardStartResult {
 pub async fn forward_start(
     manager: State<'_, ForwardManager>,
     hosts: State<'_, HostsStore>,
+    settings: State<'_, SettingsStore>,
     host_id: String,
     rule: Forward,
 ) -> Result<ForwardStartResult, String> {
-    let host = resolve_host(&hosts, &host_id)?;
+    let host = resolve_host(&hosts, &settings, &host_id).await?;
     Ok(match manager.start(&host, &rule).await? {
         StartOutcome::Started { rule_key } | StartOutcome::AlreadyRunning { rule_key } => {
             ForwardStartResult {
@@ -913,12 +966,35 @@ pub fn pty_kill(manager: State<'_, PtyManager>, session_id: String) -> Result<()
     manager.kill(&session_id)
 }
 
-/// Result of a successful [`sftp_connect`] (mirrors `SftpConnectResult`).
+/// The needs-secret half of [`SftpConnectResult`] (mirrors
+/// `SftpNeedsSecret` in `contract.ts`): the auth ladder stopped at a
+/// Keychain gap the user must fill (F8). Never carries a secret.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpNeedsSecretPayload {
+    /// `"password"` or `"passphrase"`.
+    pub kind: &'static str,
+    /// The key path needing a passphrase (as configured on the host),
+    /// for `"passphrase"` only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_path: Option<String>,
+    /// One plain sentence for the prompt dialog.
+    pub detail: String,
+}
+
+/// Result of [`sftp_connect`] (mirrors `SftpConnectResult`): a session id,
+/// or the expected needs-secret stop — result-side, hosts-family style
+/// (PLAN.md §5, Phase 7 row).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SftpConnectResult {
-    /// Keys every later SFTP command and its transfers.
-    pub sftp_session_id: String,
+    /// Keys every later SFTP command and its transfers; absent on a
+    /// needs-secret stop.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sftp_session_id: Option<String>,
+    /// The secret the user must store (then retry), when auth stopped.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub needs_secret: Option<SftpNeedsSecretPayload>,
 }
 
 /// Result of [`sftp_list`] / [`sftp_local_list`] (mirrors `SftpListResult`).
@@ -938,12 +1014,15 @@ pub struct SftpTransferResult {
     pub transfer_id: String,
 }
 
-/// Opens an SFTP session to a host (F5) — russh + agent/key auth, never a
-/// password (Phase 7).
+/// Opens an SFTP session to a host (F5 + F8) — russh, with the auth ladder:
+/// agent identities, the identity file (Keychain passphrase for encrypted
+/// files), then the Keychain-stored SFTP password.
 ///
-/// **Payload:** `{ hostId }` · **Result:** `{ sftpSessionId }` · **Emits:**
-/// one `hostkey:prompt` when the host key is unknown, then blocks until
-/// [`hostkey_trust`] resolves it.
+/// **Payload:** `{ hostId }` · **Result:** `{ sftpSessionId }`, or
+/// `{ needsSecret: { kind, keyPath?, detail } }` when the ladder stopped at
+/// a secret the Keychain doesn't hold — store it (`keychain_set`) and call
+/// again · **Emits:** one `hostkey:prompt` when the host key is unknown,
+/// then blocks until [`hostkey_trust`] resolves it.
 ///
 /// Host-key policy (CLAUDE.md): a known key connects silently; an unknown
 /// key prompts; a mismatched or revoked key fails hard — never a prompt.
@@ -954,19 +1033,36 @@ pub struct SftpTransferResult {
 /// Fails when the host id is unknown, the record has no hostname, the host
 /// is unreachable, the key is mismatched/revoked/declined, every auth
 /// method is exhausted, or the sftp subsystem can't start. No session
-/// exists after a failure.
+/// exists after a failure (nor after a needs-secret stop).
 #[tauri::command]
 pub async fn sftp_connect(
     manager: State<'_, SftpManager>,
     hosts: State<'_, HostsStore>,
+    settings: State<'_, SettingsStore>,
     host_id: String,
 ) -> Result<SftpConnectResult, String> {
-    let host = resolve_host(&hosts, &host_id)?;
+    let host = resolve_host(&hosts, &settings, &host_id).await?;
     let target = HostTarget::from_host(&host)?;
-    manager
-        .connect(target)
-        .await
-        .map(|sftp_session_id| SftpConnectResult { sftp_session_id })
+    Ok(match manager.connect(target).await? {
+        sftp::ConnectOutcome::Connected(sftp_session_id) => SftpConnectResult {
+            sftp_session_id: Some(sftp_session_id),
+            needs_secret: None,
+        },
+        sftp::ConnectOutcome::NeedsSecret { missing, detail } => {
+            let (kind, key_path) = match missing {
+                sftp::MissingSecret::Password => ("password", None),
+                sftp::MissingSecret::Passphrase { key_path } => ("passphrase", Some(key_path)),
+            };
+            SftpConnectResult {
+                sftp_session_id: None,
+                needs_secret: Some(SftpNeedsSecretPayload {
+                    kind,
+                    key_path,
+                    detail,
+                }),
+            }
+        }
+    })
 }
 
 /// Delivers the FingerprintDialog verdict for a pending `hostkey:prompt`.
@@ -1311,4 +1407,489 @@ pub async fn sftp_download(
 pub fn sftp_cancel(manager: State<'_, SftpManager>, transfer_id: String) -> Result<(), String> {
     manager.cancel(&transfer_id);
     Ok(())
+}
+
+/// Which kind of Keychain secret a `keychain_*` command addresses (mirrors
+/// the `kind` discriminant of `KeychainSecretRef` in `contract.ts`).
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KeychainSecretKind {
+    /// A host's SFTP password — addressed by `hostId`.
+    Password,
+    /// A private key's passphrase — addressed by `keyPath`.
+    Passphrase,
+}
+
+/// Result of [`keychain_has`] (mirrors `KeychainHasResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeychainHasResult {
+    /// Whether an entry exists at the address.
+    pub exists: bool,
+}
+
+/// Builds the [`keychain::SecretRef`] a command addresses, checking that
+/// the field matching `kind` is present and non-empty.
+fn keychain_ref(
+    kind: KeychainSecretKind,
+    host_id: Option<String>,
+    key_path: Option<String>,
+) -> Result<keychain::SecretRef, String> {
+    match kind {
+        KeychainSecretKind::Password => host_id
+            .filter(|id| !id.is_empty())
+            .map(|host_id| keychain::SecretRef::Password { host_id })
+            .ok_or_else(|| "hostId is required for password secrets".to_string()),
+        KeychainSecretKind::Passphrase => key_path
+            .filter(|path| !path.is_empty())
+            .map(|key_path| keychain::SecretRef::Passphrase { key_path })
+            .ok_or_else(|| "keyPath is required for passphrase secrets".to_string()),
+    }
+}
+
+/// Stores (or replaces) a secret in the macOS Keychain under the service
+/// `dev.pandox.setu` (F8). Write-only by design: no command ever returns a
+/// stored secret, and the secret is never logged (PLAN.md §5, Phase 7 row).
+///
+/// **Payload:** `{ kind, hostId? | keyPath?, secret }` · **Result:** `null`
+/// · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the address field matching `kind` is missing or empty, or
+/// when the Keychain refuses the write (locked keychain, denied
+/// authorization).
+#[tauri::command]
+pub fn keychain_set(
+    kind: KeychainSecretKind,
+    host_id: Option<String>,
+    key_path: Option<String>,
+    secret: String,
+) -> Result<(), String> {
+    keychain::set(&keychain_ref(kind, host_id, key_path)?, &secret)
+}
+
+/// Deletes a Keychain secret. Missing entries are a no-op (idempotent
+/// delete, F8).
+///
+/// **Payload:** `{ kind, hostId? | keyPath? }` · **Result:** `null` ·
+/// **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the address field matching `kind` is missing or empty, or
+/// when the Keychain refuses the delete for a reason other than a missing
+/// entry.
+#[tauri::command]
+pub fn keychain_delete(
+    kind: KeychainSecretKind,
+    host_id: Option<String>,
+    key_path: Option<String>,
+) -> Result<(), String> {
+    keychain::delete(&keychain_ref(kind, host_id, key_path)?)
+}
+
+/// Reports whether a Keychain entry exists — existence only; the secret
+/// itself stays inside the Rust core (F8; reads happen only in the SFTP
+/// auth ladder).
+///
+/// **Payload:** `{ kind, hostId? | keyPath? }` · **Result:** `{ exists }` ·
+/// **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the address field matching `kind` is missing or empty, or
+/// when the Keychain cannot be queried at all.
+#[tauri::command]
+pub fn keychain_has(
+    kind: KeychainSecretKind,
+    host_id: Option<String>,
+    key_path: Option<String>,
+) -> Result<KeychainHasResult, String> {
+    Ok(KeychainHasResult {
+        exists: keychain::has(&keychain_ref(kind, host_id, key_path)?)?,
+    })
+}
+
+/// The expected-refusal half of [`KeysGenerateResult`] (mirrors
+/// `KeysGenerateError`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeysGenerateError {
+    /// `"file_exists"` or `"no_parent"`.
+    pub kind: &'static str,
+    /// One plain sentence naming the path.
+    pub message: String,
+}
+
+/// Result of [`keys_generate`] (mirrors `KeysGenerateResult`): the public
+/// key on success, an expected refusal otherwise — hosts-family style.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeysGenerateResult {
+    /// The new `.pub` line, for the clipboard and ssh-copy-id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
+    /// The expected refusal, when nothing was written.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<KeysGenerateError>,
+}
+
+/// Generates an ed25519 keypair with `ssh-keygen` (F8). A non-empty
+/// passphrase is typed into ssh-keygen's prompts through a hidden PTY —
+/// never argv — and then stored in the Keychain (`passphrase:{path}`) so
+/// SFTP can use the key immediately.
+///
+/// **Payload:** `{ path, passphrase?, comment? }` · **Result:**
+/// `{ publicKey }` or `{ error: { kind: "file_exists" | "no_parent",
+/// message } }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when ssh-keygen can't run, exits non-zero, or stalls; and when
+/// the key was generated but its passphrase couldn't be stored (the error
+/// says so — the key file exists at that point).
+#[tauri::command]
+pub fn keys_generate(
+    path: String,
+    passphrase: Option<String>,
+    comment: Option<String>,
+) -> Result<KeysGenerateResult, String> {
+    let passphrase = passphrase.unwrap_or_default();
+    let comment = comment.unwrap_or_default();
+    match keygen::generate(&path, &passphrase, &comment)? {
+        keygen::GenOutcome::Generated { public_key } => {
+            if !passphrase.is_empty() {
+                keychain::set(
+                    &keychain::SecretRef::Passphrase {
+                        key_path: path.clone(),
+                    },
+                    &passphrase,
+                )
+                .map_err(|e| {
+                    format!("the key was generated, but storing its passphrase failed: {e}")
+                })?;
+            }
+            Ok(KeysGenerateResult {
+                public_key: Some(public_key),
+                error: None,
+            })
+        }
+        keygen::GenOutcome::Refused { kind, message } => Ok(KeysGenerateResult {
+            public_key: None,
+            error: Some(KeysGenerateError { kind, message }),
+        }),
+    }
+}
+
+/// One agent identity in [`AgentListResult`] (mirrors `AgentKey`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentKeyPayload {
+    /// Key algorithm, e.g. `"ED25519"` or `"ED25519-SK"`.
+    pub algorithm: String,
+    /// OpenSSH `SHA256:<base64>` fingerprint.
+    pub fingerprint: String,
+    /// The key's comment (usually a path or `user@host`).
+    pub comment: String,
+}
+
+/// Result of [`agent_list`] (mirrors `AgentListResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentListResult {
+    /// Whether an ssh-agent is reachable at all.
+    pub available: bool,
+    /// Loaded identities (empty is normal for a fresh agent).
+    pub keys: Vec<AgentKeyPayload>,
+    /// One plain sentence for the guidance banner, when something's off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// Result of [`binary_check`] (mirrors `BinaryCheckResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BinaryCheckResult {
+    /// Whether the tool is installed (on `PATH` or a well-known location).
+    pub found: bool,
+    /// The resolved absolute path, when found.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
+/// Reports whether an optional system tool is installed (Phase 7) — the
+/// mosh preflight, tailscale detection, and Phase 13's `claude` check all
+/// share it (PLAN.md §5 row). Names are allow-listed so the command never
+/// becomes an arbitrary-path oracle.
+///
+/// **Payload:** `{ name }` · **Result:** `{ found, path? }` · **Emits:**
+/// nothing.
+///
+/// # Errors
+///
+/// Fails when `name` isn't on the allow-list (`mosh`, `tailscale`,
+/// `claude`).
+#[tauri::command]
+pub fn binary_check(name: String) -> Result<BinaryCheckResult, String> {
+    const ALLOWED: [&str; 3] = ["mosh", "tailscale", "claude"];
+    if !ALLOWED.contains(&name.as_str()) {
+        return Err(format!("unknown binary: {name}"));
+    }
+    Ok(match binaries::find(&name) {
+        Some(path) => BinaryCheckResult {
+            found: true,
+            path: Some(path.display().to_string()),
+        },
+        None => BinaryCheckResult {
+            found: false,
+            path: None,
+        },
+    })
+}
+
+/// One tailnet peer in [`TailscalePeersResult`] (mirrors `TailscalePeer`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TailscalePeerPayload {
+    /// Stable host id (`ts:{nodeId}`) — feeds `pty_spawn`, `sftp_connect`,
+    /// and `host_adopt` like any other host id.
+    pub id: String,
+    /// MagicDNS name without the trailing dot.
+    pub dns_name: String,
+    /// The device's short hostname (the row label).
+    pub host_name: String,
+    /// OS as Tailscale reports it (`linux`, `macOS`, `windows`, …).
+    pub os: String,
+    /// Tailscale's own online state — the LED, never a probe (§3).
+    pub online: bool,
+    /// RFC 3339 last-seen for dimmed offline rows, when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_seen: Option<String>,
+    /// ACL tags (`tag:prod`, …).
+    pub tags: Vec<String>,
+    /// Whether the peer runs Tailscale SSH (the key-free `ts-ssh` badge).
+    pub ts_ssh: bool,
+}
+
+/// Result of [`tailscale_peers`] (mirrors `TailscalePeersResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TailscalePeersResult {
+    /// Whether the Tailnet section should exist at all.
+    pub available: bool,
+    /// One plain sentence when unavailable (`"not installed"`,
+    /// `"logged out"`, `"stopped"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The default login user for one-click connects.
+    pub default_user: String,
+    /// Live peers, self excluded.
+    pub peers: Vec<TailscalePeerPayload>,
+}
+
+/// Lists tailnet peers via `tailscale status --json` (F9). Pull model:
+/// the frontend polls every 30 s and pauses while hidden — peers are
+/// ephemeral and never persisted. Peer LEDs mirror Tailscale's own online
+/// state; these rows are never TCP-probed (§3).
+///
+/// **Payload:** `{}` · **Result:** `{ available, reason?, defaultUser,
+/// peers }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when settings can't be read or the command can't run at all. An
+/// absent binary or a stopped/logged-out daemon is `{ available: false,
+/// reason }` — the section hides, nothing errors (F9 edge case).
+#[tauri::command]
+pub async fn tailscale_peers(
+    settings: State<'_, SettingsStore>,
+) -> Result<TailscalePeersResult, String> {
+    let user = settings.tailnet()?.default_user;
+    let status = tailscale::status(&user).await?;
+    Ok(TailscalePeersResult {
+        available: status.available,
+        reason: status.reason,
+        default_user: status.default_user,
+        peers: status
+            .peers
+            .into_iter()
+            .map(|peer| TailscalePeerPayload {
+                id: peer.id,
+                dns_name: peer.dns_name,
+                host_name: peer.host_name,
+                os: peer.os,
+                online: peer.online,
+                last_seen: peer.last_seen,
+                tags: peer.tags,
+                ts_ssh: peer.ts_ssh,
+            })
+            .collect(),
+    })
+}
+
+/// Result of [`tailscale_ping`] (mirrors `TailscalePingResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TailscalePingResult {
+    /// Whether the ping got a pong within the budget.
+    pub ok: bool,
+    /// The command's last output line — `"pong from … in 23ms"` or the
+    /// failure text, for the toast.
+    pub summary: String,
+}
+
+/// Runs `tailscale ping` against a peer (F9's "ping to wake path"): warms
+/// the connection path to a dozing peer. Background execution with a
+/// toast — no pane involved.
+///
+/// **Payload:** `{ target }` (MagicDNS name) · **Result:** `{ ok,
+/// summary }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when tailscale isn't installed or the command can't run; an
+/// unreachable peer is `{ ok: false, summary }`, not an error.
+#[tauri::command]
+pub async fn tailscale_ping(target: String) -> Result<TailscalePingResult, String> {
+    let binary =
+        binaries::find("tailscale").ok_or("tailscale isn't installed — nothing to ping with")?;
+    let output = tokio::process::Command::new(&binary)
+        .args(["ping", "-c", "3", "--timeout", "2s", &target])
+        .output()
+        .await
+        .map_err(|e| format!("couldn't run tailscale ping: {e}"))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let summary = text
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("no response")
+        .trim()
+        .to_string();
+    Ok(TailscalePingResult {
+        ok: output.status.success(),
+        summary,
+    })
+}
+
+/// Result of [`vault_export`] (mirrors `VaultExportResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultExportResult {
+    /// Size of the encrypted vault file, in bytes.
+    pub bytes: u64,
+    /// How many Keychain entries rode along (0 unless the explicit
+    /// include-secrets toggle was on).
+    pub secrets_included: usize,
+}
+
+/// Collects the known Keychain entries for an include-secrets export:
+/// every persisted host's SFTP password, plus the passphrase of every
+/// configured identity file. Only called behind the explicit toggle.
+fn collect_secret_entries(hosts: &HostsStore) -> Result<Vec<vault::SecretEntry>, String> {
+    let mut entries = Vec::new();
+    let mut seen_paths = std::collections::BTreeSet::new();
+    for host in hosts.list()? {
+        let reference = keychain::SecretRef::Password {
+            host_id: host.id.clone(),
+        };
+        if let Some(secret) = keychain::get(&reference)? {
+            entries.push(vault::SecretEntry {
+                account: reference.account(),
+                secret,
+            });
+        }
+        let identity = host.identity.trim();
+        if identity != "agent" && !identity.is_empty() && seen_paths.insert(identity.to_string()) {
+            let reference = keychain::SecretRef::Passphrase {
+                key_path: identity.to_string(),
+            };
+            if let Some(secret) = keychain::get(&reference)? {
+                entries.push(vault::SecretEntry {
+                    account: reference.account(),
+                    secret,
+                });
+            }
+        }
+    }
+    Ok(entries)
+}
+
+/// Exports the config dir (`~/.config/setu`) as an age-encrypted tarball
+/// (F8): `age -d vault.tar.age | tar -x` restores it anywhere. Secrets
+/// are **excluded by default**; `includeSecrets` — the second, explicit
+/// toggle — bundles the known Keychain entries inside the encrypted
+/// stream as `keychain-secrets.toml`. The passphrase crosses IPC one way
+/// and is never stored or logged.
+///
+/// **Payload:** `{ destPath, passphrase, includeSecrets }` · **Result:**
+/// `{ bytes, secretsIncluded }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the passphrase is empty, the config dir doesn't exist, the
+/// Keychain refuses a read (include-secrets only), or any IO/encryption
+/// step fails — a partial destination file is removed.
+#[tauri::command]
+pub async fn vault_export(
+    hosts: State<'_, HostsStore>,
+    dest_path: String,
+    passphrase: String,
+    include_secrets: bool,
+) -> Result<VaultExportResult, String> {
+    let config_dir = dirs::home_dir()
+        .ok_or("cannot determine home directory")?
+        .join(".config/setu");
+    let secrets = if include_secrets {
+        Some(collect_secret_entries(&hosts)?)
+    } else {
+        None
+    };
+    let secrets_included = secrets.as_ref().map(Vec::len).unwrap_or(0);
+    // scrypt is deliberately slow — run the whole export off the async
+    // pool so a vault never stalls other commands.
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        vault::export(
+            &config_dir,
+            std::path::Path::new(&dest_path),
+            &passphrase,
+            secrets,
+        )
+    })
+    .await
+    .map_err(|e| format!("the export task died: {e}"))??;
+    Ok(VaultExportResult {
+        bytes,
+        secrets_included,
+    })
+}
+
+/// Lists the ssh-agent's identities via `ssh-add -l` (F8) — fingerprints
+/// and comments for the Keys panel. Read-only: Setu never adds or removes
+/// agent identities.
+///
+/// **Payload:** `{}` · **Result:** `{ available, keys, note? }` ·
+/// **Emits:** nothing.
+///
+/// # Errors
+///
+/// Never fails — an absent or unreachable agent comes back as
+/// `{ available: false, note }` (the F8 guidance banner), not an error.
+#[tauri::command]
+pub fn agent_list() -> Result<AgentListResult, String> {
+    let status = agent::list();
+    Ok(AgentListResult {
+        available: status.available,
+        keys: status
+            .keys
+            .into_iter()
+            .map(|key| AgentKeyPayload {
+                algorithm: key.algorithm,
+                fingerprint: key.fingerprint,
+                comment: key.comment,
+            })
+            .collect(),
+        note: status.note,
+    })
 }

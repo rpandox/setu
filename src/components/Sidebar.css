@@ -283,3 +283,35 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Tailnet (F9): OS glyph inside the detail, badges, dimmed offline rows. */
+.host-detail svg {
+  margin-right: calc(var(--pad) / 2);
+  vertical-align: -1px;
+}
+
+.tailnet-badge {
+  flex: none;
+  padding: 0 calc(var(--pad) / 2);
+  border: 1px solid var(--info);
+  border-radius: calc(var(--r-1) / 2);
+  color: var(--info);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.tailnet-lastseen {
+  flex: none;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.host-item--offline .host-row {
+  opacity: 0.55;
+}
+
+/* The Tailnet eyebrow is a plain heading — peers don't collapse. */
+.group-toggle--static {
+  cursor: default;
+}

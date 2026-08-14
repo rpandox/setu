@@ -20,4 +20,6 @@ Pages so far:
 - [F05 · SFTP & files](F05-sftp.md) — dual-pane browser, transfers, host-key trust (Phase 5)
 - [F06 · Snippets](F06-snippets.md) — command templates, {{variables}}, multi-host runs, packs (Phase 6)
 - [F07 · Port forwarding](F07-port-forwards.md) — L/R/D rules as toggles, health dots, auto-start (Phase 6)
+- [F08 · Keys & vault](F08-keys-vault.md) — Keychain secrets, key generation, ssh-copy-id, age vault (Phase 7)
+- [F09 · Tailscale awareness](F09-tailscale.md) — the tailnet as a host source, adopt, ping-to-wake (Phase 7)
 - [F11 · Command palette & quick connect](F11-command-palette.md) — ⌘T (Phase 2)

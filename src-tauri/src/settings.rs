@@ -1,9 +1,10 @@
 //! Read-only access to `~/.config/setu/settings.toml`.
 //!
 //! Phase 4 needs the reachability prober's knobs (`PLAN.md` §4): probe
-//! interval, timeout, concurrency cap, and the global kill switch. The
-//! Settings *window* arrives in Phase 8 — until then the file is optional
-//! and hand-editable, and this module only reads it.
+//! interval, timeout, concurrency cap, and the global kill switch.
+//! Phase 7 adds the `[tailnet]` table (the default login user for tailnet
+//! peers, F9). The Settings *window* arrives in Phase 8 — until then the
+//! file is optional and hand-editable, and this module only reads it.
 //!
 //! The same safety properties as [`crate::store`] apply, minus writing:
 //! a missing file (or missing keys) means defaults, and a corrupt file is
@@ -68,7 +69,16 @@ fn default_max_concurrent() -> usize {
     6
 }
 
-/// The whole `settings.toml` document — only the tables Phase 4 reads.
+/// Tailnet settings (`[tailnet]` in `settings.toml`, F9 Phase 7).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct TailnetSettings {
+    /// Login user for one-click tailnet connects. Empty/missing falls back
+    /// to the local `$USER` (resolved by the tailscale module).
+    #[serde(default)]
+    pub default_user: String,
+}
+
+/// The whole `settings.toml` document — only the tables read so far.
 ///
 /// Unknown tables and keys are ignored on purpose: future phases add their
 /// sections without breaking older builds reading the same synced file.
@@ -77,6 +87,9 @@ struct Settings {
     /// The `[reachability]` table; missing means defaults.
     #[serde(default)]
     reachability: ReachabilitySettings,
+    /// The `[tailnet]` table; missing means defaults.
+    #[serde(default)]
+    tailnet: TailnetSettings,
 }
 
 /// Owns `settings.toml`: lazy loading with defaults for a missing file.
@@ -124,6 +137,23 @@ impl SettingsStore {
             *cache = Some(self.load()?);
         }
         Ok(cache.as_ref().expect("loaded above").reachability)
+    }
+
+    /// Returns the tailnet settings, fresh-parsed on every call — the F9
+    /// poll is 30s apart and the file is tiny, so re-reading keeps a
+    /// hand-edited `[tailnet] default_user` live without an app restart
+    /// (the Settings window only lands in Phase 8). The launch-time cache
+    /// stays untouched for the reachability path, which snapshots its
+    /// config when the prober starts.
+    ///
+    /// A missing file — or a file without a `[tailnet]` table — is the
+    /// defaults, not an error.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the file exists but cannot be read or parsed.
+    pub fn tailnet(&self) -> Result<TailnetSettings, String> {
+        Ok(self.load()?.tailnet)
     }
 
     /// Reads and parses the file; a missing file is the default document.
@@ -216,6 +246,16 @@ mod tests {
         t.write("[appearance]\ncrt = true\n\n[reachability]\ntimeout_ms = 900\nfuture_knob = 1\n");
         let s = t.store.reachability().expect("parse");
         assert_eq!(s.timeout_ms, 900);
+    }
+
+    #[test]
+    fn tailnet_default_user_reads_and_defaults_empty() {
+        let t = TempSettings::new();
+        t.write("[tailnet]\ndefault_user = \"ops\"\n");
+        assert_eq!(t.store.tailnet().expect("parse").default_user, "ops");
+
+        let empty = TempSettings::new();
+        assert_eq!(empty.store.tailnet().expect("defaults").default_user, "");
     }
 
     #[test]

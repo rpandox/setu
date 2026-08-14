@@ -4,6 +4,7 @@ import { StatusBar } from "../components/StatusBar";
 import { TabBar } from "../components/TabBar";
 import { TerminalArea } from "../components/TerminalArea";
 import { HostEditor } from "../features/hosts/HostEditor";
+import { KeysPanel } from "../features/keys/KeysPanel";
 import { CommandPalette } from "../features/palette/CommandPalette";
 import { PasteGuardDialog } from "../features/broadcast/PasteGuardDialog";
 import { SnippetDrawer } from "../features/snippets/SnippetDrawer";
@@ -15,6 +16,7 @@ import { wireForwards } from "../state/forwards";
 import { useHosts } from "../state/hosts";
 import { initReach } from "../state/reach";
 import { activeSessionOf, useSessions } from "../state/sessions";
+import { initTailnet } from "../state/tailnet";
 import { useSnippets } from "../state/snippets";
 import { useUiChrome } from "../state/ui";
 import { initUiState } from "../state/uiState";
@@ -54,6 +56,8 @@ export function App() {
     // Forwards: wire forward:update and the auto-start-on-connect
     // subscription (F7, Phase 6).
     wireForwards();
+    // Tailnet: poll peers every 30s while visible (F9, Phase 7).
+    initTailnet();
   }, []);
 
   useEffect(() => {
@@ -106,6 +110,7 @@ export function App() {
         <StatusBar />
       </div>
       <HostEditor />
+      <KeysPanel />
       <SnippetDrawer />
       <SnippetRunDialog />
       <CommandPalette />

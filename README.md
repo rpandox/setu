@@ -8,7 +8,7 @@ Keychain, config lives in plain files you own, and interactive sessions drive th
 system `ssh` — so your `~/.ssh/config`, agent, jump hosts, and Tailscale keep
 working exactly as they do today.
 
-**Status: pre-alpha, under active construction.** Phases 0–6 of the
+**Status: pre-alpha, under active construction.** Phases 0–7 of the
 [build plan](PLAN.md) are complete: the app shell and design system, a
 working local terminal ([docs](docs/features/F02-terminal-core.md)),
 hosts & SSH — a `hosts.toml` store with an editor drawer, automatic
@@ -34,7 +34,15 @@ with shareable TOML packs ([docs](docs/features/F06-snippets.md)); and
 per-host `L`/`R`/`D` tunnels as status-bar toggles — managed `ssh -N`
 children with honest health dots, auto-start on connect, and a
 port-conflict helper that names the owner and offers the next free
-port ([docs](docs/features/F07-port-forwards.md)).
+port ([docs](docs/features/F07-port-forwards.md)) — and now **keys,
+Keychain & the tailnet**: SFTP passwords and key passphrases in the
+macOS Keychain (never on disk, never toward the UI), ed25519 key
+generation with a visible ssh-copy-id helper, an age-encrypted vault
+export ([docs](docs/features/F08-keys-vault.md)); per-host **mosh**
+with an honest preflight ([docs](docs/features/F03-sessions.md)); and
+your **tailnet in the sidebar** — live peers with Tailscale's own
+online state as their LEDs, one-click connect, adopt-as-host, and
+ping-to-wake ([docs](docs/features/F09-tailscale.md)).
 
 <!-- Hero screenshot: docs/assets/hero.png (captured during Phase 4 live QA). -->
 

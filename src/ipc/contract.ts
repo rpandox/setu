@@ -23,11 +23,11 @@
 /**
  * What kind of process a PTY session drives.
  *
- * Phase 2 implements `"local"` ($SHELL as a login shell) and `"ssh"`
- * (system `ssh -tt` to a known host). `"mosh"` arrives in Phase 7 — the
- * contract types exactly what exists, nothing speculative.
+ * `"local"` runs $SHELL as a login shell; `"ssh"` runs system `ssh -tt`
+ * to a known host; `"mosh"` (Phase 7) runs system `mosh` — the host's
+ * `use_mosh` toggle routes here after a `binary_check` preflight.
  */
-export type PtyKind = "local" | "ssh";
+export type PtyKind = "local" | "ssh" | "mosh";
 
 /**
  * Payload for `pty_spawn` — a discriminated union on `kind`.
@@ -48,6 +48,16 @@ export type PtySpawnPayload =
   | {
       /** System `ssh -tt` with keepalive flags (F3). */
       kind: "ssh";
+      /** Id of the host to connect to (`Host.id`). */
+      hostId: string;
+      /** Initial terminal width, in columns. */
+      cols: number;
+      /** Initial terminal height, in rows. */
+      rows: number;
+    }
+  | {
+      /** System `mosh` — UDP roaming, survives network changes (Phase 7). */
+      kind: "mosh";
       /** Id of the host to connect to (`Host.id`). */
       hostId: string;
       /** Initial terminal width, in columns. */
@@ -496,11 +506,38 @@ export interface SftpConnectPayload {
   hostId: string;
 }
 
-/** Result of a successful `sftp_connect`. */
-export interface SftpConnectResult {
-  /** Keys every later SFTP command and its transfers. */
-  sftpSessionId: string;
+/**
+ * The needs-secret half of `SftpConnectResult` (F8): the auth ladder
+ * stopped at a Keychain gap. Store the secret (`keychain_set` — password
+ * keyed by the host id, passphrase keyed by `keyPath`) and call
+ * `sftp_connect` again. Never carries a secret itself.
+ */
+export interface SftpNeedsSecret {
+  /** Which secret is missing. */
+  kind: "password" | "passphrase";
+  /** The key path needing a passphrase (as configured on the host). */
+  keyPath?: string;
+  /** One plain sentence for the prompt dialog. */
+  detail: string;
 }
+
+/**
+ * Result of `sftp_connect` — a session, or the expected needs-secret stop
+ * (result-side, hosts-family style; PLAN.md §5, Phase 7 row).
+ */
+export type SftpConnectResult =
+  | {
+      /** Keys every later SFTP command and its transfers. */
+      sftpSessionId: string;
+      /** Never present alongside a session. */
+      needsSecret?: undefined;
+    }
+  | {
+      /** Never present on a needs-secret stop. */
+      sftpSessionId?: undefined;
+      /** The secret the user must store, then retry. */
+      needsSecret: SftpNeedsSecret;
+    };
 
 /** Payload for `hostkey_trust` — the FingerprintDialog verdict. */
 export interface HostkeyTrustPayload {
@@ -668,6 +705,178 @@ export interface SftpProgressEvent {
 }
 
 /**
+ * Which Keychain entry a `keychain_*` command addresses (F8, Phase 7).
+ *
+ * Secrets live under the Keychain service `dev.pandox.setu`, at
+ * deterministic accounts — `password:{hostId}` for a host's SFTP password,
+ * `passphrase:{keyPath}` for a key file's passphrase (the core
+ * tilde-expands the path, so hosts sharing a key share one entry).
+ */
+export type KeychainSecretRef =
+  | {
+      /** A host's SFTP password. */
+      kind: "password";
+      /** The owning host (`Host.id`). */
+      hostId: string;
+    }
+  | {
+      /** A private key's passphrase. */
+      kind: "passphrase";
+      /** Path to the key file (`~` allowed). */
+      keyPath: string;
+    };
+
+/**
+ * Payload for `keychain_set` — the address plus the secret itself. The
+ * secret is write-only: it crosses IPC toward the core exactly once, and
+ * no command ever returns it (PLAN.md §5, Phase 7 row).
+ */
+export type KeychainSetPayload = KeychainSecretRef & {
+  /** The secret to store; replaces any existing entry at the address. */
+  secret: string;
+};
+
+/** Result of `keychain_has`. */
+export interface KeychainHasResult {
+  /** Whether an entry exists at the address. */
+  exists: boolean;
+}
+
+/** Payload for `keys_generate` (F8). */
+export interface KeysGeneratePayload {
+  /** Where the private key goes (`~` allowed); `.pub` lands beside it. */
+  path: string;
+  /**
+   * Optional passphrase. Typed into ssh-keygen's prompts through a hidden
+   * PTY — never argv — and stored in the Keychain (`passphrase:{path}`).
+   */
+  passphrase?: string;
+  /** Optional key comment (`-C`). */
+  comment?: string;
+}
+
+/** The expected-refusal half of `KeysGenerateResult`. */
+export interface KeysGenerateError {
+  /** `"file_exists"` (keys are never overwritten) or `"no_parent"`. */
+  kind: "file_exists" | "no_parent";
+  /** One plain sentence naming the path. */
+  message: string;
+}
+
+/** Result of `keys_generate` — the public key, or an expected refusal. */
+export interface KeysGenerateResult {
+  /** The new `.pub` line, for the clipboard and ssh-copy-id. */
+  publicKey?: string;
+  /** The expected refusal, when nothing was written. */
+  error?: KeysGenerateError;
+}
+
+/** One ssh-agent identity, as `ssh-add -l` reports it (F8). */
+export interface AgentKey {
+  /** Key algorithm, e.g. `"ED25519"` or `"ED25519-SK"` (hardware). */
+  algorithm: string;
+  /** OpenSSH `SHA256:<base64>` fingerprint. */
+  fingerprint: string;
+  /** The key's comment — usually a path or `user@host`. */
+  comment: string;
+}
+
+/** Result of `agent_list`. */
+export interface AgentListResult {
+  /** Whether an ssh-agent is reachable at all. */
+  available: boolean;
+  /** Loaded identities (empty is normal for a fresh agent). */
+  keys: AgentKey[];
+  /** One plain sentence for the guidance banner, when something's off. */
+  note?: string;
+}
+
+/** Payload for `binary_check` (Phase 7). */
+export interface BinaryCheckPayload {
+  /** The tool to look for — allow-listed: "mosh", "tailscale", "claude". */
+  name: "mosh" | "tailscale" | "claude";
+}
+
+/** Result of `binary_check`. */
+export interface BinaryCheckResult {
+  /** Whether the tool is installed (PATH or a well-known location). */
+  found: boolean;
+  /** The resolved absolute path, when found. */
+  path?: string;
+}
+
+/**
+ * One tailnet peer (F9, Phase 7). Ephemeral: peers are never persisted —
+ * `id` (`ts:{nodeId}`) feeds `pty_spawn` / `sftp_connect` / `host_adopt`
+ * like any host id, resolved by a fresh `tailscale status --json` core-side.
+ */
+export interface TailscalePeer {
+  /** Stable host id, `ts:{nodeId}`. */
+  id: string;
+  /** MagicDNS name without the trailing dot. */
+  dnsName: string;
+  /** The device's short hostname — the row label. */
+  hostName: string;
+  /** OS as Tailscale reports it (`linux`, `macOS`, `windows`, …). */
+  os: string;
+  /** Tailscale's own online state — the LED, never a TCP probe (§3). */
+  online: boolean;
+  /** RFC 3339 last-seen for dimmed offline rows, when known. */
+  lastSeen?: string;
+  /** ACL tags (`tag:prod`, …). */
+  tags: string[];
+  /** Whether the peer runs Tailscale SSH (key-free connect badge). */
+  tsSsh: boolean;
+}
+
+/** Result of `tailscale_peers`. */
+export interface TailscalePeersResult {
+  /** Whether the Tailnet section should exist at all. */
+  available: boolean;
+  /** One plain sentence when unavailable ("not installed", "logged out"…). */
+  reason?: string;
+  /** The default login user for one-click connects (`[tailnet]` setting). */
+  defaultUser: string;
+  /** Live peers, self excluded. */
+  peers: TailscalePeer[];
+}
+
+/** Payload for `vault_export` (F8). */
+export interface VaultExportPayload {
+  /** Where the `.tar.age` file goes (from the save dialog). */
+  destPath: string;
+  /** The age passphrase. Crosses IPC once; never stored or logged. */
+  passphrase: string;
+  /**
+   * The second, explicit toggle (F8): bundle known Keychain entries as
+   * `keychain-secrets.toml` inside the encrypted tarball. Default-off.
+   */
+  includeSecrets: boolean;
+}
+
+/** Result of `vault_export`. */
+export interface VaultExportResult {
+  /** Size of the encrypted vault file, in bytes. */
+  bytes: number;
+  /** How many Keychain entries rode along (0 without the toggle). */
+  secretsIncluded: number;
+}
+
+/** Payload for `tailscale_ping` — F9's "ping to wake path". */
+export interface TailscalePingPayload {
+  /** The peer's MagicDNS name. */
+  target: string;
+}
+
+/** Result of `tailscale_ping`. */
+export interface TailscalePingResult {
+  /** Whether a pong arrived within the budget. */
+  ok: boolean;
+  /** The command's last output line, for the toast. */
+  summary: string;
+}
+
+/**
  * Invokable commands, keyed by command name.
  *
  * Phase 1 shipped the `pty_*` family; Phase 2 adds SSH spawning and the
@@ -676,7 +885,8 @@ export interface SftpProgressEvent {
  * `reach_*` family driving the LED board; Phase 5 adds the `sftp_*` family
  * (dual-pane browser + transfers) and the `hostkey_trust` half of the
  * fingerprint trust flow; Phase 6 adds the `snippet_*` family over
- * `snippets.toml` (CRUD + TOML packs).
+ * `snippets.toml` (CRUD + TOML packs); Phase 7 adds the `keychain_*`
+ * family (set / delete / has — never get, F8).
  */
 export interface IpcCommands {
   /** Spawn a new PTY session — a local login shell or `ssh` to a host. */
@@ -783,6 +993,42 @@ export interface IpcCommands {
   sftp_download: { payload: SftpTransferPayload; result: SftpTransferResult };
   /** Cancel a running transfer; partial destination files are removed. */
   sftp_cancel: { payload: SftpCancelPayload; result: null };
+  /**
+   * Store (or replace) a secret in the macOS Keychain (F8). Write-only:
+   * no command ever returns a stored secret — the core reads it inside
+   * the SFTP auth ladder only.
+   */
+  keychain_set: { payload: KeychainSetPayload; result: null };
+  /** Delete a Keychain secret. Missing entries are a no-op. */
+  keychain_delete: { payload: KeychainSecretRef; result: null };
+  /** Whether a Keychain entry exists — existence only, never the secret. */
+  keychain_has: { payload: KeychainSecretRef; result: KeychainHasResult };
+  /**
+   * Generate an ed25519 keypair with ssh-keygen (F8). Passphrases go
+   * through a hidden PTY into the Keychain — never argv, never disk.
+   * Existing files are never overwritten (expected `error` instead).
+   */
+  keys_generate: { payload: KeysGeneratePayload; result: KeysGenerateResult };
+  /** List the ssh-agent's identities (`ssh-add -l`) for the Keys panel. */
+  agent_list: { payload: Record<string, never>; result: AgentListResult };
+  /**
+   * Whether an optional system tool is installed (mosh preflight,
+   * tailscale detection, Phase 13 claude). Allow-listed names only.
+   */
+  binary_check: { payload: BinaryCheckPayload; result: BinaryCheckResult };
+  /**
+   * List tailnet peers (F9). Pull model: the tailnet store polls every
+   * 30s, pausing while the app is hidden. Unavailable states hide the
+   * sidebar section — they are answers, not errors.
+   */
+  tailscale_peers: { payload: Record<string, never>; result: TailscalePeersResult };
+  /** Warm the path to a dozing peer (`tailscale ping`) — toast the result. */
+  tailscale_ping: { payload: TailscalePingPayload; result: TailscalePingResult };
+  /**
+   * Export `~/.config/setu` as an age-encrypted tarball (F8). Secrets
+   * stay out unless the explicit `includeSecrets` toggle is on.
+   */
+  vault_export: { payload: VaultExportPayload; result: VaultExportResult };
 }
 
 /**

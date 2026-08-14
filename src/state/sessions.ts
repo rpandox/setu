@@ -12,6 +12,7 @@
 import { create } from "zustand";
 import type { Host } from "../ipc/contract";
 import { ipcInvoke, onPtyExit } from "../ipc/client";
+import { useToast } from "./toast";
 import {
   createSessionTerminal,
   disposeSessionTerminal,
@@ -115,13 +116,21 @@ export interface SessionsState {
    */
   findFocusSeq: number;
   /** Spawns a local shell in a fresh tab and focuses it. */
-  openLocalTab(): Promise<void>;
   /**
-   * Spawns `ssh` to a host in a fresh tab and focuses it. Returns the new
-   * session's id so callers can write into the pane — the F6 "run snippet
-   * as new tabs" path (PLAN.md §5, Phase 6 row).
+   * Opens a fresh local shell tab.
+   *
+   * @returns The new session's id (so helpers like ssh-copy-id can write
+   * a command into the pane — the Phase 6 `openSshTab` precedent).
    */
-  openSshTab(host: Host): Promise<string>;
+  openLocalTab(): Promise<string>;
+  /**
+   * Spawns `ssh` (or `mosh`, per the host's toggle — Phase 7) to a host in
+   * a fresh tab and focuses it. Returns the new session's id so callers
+   * can write into the pane — the F6 "run snippet as new tabs" path
+   * (PLAN.md §5, Phase 6 row) — or `null` when the mosh preflight blocked
+   * the connect (a toast already explained why).
+   */
+  openSshTab(host: Host): Promise<string | null>;
   /**
    * Reconnects an exited SSH pane in place: fresh PTY, same xterm and same
    * pane (scrollback survives). No-op for running panes, local panes, and
@@ -387,23 +396,58 @@ export const useSessions = create<SessionsState>((set, get) => {
   };
 
   /**
-   * Spawns `ssh` to a host and opens it in a fresh tab — the shared engine
-   * behind {@link SessionsState.openSshTab} and
+   * Picks the spawn kind for a host: `"mosh"` when the host prefers it
+   * AND the binary exists (F3 mosh row, Phase 7). The host record is
+   * looked up live, so reconnects/duplicates/splits honor edits made
+   * after a session opened. A missing mosh toasts and returns `null` —
+   * never a silent fallback to ssh (PLAN.md §5).
+   *
+   * @param hostId - The host about to be spawned.
+   * @returns The pty_spawn kind, or `null` when the connect must not run.
+   */
+  const spawnKindFor = async (hostId: string): Promise<"ssh" | "mosh" | null> => {
+    // Dynamic import: hosts.ts imports this module, so a static import
+    // back would be a cycle.
+    const { useHosts } = await import("./hosts");
+    const host = useHosts.getState().hosts.find((h) => h.id === hostId);
+    if (host === undefined || !host.use_mosh) return "ssh";
+    try {
+      const { found } = await ipcInvoke("binary_check", { name: "mosh" });
+      if (found) return "mosh";
+    } catch {
+      // Treated as not-found; the toast below says what to do.
+    }
+    useToast
+      .getState()
+      .show(
+        "mosh isn't installed — brew install mosh, or turn the host's mosh toggle off",
+        "error",
+      );
+    return null;
+  };
+
+  /**
+   * Spawns `ssh` (or `mosh`, per the host's toggle) to a host and opens it
+   * in a fresh tab — the shared engine behind
+   * {@link SessionsState.openSshTab} and
    * {@link SessionsState.duplicateTab}.
    *
    * @param hostId - The host to connect to.
    * @param hostLabel - Label to seed the pane title with.
    * @param hue - The host's identity hue.
-   * @returns The new session's id.
+   * @returns The new session's id, or `null` when the mosh preflight
+   * blocked the connect (the toast already explained why).
    */
   const openSsh = async (
     hostId: string,
     hostLabel: string,
     hue: number,
-  ): Promise<string> => {
+  ): Promise<string | null> => {
+    const kind = await spawnKindFor(hostId);
+    if (kind === null) return null;
     // 80×24 is a placeholder; the pane fits and resizes right after open.
     const { sessionId } = await ipcInvoke("pty_spawn", {
-      kind: "ssh",
+      kind,
       hostId,
       cols: 80,
       rows: 24,
@@ -430,7 +474,7 @@ export const useSessions = create<SessionsState>((set, get) => {
     findOpen: false,
     findFocusSeq: 0,
 
-    async openLocalTab(): Promise<void> {
+    async openLocalTab(): Promise<string> {
       const { sessionId } = await ipcInvoke("pty_spawn", {
         kind: "local",
         cols: 80,
@@ -445,9 +489,10 @@ export const useSessions = create<SessionsState>((set, get) => {
       };
       await wireSession(meta);
       placeAsTab(meta);
+      return sessionId;
     },
 
-    async openSshTab(host: Host): Promise<string> {
+    async openSshTab(host: Host): Promise<string | null> {
       return openSsh(host.id, host.label, host.hue);
     },
 
@@ -456,9 +501,11 @@ export const useSessions = create<SessionsState>((set, get) => {
       if (!meta || meta.status !== "exited" || meta.kind !== "ssh" || !meta.hostId) {
         return;
       }
+      const kind = await spawnKindFor(meta.hostId);
+      if (kind === null) return; // the pane stays exited; the toast said why
       const handle = getSessionTerminal(sessionId);
       const { sessionId: newSessionId } = await ipcInvoke("pty_spawn", {
-        kind: "ssh",
+        kind,
         hostId: meta.hostId,
         // Reuse the terminal's real size; the pane refits right after anyway.
         cols: handle?.term.cols ?? 80,
@@ -544,8 +591,10 @@ export const useSessions = create<SessionsState>((set, get) => {
       let spawned: SessionMeta;
       if (meta.kind === "ssh") {
         if (!meta.hostId || meta.orphaned) return;
+        const kind = await spawnKindFor(meta.hostId);
+        if (kind === null) return; // no split; the toast said why
         const { sessionId } = await ipcInvoke("pty_spawn", {
-          kind: "ssh",
+          kind,
           hostId: meta.hostId,
           cols: 80,
           rows: 24,
@@ -600,9 +649,14 @@ export const useSessions = create<SessionsState>((set, get) => {
         if (node.host) {
           let sessionId: string;
           let status: SessionMeta["status"] = "running";
+          // A blocked mosh preflight fails like any dead spawn — no
+          // silent ssh fallback; the pane opens exited with the normal
+          // Reconnect notice.
+          const kind = await spawnKindFor(node.host.id);
           try {
+            if (kind === null) throw new Error("mosh preflight blocked the restore");
             ({ sessionId } = await ipcInvoke("pty_spawn", {
-              kind: "ssh",
+              kind,
               hostId: node.host.id,
               cols: 80,
               rows: 24,

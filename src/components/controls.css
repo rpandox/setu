@@ -1,0 +1,165 @@
+/*
+ * Phosphor form controls (PLAN.md §7) — custom checkbox, radio, and select
+ * so no native macOS widget breaks the chrome. Colors come from tokens.css
+ * only; the focus ring is one of the three sanctioned --glow surfaces.
+ */
+
+/* ── checkbox & radio ─────────────────────────────────────────────────── */
+
+.ctl-check,
+.ctl-radio {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+/* The real input stays in the tree for focus, clicks, and screen readers —
+   it just paints nothing and sits exactly over the drawn box. */
+.ctl-native {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ctl-native:disabled {
+  cursor: default;
+}
+
+.ctl-box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: transparent;
+  background: var(--bg-1);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  transition:
+    background var(--t-fast),
+    border-color var(--t-fast);
+}
+
+.ctl-radio .ctl-box {
+  border-radius: 50%;
+}
+
+.ctl-box svg {
+  width: 10px;
+  height: 10px;
+}
+
+.ctl-radio .ctl-box::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.ctl-native:checked + .ctl-box {
+  background: var(--neon);
+  border-color: var(--neon);
+  color: var(--neon-ink);
+}
+
+.ctl-native:not(:disabled):not(:checked):hover + .ctl-box {
+  border-color: var(--neon-hover);
+}
+
+.ctl-native:focus-visible + .ctl-box {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}
+
+.ctl-native:disabled + .ctl-box {
+  opacity: 0.45;
+}
+
+/* ── select ───────────────────────────────────────────────────────────── */
+
+.ctl-select {
+  position: relative;
+  display: block;
+}
+
+.ctl-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pad);
+  width: 100%;
+  padding: 5px 10px;
+  font: inherit;
+  text-align: left;
+  color: var(--ink-1);
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  cursor: pointer;
+  transition: border-color var(--t-fast);
+}
+
+.ctl-select-trigger:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.ctl-select-trigger:focus-visible {
+  outline: 1px solid var(--neon);
+  box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
+}
+
+.ctl-select-trigger:disabled {
+  color: var(--ink-3);
+  cursor: default;
+}
+
+.ctl-select-trigger--placeholder {
+  color: var(--ink-2);
+}
+
+.ctl-select-caret {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  color: var(--ink-2);
+}
+
+.ctl-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: 240px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-1);
+}
+
+.ctl-select-option {
+  padding: 5px 8px;
+  border-radius: var(--r-1);
+  color: var(--ink-1);
+  cursor: pointer;
+}
+
+.ctl-select-option[aria-selected="true"] {
+  color: var(--neon);
+}
+
+.ctl-select-option--active {
+  background: var(--bg-3);
+}
+
+.ctl-select-option--disabled {
+  color: var(--ink-3);
+  cursor: default;
+}

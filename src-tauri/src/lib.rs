@@ -17,13 +17,23 @@
 //! - [`known_hosts`] — host-key verification for the in-app SFTP client (F5).
 //! - [`sftp`] — the in-app SFTP client: connections, trust flow, sessions (F5).
 //! - [`snippets`] — plain-TOML persistence for snippets + packs (F6).
+//! - [`keychain`] — the Keychain doorway: SFTP passwords & key passphrases (F8).
+//! - [`keygen`] — `ssh-keygen` driven through a hidden PTY (F8).
+//! - [`vault`] — the age-encrypted config-dir export (F8).
+//! - [`agent`] — ssh-agent introspection via `ssh-add -l` (F8).
+//! - [`binaries`] — locating optional tools (mosh, tailscale, claude).
+//! - [`tailscale`] — the tailnet as a host source: peers, ping, adopt (F9).
 //! - [`ipc`] — the Tauri command surface, mirrored by `src/ipc/contract.ts`.
 
 #![deny(missing_docs)]
 
+pub mod agent;
+pub mod binaries;
 pub mod connect;
 pub mod forwards;
 pub mod ipc;
+pub mod keychain;
+pub mod keygen;
 pub mod known_hosts;
 pub mod pty;
 pub mod reach;
@@ -32,7 +42,9 @@ pub mod sftp;
 pub mod snippets;
 pub mod ssh_config;
 pub mod store;
+pub mod tailscale;
 pub mod ui_state;
+pub mod vault;
 
 /// Builds and runs the Tauri application.
 ///
@@ -126,6 +138,15 @@ pub fn run() {
             ipc::sftp_upload,
             ipc::sftp_download,
             ipc::sftp_cancel,
+            ipc::keychain_set,
+            ipc::keychain_delete,
+            ipc::keychain_has,
+            ipc::keys_generate,
+            ipc::agent_list,
+            ipc::binary_check,
+            ipc::tailscale_peers,
+            ipc::tailscale_ping,
+            ipc::vault_export,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
