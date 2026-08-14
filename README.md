@@ -8,51 +8,53 @@ Keychain, config lives in plain files you own, and interactive sessions drive th
 system `ssh` — so your `~/.ssh/config`, agent, jump hosts, and Tailscale keep
 working exactly as they do today.
 
-**Status: pre-alpha, under active construction.** Phases 0–7 of the
-[build plan](PLAN.md) are complete: the app shell and design system, a
-working local terminal ([docs](docs/features/F02-terminal-core.md)),
-hosts & SSH — a `hosts.toml` store with an editor drawer, automatic
-`~/.ssh/config` import with an Adopt flow
-([docs](docs/features/F01-hosts.md)), sessions that spawn the system
-`ssh` with keepalives, in-terminal host-key prompts, and one-key
-reconnect ([docs](docs/features/F03-sessions.md)) — split panes,
-broadcast input, and opt-in session restore
-([docs](docs/features/F04-splits-broadcast.md)) — the live LED
-board: every host probed the moment the app opens, green when it
-answers right now ([docs](docs/features/F01-hosts.md)), a full ⌘K
-command palette with frecency ranking
-([docs](docs/features/F11-command-palette.md)), a paste guard that
-stops multi-line and dangerous pastes at an exact-bytes preview
-([docs](docs/features/F02-terminal-core.md)) — **SFTP**: ⇧⌘S opens a
-dual-pane file browser over any SSH session — drag-drop both ways, a
-three-at-a-time transfer queue with cancel and auto-retry, chmod, and
-a fingerprint dialog for first-connect host keys
-([docs](docs/features/F05-sftp.md)) — and now **snippets & port
-forwards**: ⌘J command templates whose `{{variables}}` prompt at run,
-targeting the current pane, the broadcast set, or a new tab per host,
-with shareable TOML packs ([docs](docs/features/F06-snippets.md)); and
-per-host `L`/`R`/`D` tunnels as status-bar toggles — managed `ssh -N`
-children with honest health dots, auto-start on connect, and a
-port-conflict helper that names the owner and offers the next free
-port ([docs](docs/features/F07-port-forwards.md)) — and now **keys,
-Keychain & the tailnet**: SFTP passwords and key passphrases in the
-macOS Keychain (never on disk, never toward the UI), ed25519 key
-generation with a visible ssh-copy-id helper, an age-encrypted vault
-export ([docs](docs/features/F08-keys-vault.md)); per-host **mosh**
-with an honest preflight ([docs](docs/features/F03-sessions.md)); and
-your **tailnet in the sidebar** — live peers with Tailscale's own
-online state as their LEDs, one-click connect, adopt-as-host, and
-ping-to-wake ([docs](docs/features/F09-tailscale.md)) — and now
-**sync & settings**: `~/.config/setu` as a git repo you push to your
-own private remote — Sync now from the sidebar footer's status dot, a
-secrets lint that refuses to commit credential-looking lines (shown
-verbatim), conflicts left for you with a one-click cancel, scheduled
-tar.gz snapshots — plus the Settings window (⌘,): terminal font size
-and scrollback that hot-apply to open terminals, reachability knobs,
-the tailnet user, and the advanced track's flags
-([docs](docs/features/F10-sync-backup.md)).
+![Setu's main window: the LED board sidebar with live host status, a terminal
+pane, and the status bar](docs/assets/hero.png)
 
-<!-- Hero screenshot: docs/assets/hero.png (captured during Phase 4 live QA). -->
+**Status: v1.0.0.** The core track of the [build plan](PLAN.md) — Phases 0–9,
+full Termius-class parity — is complete. The advanced track (semantic terminal,
+instant ControlMaster connections, fleet health, output triggers, runbooks,
+automation, AI assist, themes) ships next, behind default-off flags.
+
+## Install
+
+### Homebrew
+
+```sh
+brew install --cask rpandox/tap/setu
+```
+
+### Direct download
+
+Grab `Setu_<version>_universal.dmg` from
+[GitHub Releases](https://github.com/rpandox/setu/releases) and drag Setu to
+Applications.
+
+### First launch (unsigned build)
+
+v1.0.x releases are not yet notarized, so Gatekeeper quarantines the first
+launch. Either right-click `Setu.app` → **Open** → **Open** (once; macOS
+remembers), or:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Setu.app
+```
+
+## What's inside
+
+| Feature                                                     | Keys           | In short                                                                                                          |
+| ----------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------- |
+| [Hosts & the LED board](docs/features/F01-hosts.md)         | ⌘T             | Every host is a live LED — green means reachable _right now_; fuzzy quick-connect, `~/.ssh/config` import         |
+| [Terminal](docs/features/F02-terminal-core.md)              | ⇧⌘F · ⌘+/−     | xterm.js on WebGL, a paste guard that previews multi-line and dangerous pastes byte-for-byte                      |
+| [Sessions](docs/features/F03-sessions.md)                   | ⏎ to reconnect | The system `ssh` in a PTY — your config, agent, ProxyJump, and known_hosts just work; per-host mosh               |
+| [Splits & broadcast](docs/features/F04-splits-broadcast.md) | ⌘D · ⇧⌘D · ⇧⌘B | Pane grids with drag borders; type once, land in every armed session                                              |
+| [SFTP](docs/features/F05-sftp.md)                           | ⇧⌘S            | Dual-pane browser over any session — drag-drop both ways, transfer queue, chmod, host-key trust                   |
+| [Snippets](docs/features/F06-snippets.md)                   | ⌘J             | Command templates whose `{{variables}}` prompt at run; current pane, broadcast, or a tab per host; TOML packs     |
+| [Port forwards](docs/features/F07-port-forwards.md)         | status bar     | `L`/`R`/`D` tunnels as toggles — health dots, auto-start, a port-conflict helper that names the owner             |
+| [Keys & vault](docs/features/F08-keys-vault.md)             | —              | Keychain-backed SFTP secrets, ed25519 generation, a visible ssh-copy-id, age-encrypted config export              |
+| [Tailscale](docs/features/F09-tailscale.md)                 | —              | Live tailnet peers in the sidebar with Tailscale's own online state; one-click connect, adopt-as-host             |
+| [Sync & backup](docs/features/F10-sync-backup.md)           | ⌘,             | `~/.config/setu` as a git repo you push anywhere; a secrets lint that refuses credential-looking lines; snapshots |
+| [Command palette](docs/features/F11-command-palette.md)     | ⌘K             | Every action two keystrokes away, frecency-ranked                                                                 |
 
 ## Why
 
@@ -64,15 +66,6 @@ the tailnet user, and the advanced track's flags
 - **Respect the system.** Reuses `~/.ssh/config`, the ssh-agent, `known_hosts`,
   and Tailscale — never fights them.
 
-## Planned features
-
-The full feature-by-feature specification lives in [PLAN.md](PLAN.md) §9.
-Highlights: host management with live reachability LEDs · tabs, splits, and
-broadcast input · snippets and runbooks · port-forward toggles ·
-Keychain-backed secrets · semantic terminal (prompt jumps,
-done-notifications, global command history) · instant second connections
-via ControlMaster · fleet health sparklines · a companion CLI.
-
 ## Build from source
 
 Prerequisites:
@@ -83,7 +76,7 @@ Prerequisites:
 - Xcode Command Line Tools (`xcode-select --install`)
 
 ```sh
-git clone <repository-url> setu
+git clone https://github.com/rpandox/setu.git
 cd setu
 pnpm install
 pnpm tauri dev
@@ -91,7 +84,8 @@ pnpm tauri dev
 
 `pnpm tauri dev` compiles the Rust core and opens the app window with hot
 reload for the frontend. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full
-development workflow and quality gates.
+development workflow and quality gates, and [RELEASING.md](RELEASING.md) for
+how release builds are produced.
 
 ## Documentation
 
@@ -101,6 +95,7 @@ development workflow and quality gates.
   releasing)
 - [docs/features/](docs/features/) — one page per feature as it ships
 - [CHANGELOG.md](CHANGELOG.md) — what changed, phase by phase
+- [RELEASING.md](RELEASING.md) — build, package, and publish a release
 
 ## Security
 

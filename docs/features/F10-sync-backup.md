@@ -1,4 +1,4 @@
-# F10 · Sync, backup & settings
+# F10 · Sync & backup
 
 Spec: [PLAN.md](../../PLAN.md) §9 F10 · shipped in Phase 8.
 
