@@ -22,11 +22,11 @@ substitute the version you are cutting.
 
 The version lives in three files that must always agree:
 
-| File | Key |
-|---|---|
-| `package.json` | `"version"` |
-| `src-tauri/Cargo.toml` | `[package] version` |
-| `src-tauri/tauri.conf.json` | `"version"` |
+| File                        | Key                 |
+| --------------------------- | ------------------- |
+| `package.json`              | `"version"`         |
+| `src-tauri/Cargo.toml`      | `[package] version` |
+| `src-tauri/tauri.conf.json` | `"version"`         |
 
 ## 2 · Cut the CHANGELOG
 
@@ -47,10 +47,22 @@ pnpm install
 pnpm tauri build --target universal-apple-darwin
 ```
 
-Artifacts land under `src-tauri/target/universal-apple-darwin/release/bundle/`:
+The app lands at
+`src-tauri/target/universal-apple-darwin/release/bundle/macos/Setu.app`,
+ad-hoc signed (`signingIdentity: "-"` in `tauri.conf.json` — Apple silicon
+refuses to execute unsigned arm64 binaries, so even local builds need at least
+this).
 
-- `macos/Setu.app` — the app
-- `dmg/Setu_1.0.0_universal.dmg` — the drag-to-Applications disk image
+Tauri's own DMG step (`bundle_dmg.sh`) drives Finder via AppleScript for the
+window layout and fails in headless sessions — if it errors after "Bundling
+…dmg", build the DMG by hand instead:
+
+```sh
+cd src-tauri/target/universal-apple-darwin/release/bundle/macos
+mkdir -p dmg-stage ../dmg && cp -R Setu.app dmg-stage/ && ln -sf /Applications dmg-stage/Applications
+hdiutil create -volname "Setu" -srcfolder dmg-stage -ov -format UDZO ../dmg/Setu_1.0.0_universal.dmg
+rm -rf dmg-stage
+```
 
 Verify both architecture slices and the size gate (< 25 MB):
 
