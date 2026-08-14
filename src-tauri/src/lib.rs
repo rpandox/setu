@@ -56,6 +56,11 @@ pub mod vault;
 /// app exits. On exit request every live PTY child is killed — no orphans
 /// (`CLAUDE.md` hard rule).
 ///
+/// With `SETU_STARTUP_PROBE=1` in the environment, the elapsed time from
+/// process start to each webview's finished page load is printed to stderr —
+/// the cold-launch evidence for the Phase 9 acceptance bar (run the release
+/// binary from a terminal to read it). Unset, the probe is silent.
+///
 /// # Panics
 ///
 /// Panics if the Tauri runtime fails to initialize — for example when the
@@ -65,9 +70,22 @@ pub fn run() {
     use std::sync::Arc;
     use tauri::Manager as _;
 
+    let started = std::time::Instant::now();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .on_page_load(move |webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
+                && std::env::var_os("SETU_STARTUP_PROBE").is_some()
+            {
+                eprintln!(
+                    "setu: startup probe: `{}` page loaded {} ms after process start",
+                    webview.label(),
+                    started.elapsed().as_millis()
+                );
+            }
+        })
         .setup(|app| {
             // The standard macOS menu: without it the app has no ⌘Q, which
             // would leave users no way to reach the kill-all exit path.
