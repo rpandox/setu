@@ -22,4 +22,5 @@ Pages so far:
 - [F07 · Port forwarding](F07-port-forwards.md) — L/R/D rules as toggles, health dots, auto-start (Phase 6)
 - [F08 · Keys & vault](F08-keys-vault.md) — Keychain secrets, key generation, ssh-copy-id, age vault (Phase 7)
 - [F09 · Tailscale awareness](F09-tailscale.md) — the tailnet as a host source, adopt, ping-to-wake (Phase 7)
+- [F10 · Sync & backup](F10-sync-backup.md) — git sync, secrets lint, snapshots, the Settings window (Phase 8)
 - [F11 · Command palette & quick connect](F11-command-palette.md) — ⌘T (Phase 2)

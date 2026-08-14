@@ -1,11 +1,9 @@
 # Releasing
 
-How Setu is built, signed, notarized, and published (universal binary,
-Homebrew cask, GitHub Releases).
-
-**Stub — filled in by Phase 9.** Until then: `pnpm tauri build` produces an
-unsigned local build; clear quarantine with
-`xattr -dr com.apple.quarantine Setu.app` to run it.
+The complete release workflow — universal build, packaging, GitHub release,
+Homebrew cask, signing/notarization — lives in
+[RELEASING.md](../../RELEASING.md) at the repository root. This page keeps the
+asset pipelines that feed it.
 
 ## App icon pipeline (Phase 4)
 
