@@ -13,11 +13,16 @@
 //! `snippet_*` family over `snippets.toml` (CRUD + packs); Phase 7 adds the
 //! `keychain_*` family (set / delete / has — never get: secrets are read
 //! only inside the core, F8), plus `keys_generate` and `agent_list` behind
-//! the Keys panel. This module also
+//! the Keys panel; Phase 8 adds the `settings_*` family (whole-document
+//! get/set over `settings.toml` + the Settings window opener), the
+//! `git_sync_*` family (F10 sync driving system git), and `snapshot_now` /
+//! `sync_open_dir`. This module also
 //! hosts the event bridges — [`TauriPtyEvents`] for `pty:data:{sessionId}` /
 //! `pty:exit:{sessionId}`, [`TauriReachEvents`] for `reach:update`, and
 //! [`TauriSftpEvents`] for `hostkey:prompt` / `sftp:progress:{transferId}` —
-//! plus [`AppTargetSource`], the prober's view of the host list.
+//! plus [`AppTargetSource`], the prober's view of the host list. The Phase 8
+//! `settings:changed` / `sync:update` events are emitted straight from their
+//! commands (both windows listen; §5 settings-window-mechanics row).
 
 use std::collections::HashSet;
 
@@ -1891,5 +1896,265 @@ pub fn agent_list() -> Result<AgentListResult, String> {
             })
             .collect(),
         note: status.note,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8 — Settings window + git sync (F10)
+// ---------------------------------------------------------------------------
+
+/// Reads the whole `settings.toml` document, fresh-parsed so the Settings
+/// window always shows the file's current truth (hand edits included).
+///
+/// **Payload:** `{}` · **Result:** `SettingsDocument` (snake_case fields —
+/// the record mirrors the TOML schema verbatim, the `Host` precedent) ·
+/// **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the file exists but can't be read or parsed (a missing file
+/// is the defaults, not an error).
+#[tauri::command]
+pub fn settings_get(
+    settings: State<'_, SettingsStore>,
+) -> Result<crate::settings::SettingsDocument, String> {
+    settings.document()
+}
+
+/// Result of [`settings_set`] (mirrors `SettingsSetResult`): the saved
+/// document, or per-field validation errors — the hosts-family shape.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingsSetResult {
+    /// The document as saved, when validation passed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settings: Option<crate::settings::SettingsDocument>,
+    /// What was wrong, keyed by TOML path (`"terminal.font_size"`).
+    pub errors: Vec<FieldError>,
+}
+
+/// Validates and saves the whole `settings.toml` document (atomic write),
+/// then emits `settings:changed` to every window — the main window's
+/// stores hot-apply from that event (fonts, prober re-tune) because the
+/// Settings window lives in its own webview (§5). Also pokes the snapshot
+/// scheduler so a changed interval is honored immediately.
+///
+/// **Payload:** `{ document }` · **Result:** `{ settings?, errors }` ·
+/// **Emits:** `settings:changed` (on success).
+///
+/// # Errors
+///
+/// Fails only when the write itself fails; out-of-range values come back
+/// as `errors` result-side.
+#[tauri::command]
+pub fn settings_set(
+    app: AppHandle,
+    settings: State<'_, SettingsStore>,
+    scheduler: State<'_, crate::snapshots::SnapshotScheduler>,
+    document: crate::settings::SettingsDocument,
+) -> Result<SettingsSetResult, String> {
+    let errors = crate::settings::validate(&document);
+    if !errors.is_empty() {
+        return Ok(SettingsSetResult {
+            settings: None,
+            errors,
+        });
+    }
+    settings.save(&document)?;
+    let _ = app.emit("settings:changed", &document);
+    scheduler.poke();
+    Ok(SettingsSetResult {
+        settings: Some(document),
+        errors: Vec::new(),
+    })
+}
+
+/// Opens (or focuses) the Settings window — a real second webview window
+/// labeled `settings`, same bundle, routed by the `?window=settings` query
+/// (§5 settings-window-mechanics row). ⌘, and the palette action land here.
+///
+/// **Payload:** `{}` · **Result:** `null` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the window can't be created or focused.
+#[tauri::command]
+pub fn settings_window_open(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("settings") {
+        return window
+            .set_focus()
+            .map_err(|e| format!("couldn't focus the Settings window: {e}"));
+    }
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        "settings",
+        tauri::WebviewUrl::App("index.html?window=settings".into()),
+    )
+    .title("Settings")
+    .inner_size(780.0, 600.0)
+    .min_inner_size(640.0, 480.0)
+    .build()
+    .map(|_| ())
+    .map_err(|e| format!("couldn't open the Settings window: {e}"))
+}
+
+/// Reads the sync dot's state (F10): clean / ahead / behind / conflict /
+/// local, plus the remote URL, dirty flag, ahead/behind counts, conflict
+/// files, and the newest commit's time. Local-only — never fetches.
+///
+/// **Payload:** `{}` · **Result:** `GitSyncStatus` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when git is missing or a git call fails unexpectedly (no repo /
+/// no remote / no commits are states, not errors).
+#[tauri::command]
+pub async fn git_sync_status(
+    sync: State<'_, crate::sync::SyncManager>,
+) -> Result<crate::sync::GitSyncStatus, String> {
+    sync.status().await
+}
+
+/// "Sync now" (F10): secrets lint → `add -A` → commit
+/// `setu: <hostname> <ts>` → fetch → rebase → push. Expected outcomes ride
+/// result-side: a lint block fills `blocked` (nothing staged), a conflicted
+/// rebase fills `conflictFiles` (left in progress, never auto-resolved),
+/// network/auth trouble fills `message`. No remote → commit only, still ok.
+///
+/// **Payload:** `{}` · **Result:** `GitSyncRunResult` · **Emits:**
+/// `sync:update` with the fresh status.
+///
+/// # Errors
+///
+/// Fails only on infrastructure problems (git missing, IO).
+#[tauri::command]
+pub async fn git_sync_run(
+    app: AppHandle,
+    sync: State<'_, crate::sync::SyncManager>,
+) -> Result<crate::sync::GitSyncRunResult, String> {
+    let result = sync.run(&crate::sync::device_hostname()).await?;
+    let _ = app.emit("sync:update", &result.status);
+    Ok(result)
+}
+
+/// Result of [`git_sync_set_remote`] (mirrors `SetRemoteResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetRemoteResult {
+    /// Whether the remote was updated.
+    pub ok: bool,
+    /// Fresh status after the change, when it succeeded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<crate::sync::GitSyncStatus>,
+    /// What was wrong with the URL (or git's own words) otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Points the config repo's `origin` at `url`, initializing the repo on
+/// first use; an empty `url` removes the remote (the dot returns to
+/// `local`). The remote lives in `.git/config`, never in the synced
+/// settings.toml (§5).
+///
+/// **Payload:** `{ url }` · **Result:** `{ ok, status?, message? }` ·
+/// **Emits:** `sync:update` (on success).
+///
+/// # Errors
+///
+/// Fails when git is missing; a malformed URL or git refusal is
+/// `{ ok: false, message }`.
+#[tauri::command]
+pub async fn git_sync_set_remote(
+    app: AppHandle,
+    sync: State<'_, crate::sync::SyncManager>,
+    url: String,
+) -> Result<SetRemoteResult, String> {
+    match sync.set_remote(&url).await {
+        Ok(status) => {
+            let _ = app.emit("sync:update", &status);
+            Ok(SetRemoteResult {
+                ok: true,
+                status: Some(status),
+                message: None,
+            })
+        }
+        Err(message) if message.starts_with("git not found") => Err(message),
+        Err(message) => Ok(SetRemoteResult {
+            ok: false,
+            status: None,
+            message: Some(message),
+        }),
+    }
+}
+
+/// "Cancel sync": aborts the paused rebase (`git rebase --abort`),
+/// restoring the pre-sync state — the one-click escape from `conflict`.
+///
+/// **Payload:** `{}` · **Result:** `GitSyncStatus` · **Emits:**
+/// `sync:update`.
+///
+/// # Errors
+///
+/// Fails when no rebase is in progress or git fails.
+#[tauri::command]
+pub async fn git_sync_abort(
+    app: AppHandle,
+    sync: State<'_, crate::sync::SyncManager>,
+) -> Result<crate::sync::GitSyncStatus, String> {
+    let status = sync.abort_rebase().await?;
+    let _ = app.emit("sync:update", &status);
+    Ok(status)
+}
+
+/// Opens the config dir in Finder — the F10 conflict path ("open dir in
+/// Finder + a short resolution doc") and the popover's shortcut to the
+/// files.
+///
+/// **Payload:** `{}` · **Result:** `null` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the dir can't be resolved or Finder can't open it.
+#[tauri::command]
+pub fn sync_open_dir() -> Result<(), String> {
+    let dir = crate::sync::SyncManager::default_dir()?;
+    tauri_plugin_opener::open_path(dir, None::<&str>)
+        .map_err(|e| format!("couldn't open the config dir: {e}"))
+}
+
+/// Result of [`snapshot_now`] (mirrors `SnapshotNowResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotNowResult {
+    /// Absolute path of the new archive.
+    pub path: String,
+}
+
+/// Takes a config-dir snapshot immediately (the Settings button):
+/// `setu-config-<UTC ts>.tar.gz` into the state dir's `snapshots/`,
+/// pruning to the configured `keep` (F10).
+///
+/// **Payload:** `{}` · **Result:** `{ path }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the config dir doesn't exist yet or the archive can't be
+/// written.
+#[tauri::command]
+pub async fn snapshot_now(
+    app: AppHandle,
+    settings: State<'_, SettingsStore>,
+) -> Result<SnapshotNowResult, String> {
+    let keep = settings.document()?.snapshots.keep;
+    let config_dir = crate::sync::SyncManager::default_dir()?;
+    let snapshots_dir =
+        crate::snapshots::snapshots_dir(&app).ok_or("cannot determine the app data directory")?;
+    let path = tauri::async_runtime::spawn_blocking(move || {
+        crate::snapshots::snapshot_now(&config_dir, &snapshots_dir, keep)
+    })
+    .await
+    .map_err(|e| format!("the snapshot task died: {e}"))??;
+    Ok(SnapshotNowResult {
+        path: path.display().to_string(),
     })
 }

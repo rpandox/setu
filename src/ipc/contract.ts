@@ -877,6 +877,181 @@ export interface TailscalePingResult {
 }
 
 /**
+ * The `[reachability]` table of `settings.toml` (PLAN.md §4). Fields are
+ * snake_case: the record mirrors the TOML schema verbatim (Host precedent).
+ */
+export interface ReachabilitySettings {
+  /** Global kill switch for the prober. */
+  enabled: boolean;
+  /** Seconds between probe sweeps (5–3600). */
+  interval_s: number;
+  /** Per-probe TCP connect timeout in ms (100–60000). */
+  timeout_ms: number;
+  /** Maximum probes in flight at once (1–64). */
+  max_concurrent: number;
+}
+
+/** The `[tailnet]` table (F9). */
+export interface TailnetSettings {
+  /** Login user for one-click tailnet connects; empty falls back to $USER. */
+  default_user: string;
+}
+
+/** The `[terminal]` table (Phase 8) — hot-applied to open terminals. */
+export interface TerminalSettings {
+  /** Terminal font size in pixels (8–32). */
+  font_size: number;
+  /** Scrollback lines kept per terminal (≤ 1 000 000). */
+  scrollback_lines: number;
+}
+
+/**
+ * The `[sync]` table (F10). The sync *remote* is deliberately absent —
+ * it lives in the config repo's own `.git/config`, because this file is
+ * itself synced (PLAN.md §5).
+ */
+export interface SyncSettings {
+  /** Run a capped sync when the app quits. */
+  auto_sync_on_quit: boolean;
+}
+
+/** The `[snapshots]` table (F10). */
+export interface SnapshotSettings {
+  /** Whether scheduled snapshots run at all. */
+  enabled: boolean;
+  /** Days between scheduled snapshots (1–365; default weekly). */
+  interval_days: number;
+  /** How many archives to keep (1–100; default 10). */
+  keep: number;
+}
+
+/**
+ * The whole `settings.toml` document — what `settings_get` returns,
+ * `settings_set` saves, and the `settings:changed` event carries.
+ *
+ * Unknown top-level tables from newer app versions ride along untyped
+ * (and survive a save), so two machines on different versions can share
+ * the synced file.
+ */
+export interface SettingsDocument {
+  /** The `[reachability]` table. */
+  reachability: ReachabilitySettings;
+  /** The `[tailnet]` table. */
+  tailnet: TailnetSettings;
+  /** The `[terminal]` table. */
+  terminal: TerminalSettings;
+  /** The `[sync]` table. */
+  sync: SyncSettings;
+  /** The `[snapshots]` table. */
+  snapshots: SnapshotSettings;
+  /**
+   * Advanced-track feature flags (`[flags]`, default-off). Keys are
+   * defined by the phases that ship the features; the Settings window
+   * renders known ones and preserves the rest.
+   */
+  flags: Record<string, boolean>;
+}
+
+/** Payload for `settings_set`: the full document (no partial updates). */
+export interface SettingsSetPayload {
+  /** The document to validate and save. */
+  document: SettingsDocument;
+}
+
+/** One field the settings validator rejected. */
+export interface SettingsFieldError {
+  /** The TOML key path, e.g. `"terminal.font_size"`. */
+  field: string;
+  /** Human-readable problem statement. */
+  message: string;
+}
+
+/** Result of `settings_set` — saved document or per-field errors. */
+export interface SettingsSetResult {
+  /** The document as saved, when validation passed. */
+  settings?: SettingsDocument;
+  /** What was wrong otherwise (empty on success). */
+  errors: SettingsFieldError[];
+}
+
+/** The sync dot's five states (F10). */
+export type SyncStateKind = "clean" | "ahead" | "behind" | "conflict" | "local";
+
+/** Result of `git_sync_status` and payload of `sync:update`. */
+export interface GitSyncStatus {
+  /** The dot state. */
+  state: SyncStateKind;
+  /** The `origin` URL, when configured. */
+  remoteUrl?: string;
+  /** Whether the working tree has uncommitted changes. */
+  dirty: boolean;
+  /** Local commits the remote doesn't have (0 when unknown). */
+  ahead: number;
+  /** Remote commits not yet rebased onto, as of the last fetch. */
+  behind: number;
+  /** Files with unresolved conflict markers while `state` is `conflict`. */
+  conflictFiles: string[];
+  /** Unix time of the newest local commit, when any exists. */
+  lastCommitTs?: number;
+}
+
+/** Which secrets-lint heuristic matched (F10). */
+export type LintRuleKind = "secret_assignment" | "pem_private_key" | "base64_run";
+
+/** One line the secrets lint refused to commit. */
+export interface LintBlockedLine {
+  /** Path relative to the config dir. */
+  file: string;
+  /** 1-based line number. */
+  lineNo: number;
+  /** The offending line (excerpted). */
+  line: string;
+  /** The heuristic that matched. */
+  rule: LintRuleKind;
+}
+
+/**
+ * Result of `git_sync_run`. Expected failures ride result-side: a lint
+ * block fills `blocked` (nothing was staged), a conflicted rebase fills
+ * `conflictFiles` (left in progress — never auto-resolved), network/auth
+ * trouble fills `message`.
+ */
+export interface GitSyncRunResult {
+  /** Whether the sync completed (push, or commit-only without a remote). */
+  ok: boolean;
+  /** Fresh status after whatever happened. */
+  status: GitSyncStatus;
+  /** Lines the secrets lint refused. */
+  blocked: LintBlockedLine[];
+  /** Conflicted files when the rebase stopped. */
+  conflictFiles: string[];
+  /** Human-readable failure description for everything else. */
+  message?: string;
+}
+
+/** Payload for `git_sync_set_remote`. */
+export interface SetRemotePayload {
+  /** The remote URL; empty removes the remote (back to `local`). */
+  url: string;
+}
+
+/** Result of `git_sync_set_remote`. */
+export interface SetRemoteResult {
+  /** Whether the remote was updated. */
+  ok: boolean;
+  /** Fresh status after the change, when it succeeded. */
+  status?: GitSyncStatus;
+  /** What was wrong with the URL (or git's own words) otherwise. */
+  message?: string;
+}
+
+/** Result of `snapshot_now`. */
+export interface SnapshotNowResult {
+  /** Absolute path of the new archive. */
+  path: string;
+}
+
+/**
  * Invokable commands, keyed by command name.
  *
  * Phase 1 shipped the `pty_*` family; Phase 2 adds SSH spawning and the
@@ -1029,6 +1204,34 @@ export interface IpcCommands {
    * stay out unless the explicit `includeSecrets` toggle is on.
    */
   vault_export: { payload: VaultExportPayload; result: VaultExportResult };
+  /** Read the whole `settings.toml`, fresh-parsed (hand edits included). */
+  settings_get: { payload: Record<string, never>; result: SettingsDocument };
+  /**
+   * Validate and save the whole `settings.toml` atomically; on success
+   * every window gets `settings:changed` and hot-applies (Phase 8).
+   */
+  settings_set: { payload: SettingsSetPayload; result: SettingsSetResult };
+  /** Open (or focus) the Settings window — ⌘, and the palette land here. */
+  settings_window_open: { payload: Record<string, never>; result: null };
+  /** Read the sync dot's state (F10). Local-only; never fetches. */
+  git_sync_status: { payload: Record<string, never>; result: GitSyncStatus };
+  /**
+   * "Sync now" (F10): lint → add → commit → fetch → rebase → push. Lint
+   * blocks and conflicts come back result-side; conflicted rebases are
+   * left in progress (never auto-resolved).
+   */
+  git_sync_run: { payload: Record<string, never>; result: GitSyncRunResult };
+  /**
+   * Point the config repo's `origin` at a URL (empty removes it). The
+   * remote lives in `.git/config`, never in the synced settings.toml.
+   */
+  git_sync_set_remote: { payload: SetRemotePayload; result: SetRemoteResult };
+  /** Abort the paused rebase — the one-click escape from `conflict`. */
+  git_sync_abort: { payload: Record<string, never>; result: GitSyncStatus };
+  /** Open the config dir in Finder (the F10 conflict path). */
+  sync_open_dir: { payload: Record<string, never>; result: null };
+  /** Take a config-dir snapshot right now (tar.gz into the state dir). */
+  snapshot_now: { payload: Record<string, never>; result: SnapshotNowResult };
 }
 
 /**
@@ -1045,6 +1248,11 @@ export interface IpcCommands {
  *   exactly one terminal `done`/`failed`/`cancelled` event (F5).
  * - `forward:update` — one health transition per event, every rule on the
  *   one channel (the payload carries the rule key; F7).
+ * - `settings:changed` — the document as just saved; the cross-window
+ *   propagation channel (the Settings window saves, the main window
+ *   hot-applies; Phase 8).
+ * - `sync:update` — a fresh sync status after any mutating sync command;
+ *   keeps the footer dot live from either window (F10).
  */
 export interface IpcEvents {
   [channel: `pty:data:${string}`]: string;
@@ -1053,4 +1261,6 @@ export interface IpcEvents {
   "reach:update": ReachUpdate;
   "hostkey:prompt": HostkeyPromptEvent;
   "forward:update": ForwardStatus;
+  "settings:changed": SettingsDocument;
+  "sync:update": GitSyncStatus;
 }
