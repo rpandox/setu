@@ -25,6 +25,11 @@
   color: var(--err);
 }
 
+/* The F10 sync chip while conflicted: same alarm register. */
+.statusbar-chip--alert {
+  color: var(--err);
+}
+
 /* The F7 forwards chip is a real button: it opens the popover. */
 .statusbar-chip--button {
   padding: 0;

@@ -118,3 +118,12 @@ export async function initSettings(): Promise<void> {
   });
   await useSettings.getState().load();
 }
+
+/**
+ * Opens (or focuses) the Settings window — ⌘, and the palette's "Open
+ * settings" (§8). The window itself is built Rust-side
+ * (`settings_window_open`), one place for its size and label.
+ */
+export async function openSettingsWindow(): Promise<void> {
+  await ipcInvoke("settings_window_open", {});
+}

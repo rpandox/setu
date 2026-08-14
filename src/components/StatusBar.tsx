@@ -6,16 +6,17 @@ import { activeForwardCount, useForwards } from "../state/forwards";
 import { useHosts } from "../state/hosts";
 import { useReach } from "../state/reach";
 import { activeTabOf, tabSessionOf, useSessions } from "../state/sessions";
+import { useSync } from "../state/sync";
 
 /**
  * The 24px status bar (PLAN.md §7 wireframe): quiet mono chips showing only
  * real data — the focused pane's host (or `local`), its live latency from
  * the reachability prober, the F7 forwards chip (`⇌ N fwd`, click opens the
- * ForwardsPopover) whenever any host has rules — plus the F4 broadcast
- * badge in warning red whenever the active tab is broadcasting. Chips for
- * features that haven't landed (cwd → Phase 10, sync → Phase 8) return
- * with their phases instead of showing placeholders (PLAN.md §5, Phase 4
- * row).
+ * ForwardsPopover) whenever any host has rules, the F10 sync chip (visible
+ * once a remote is configured — the wireframe's `sync ✓`, real since
+ * Phase 8) — plus the F4 broadcast badge in warning red whenever the
+ * active tab is broadcasting. The cwd chip still waits for Phase 10
+ * (PLAN.md §5, Phase 4 row: no placeholders).
  *
  * @returns The status bar element.
  */
@@ -42,6 +43,26 @@ export function StatusBar() {
   );
   const forwardCount = activeForwardCount(byRuleKey);
   const [forwardsOpen, setForwardsOpen] = useState(false);
+  const syncStatus = useSync((s) => s.status);
+  const syncing = useSync((s) => s.syncing);
+
+  // Display-only mirror of the sidebar footer's dot; shown once a remote
+  // exists (or a conflict demands attention) so "local mode" stays quiet.
+  const syncChip =
+    syncStatus === null ||
+    (syncStatus.remoteUrl === undefined && syncStatus.state !== "conflict")
+      ? null
+      : syncing
+        ? "sync …"
+        : syncStatus.state === "clean"
+          ? "sync ✓"
+          : syncStatus.state === "ahead"
+            ? `sync ↑${syncStatus.ahead > 0 ? syncStatus.ahead : ""}`
+            : syncStatus.state === "behind"
+              ? `sync ↓${syncStatus.behind}`
+              : syncStatus.state === "conflict"
+                ? "sync ✕"
+                : "sync local";
 
   const hostChip =
     focused === undefined
@@ -64,6 +85,13 @@ export function StatusBar() {
         >
           ⇌ {forwardCount} fwd
         </button>
+      )}
+      {syncChip !== null && (
+        <span
+          className={`statusbar-chip${syncStatus?.state === "conflict" ? " statusbar-chip--alert" : ""}`}
+        >
+          {syncChip}
+        </span>
       )}
       {broadcastCount > 0 && (
         <span className="statusbar-chip statusbar-chip--broadcast" role="status">

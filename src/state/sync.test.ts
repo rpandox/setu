@@ -6,7 +6,12 @@ const ipcInvoke = vi.hoisted(() => vi.fn());
 const onSyncUpdate = vi.hoisted(() => vi.fn());
 vi.mock("../ipc/client", () => ({ ipcInvoke, onSyncUpdate }));
 
-/** A status fixture. */
+/**
+ * A status fixture.
+ *
+ * @param overrides - Fields to override on the clean default.
+ * @returns The status.
+ */
 function status(overrides: Partial<GitSyncStatus> = {}): GitSyncStatus {
   return {
     state: "clean",

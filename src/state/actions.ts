@@ -16,9 +16,11 @@
 import { useBroadcast } from "./broadcast";
 import { useKeys } from "./keys";
 import { activeSessionOf, tabSessionOf, useSessions } from "./sessions";
+import { openSettingsWindow } from "./settings";
 import { useSftp } from "./sftp";
 import { useSnippets } from "./snippets";
 import type { FocusDirection } from "./splits";
+import { useSync } from "./sync";
 import { useToast } from "./toast";
 import { useUiChrome } from "./ui";
 
@@ -247,6 +249,48 @@ export function actionRegistry(): AppAction[] {
       shortcut: "⌘/",
       matches: (event) => cmd(event, "/", false),
       perform: () => useUiChrome.getState().toggleSidebar(),
+    },
+    {
+      // Opens the second webview window (Phase 8, §8's ⌘, row).
+      id: "open-settings",
+      title: "Open settings",
+      shortcut: "⌘,",
+      matches: (event) => cmd(event, ",", false),
+      perform: () => void openSettingsWindow(),
+    },
+    {
+      // Palette-only (F10): §8 assigns no key; the sidebar footer is the
+      // pointer home. The outcome toast mirrors the footer's.
+      id: "sync-now",
+      title: "Sync now",
+      perform: () => {
+        void useSync
+          .getState()
+          .syncNow()
+          .then((result) => {
+            if (!result) return;
+            const toast = useToast.getState();
+            if (result.ok) {
+              toast.show(
+                result.status.remoteUrl
+                  ? "Synced"
+                  : "Committed locally — no remote configured",
+                "success",
+              );
+            } else if (result.blocked.length > 0) {
+              const n = result.blocked.length;
+              toast.show(
+                `Sync refused — ${n} secret-looking line${n === 1 ? "" : "s"} (see the sidebar footer)`,
+                "error",
+              );
+            } else {
+              toast.show(
+                result.message ?? "Sync conflict — see the sidebar footer",
+                "error",
+              );
+            }
+          });
+      },
     },
   ];
 }

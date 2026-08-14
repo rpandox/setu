@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { GitSyncStatus } from "../../ipc/contract";
 import { lastCommitPhrase, syncStateLabel } from "./syncPresentation";
 
-/** A status fixture. */
+/**
+ * A status fixture.
+ *
+ * @param overrides - Fields to override on the clean default.
+ * @returns The status.
+ */
 function status(overrides: Partial<GitSyncStatus> = {}): GitSyncStatus {
   return {
     state: "clean",
