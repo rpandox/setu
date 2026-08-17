@@ -1,12 +1,14 @@
 # Releasing Setu
 
-How a Setu release is built, packaged, published, and (from v1.0.1 on) signed.
+How a Setu release is built, packaged, published, and — should the project
+ever hold a paid Apple Developer Program membership — signed.
 Every step runs on a Mac; nothing here needs CI. The examples use `1.0.0` —
 substitute the version you are cutting.
 
 ## Prerequisites
 
-- macOS 12+ on Apple silicon (the universal build cross-compiles the Intel half)
+- macOS 12+, either architecture (the universal build cross-compiles the
+  other half)
 - Rust stable with **both** Apple targets:
 
   ```sh
@@ -15,8 +17,9 @@ substitute the version you are cutting.
 
 - Node 20+, pnpm 9+, Xcode Command Line Tools
 - [`gh`](https://cli.github.com/) authenticated for `rpandox/setu`
-- For signing (v1.0.1+): an Apple Developer ID Application certificate in your
-  Keychain and an App Store Connect app-specific password
+- For signing (optional — requires the paid Apple Developer Program, which the
+  project currently does not have): a Developer ID Application certificate in
+  your Keychain and an App Store Connect app-specific password
 
 ## 1 · Bump the version
 
@@ -126,38 +129,71 @@ the cask is `Casks/setu.rb`. For each release, update two lines — `version` an
 brew install --cask rpandox/tap/setu   # verifies url + sha256 resolve
 ```
 
-## 7 · Unsigned releases (v1.0.0)
+## 7 · Unsigned releases (the current normal)
 
-v1.0.0 ships **unsigned** (Tauri applies an ad-hoc signature). Gatekeeper will
-quarantine the first launch of a downloaded copy. Users have two documented
+Releases ship **unsigned** (Tauri applies an ad-hoc signature — Apple silicon
+refuses to execute binaries without at least that). Real signing needs the
+paid Apple Developer Program, which this project doesn't have. Gatekeeper will
+quarantine the first launch of a downloaded copy. Users have three documented
 outs, in the cask caveats and the README:
 
+- Install with the quarantine attribute never applied:
+  ```sh
+  brew install --cask --no-quarantine rpandox/tap/setu
+  ```
 - Right-click `Setu.app` → **Open** → **Open** (once; macOS remembers), or
 - ```sh
   xattr -dr com.apple.quarantine /Applications/Setu.app
   ```
 
-## 8 · Signing + notarization (v1.0.1 and later)
+## 8 · Signing + notarization (if a Developer ID ever exists)
 
-With a Developer ID Application certificate installed, Tauri signs during the
-build when the identity is in the environment:
+Kept for the day the project holds an Apple Developer Program membership —
+none of this section is runnable without one. With a Developer ID Application
+certificate installed, Tauri signs during the build when the identity is in
+the environment:
 
 ```sh
 export APPLE_SIGNING_IDENTITY="Developer ID Application: <name> (<team id>)"
 pnpm tauri build --target universal-apple-darwin
 ```
 
-Then notarize the DMG and staple the ticket:
+**Order matters: notarize and staple the app _before_ packaging.** A DMG or
+tar.gz built first would carry an app copy with no embedded ticket — Gatekeeper
+then blocks it for any user who extracts the app while offline (the ticket
+stapled to a container does not follow the app out of it).
+
+Notarize the app itself (zipped for submission; the ticket is keyed to the
+code signature, so this one submission covers every copy of this build), then
+staple the app:
 
 ```sh
-xcrun notarytool submit src-tauri/target/universal-apple-darwin/release/bundle/dmg/Setu_1.0.1_universal.dmg \
-  --apple-id <apple id email> --team-id <team id> \
-  --password <app-specific password> --wait
-xcrun stapler staple src-tauri/target/universal-apple-darwin/release/bundle/dmg/Setu_1.0.1_universal.dmg
+cd src-tauri/target/universal-apple-darwin/release/bundle/macos
+ditto -c -k --keepParent Setu.app Setu-notarize.zip
+xcrun notarytool submit Setu-notarize.zip --keychain-profile setu-notary --wait
+xcrun stapler staple Setu.app
+rm Setu-notarize.zip
 ```
 
-Re-create the `.app.tar.gz` from the signed app (the sha256 changes), and drop
-the quarantine caveat from the cask once notarized releases are the norm.
+(`setu-notary` is a keychain profile created once with
+`xcrun notarytool store-credentials setu-notary --apple-id <email> --team-id <team id>`,
+which prompts for an app-specific password and stores it in the Keychain —
+never in a file or shell history.)
+
+Now rebuild both artifacts from the **stapled** app — the DMG via step 3's
+`hdiutil` recipe, the tar.gz via step 4 (the sha256 changes) — then notarize
+and staple the DMG container as well (a second submission; free, and it lets
+the DMG itself validate offline), and confirm Gatekeeper accepts everything
+before publishing:
+
+```sh
+xcrun notarytool submit ../dmg/Setu_1.0.1_universal.dmg --keychain-profile setu-notary --wait
+xcrun stapler staple ../dmg/Setu_1.0.1_universal.dmg
+spctl -a -vv --type execute Setu.app   # → accepted, source=Notarized Developer ID
+xcrun stapler validate ../dmg/Setu_1.0.1_universal.dmg
+```
+
+Drop the quarantine caveat from the cask once notarized releases are the norm.
 
 Tauri can also notarize inline during the build when `APPLE_ID`,
 `APPLE_PASSWORD`, and `APPLE_TEAM_ID` are exported — either path is fine; the
