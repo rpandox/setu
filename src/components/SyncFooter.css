@@ -8,6 +8,17 @@
   border-top: 1px solid var(--line);
 }
 
+.syncfooter-bar {
+  display: flex;
+  align-items: center;
+}
+
+/* The one always-visible door to the Settings window (⌘, and the palette
+   are the keyboard doors). */
+.syncfooter-gear {
+  margin-right: calc(var(--pad) / 2);
+}
+
 .syncfooter-summary {
   display: flex;
   gap: calc(var(--pad) / 1.5);

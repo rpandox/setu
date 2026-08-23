@@ -1,7 +1,8 @@
 import "./SyncFooter.css";
 import { useState } from "react";
-import { FolderOpen, RefreshCw, X } from "lucide-react";
+import { FolderOpen, RefreshCw, Settings as SettingsIcon, X } from "lucide-react";
 import { lastCommitPhrase, syncStateLabel } from "../features/settings/syncPresentation";
+import { openSettingsWindow } from "../state/settings";
 import { useSync } from "../state/sync";
 import { useToast } from "../state/toast";
 
@@ -57,18 +58,29 @@ export function SyncFooter() {
 
   return (
     <footer className="syncfooter">
-      <button
-        type="button"
-        className="syncfooter-summary"
-        aria-expanded={open}
-        aria-label="Sync status"
-        onClick={() => setOpen((current) => !current)}
-      >
-        <span className={`syncfooter-dot syncfooter-dot--${dotState}`} aria-hidden />
-        <span className="syncfooter-label">
-          {syncing ? "syncing…" : syncStateLabel(status)}
-        </span>
-      </button>
+      <div className="syncfooter-bar">
+        <button
+          type="button"
+          className="syncfooter-summary"
+          aria-expanded={open}
+          aria-label="Sync status"
+          onClick={() => setOpen((current) => !current)}
+        >
+          <span className={`syncfooter-dot syncfooter-dot--${dotState}`} aria-hidden />
+          <span className="syncfooter-label">
+            {syncing ? "syncing…" : syncStateLabel(status)}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="syncfooter-icon syncfooter-gear"
+          title="Settings (⌘,)"
+          aria-label="Open settings"
+          onClick={() => void openSettingsWindow().catch(() => undefined)}
+        >
+          <SettingsIcon size={14} aria-hidden />
+        </button>
+      </div>
 
       {open && (
         <div className="syncfooter-popover" role="dialog" aria-label="Sync">

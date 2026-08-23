@@ -94,7 +94,35 @@ pub fn run() {
         .setup(|app| {
             // The standard macOS menu: without it the app has no ⌘Q, which
             // would leave users no way to reach the kill-all exit path.
-            app.set_menu(tauri::menu::Menu::default(app.handle())?)?;
+            // The app submenu also gets the platform-conventional
+            // "Settings… ⌘," row — the one Settings door a user finds
+            // without knowing a shortcut (with the sidebar footer gear).
+            let menu = tauri::menu::Menu::default(app.handle())?;
+            if let Some(tauri::menu::MenuItemKind::Submenu(app_menu)) =
+                menu.items()?.into_iter().next()
+            {
+                let settings = tauri::menu::MenuItem::with_id(
+                    app.handle(),
+                    "settings",
+                    "Settings…",
+                    true,
+                    Some("CmdOrCtrl+,"),
+                )?;
+                // After "About Setu" and its separator (positions 0, 1).
+                app_menu.insert(&settings, 2)?;
+                app_menu.insert(
+                    &tauri::menu::PredefinedMenuItem::separator(app.handle())?,
+                    3,
+                )?;
+            }
+            app.set_menu(menu)?;
+            app.on_menu_event(|handle, event| {
+                if event.id() == "settings" {
+                    if let Err(error) = ipc::settings_window_open(handle.clone()) {
+                        eprintln!("setu: {error}");
+                    }
+                }
+            });
             let events = Arc::new(ipc::TauriPtyEvents::new(app.handle().clone()));
             app.manage(pty::PtyManager::new(events));
             app.manage(store::HostsStore::new(store::HostsStore::default_path()?));
