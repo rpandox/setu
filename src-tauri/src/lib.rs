@@ -23,6 +23,8 @@
 //! - [`agent`] — ssh-agent introspection via `ssh-add -l` (F8).
 //! - [`binaries`] — locating optional tools (mosh, tailscale, claude).
 //! - [`tailscale`] — the tailnet as a host source: peers, ping, adopt (F9).
+//! - [`shell_integration`] — the OSC 133/7/633 rc snippet + fenced installer (F12).
+//! - [`history`] — the local `history.sqlite` command log (F12).
 //! - [`ipc`] — the Tauri command surface, mirrored by `src/ipc/contract.ts`.
 
 #![deny(missing_docs)]
@@ -31,6 +33,7 @@ pub mod agent;
 pub mod binaries;
 pub mod connect;
 pub mod forwards;
+pub mod history;
 pub mod ipc;
 pub mod keychain;
 pub mod keygen;
@@ -39,6 +42,7 @@ pub mod pty;
 pub mod reach;
 pub mod settings;
 pub mod sftp;
+pub mod shell_integration;
 pub mod snapshots;
 pub mod snippets;
 pub mod ssh_config;
@@ -75,6 +79,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .on_page_load(move |webview, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
                 && std::env::var_os("SETU_STARTUP_PROBE").is_some()
@@ -110,6 +115,11 @@ pub fn run() {
             app.manage(ui_state::UiStateStore::new(
                 app.path().app_data_dir()?.join("state.json"),
             ));
+            // history.sqlite (F12) sits beside state.json: device-local,
+            // outside the synced config dir by construction (PLAN.md §4).
+            app.manage(history::HistoryStore::open(
+                &app.path().app_data_dir()?.join("history.sqlite"),
+            )?);
             app.manage(sftp::SftpManager::new(Arc::new(ipc::TauriSftpEvents::new(
                 app.handle().clone(),
             ))));
@@ -184,6 +194,13 @@ pub fn run() {
             ipc::git_sync_abort,
             ipc::sync_open_dir,
             ipc::snapshot_now,
+            ipc::history_add,
+            ipc::history_query,
+            ipc::history_count,
+            ipc::history_clear,
+            ipc::shell_integration_status,
+            ipc::shell_integration_preview,
+            ipc::shell_integration_apply,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

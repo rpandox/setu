@@ -58,3 +58,8 @@ regex = "1"
 flate2 = "1"
 gethostname = "0.5"
 time = { version = "0.3", features = ["formatting", "macros"] }
+# Semantic terminal (F12, Phase 10): the local command-history database
+# (§3 stack, §4 history.sqlite — never synced) and the done-notification
+# plugin (§11). SQLite is bundled so a release build has no system dep.
+rusqlite = { version = "0.32", features = ["bundled"] }
+tauri-plugin-notification = "2"
