@@ -29,7 +29,12 @@ beforeEach(() => {
 describe("defaultSettings", () => {
   it("mirrors the Rust defaults", () => {
     const doc = defaultSettings();
-    expect(doc.terminal).toEqual({ font_size: 13, scrollback_lines: 10_000 });
+    expect(doc.terminal).toEqual({
+      font_size: 13,
+      scrollback_lines: 10_000,
+      osc52_clipboard: false,
+    });
+    expect(doc.history).toEqual({ enabled: true });
     expect(doc.snapshots).toEqual({ enabled: true, interval_days: 7, keep: 10 });
     expect(doc.reachability.interval_s).toBe(60);
     expect(doc.sync.auto_sync_on_quit).toBe(false);

@@ -25,9 +25,10 @@ export function defaultSettings(): SettingsDocument {
   return {
     reachability: { enabled: true, interval_s: 60, timeout_ms: 1500, max_concurrent: 6 },
     tailnet: { default_user: "" },
-    terminal: { font_size: 13, scrollback_lines: 10_000 },
+    terminal: { font_size: 13, scrollback_lines: 10_000, osc52_clipboard: false },
     sync: { auto_sync_on_quit: false },
     snapshots: { enabled: true, interval_days: 7, keep: 10 },
+    history: { enabled: true },
     flags: {},
   };
 }

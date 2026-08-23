@@ -1,0 +1,27 @@
+/* F12 gutter marks: a 3px bar in the terminal's left gutter per command
+   (PLAN.md §9 F12: `--ok` / `--err`, duration on hover via title). No glow —
+   §7 glow discipline reserves it for LEDs, the active-tab underline, and
+   focus rings. */
+.semantic-mark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 3px;
+  height: 100%;
+  border-radius: 1px;
+  pointer-events: auto;
+  opacity: 0.9;
+}
+
+.semantic-mark--ok {
+  background: var(--ok);
+}
+
+.semantic-mark--err {
+  background: var(--err);
+}
+
+.semantic-mark--run {
+  background: var(--warn);
+  opacity: 0.6;
+}

@@ -17,6 +17,7 @@ vi.mock("../features/terminal/registry", () => ({
 
 import { actionRegistry, dispatchShortcut, paletteEntries } from "./actions";
 import { useSessions, type Tab } from "./sessions";
+import { useSettings } from "./settings";
 import { useUiChrome } from "./ui";
 
 /**
@@ -81,7 +82,14 @@ describe("actionRegistry", () => {
       "toggle-snippet-drawer", // ⌘J (Phase 6)
       "toggle-sidebar", // ⌘/
       "open-settings", // ⌘, (Phase 8)
+      "jump-prompt-up", // ⌘↑ (Phase 10, flag on)
+      "jump-prompt-down", // ⌘↓ (Phase 10)
+      "copy-last-output", // ⇧⌘C (Phase 10)
+      "rerun-last-command", // ⌥⌘R (Phase 10)
     ];
+    useSettings.setState((s) => ({
+      doc: { ...s.doc, flags: { ...s.doc.flags, semantic_terminal: true } },
+    }));
     const ids = actionRegistry().map((a) => a.id);
     for (const id of expected) {
       expect(ids, `missing §8 action: ${id}`).toContain(id);
@@ -92,7 +100,7 @@ describe("actionRegistry", () => {
     // Palette-only actions carry no §8 key — the sanctioned exceptions
     // (PLAN.md §5: Phase 7 Keys-panel row; Phase 8 sync — the footer is
     // its pointer home).
-    const paletteOnly = new Set(["manage-ssh-keys", "sync-now", "reload-hosts"]);
+    const paletteOnly = new Set(["manage-ssh-keys", "sync-now", "reload-hosts", "shell-integration"]);
     const actions = actionRegistry();
     const ids = actions.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);
