@@ -514,6 +514,16 @@ export function HostEditor() {
               />
               Favorite
             </label>
+            <label
+              className="hosteditor-toggle"
+              title="Never record this host’s commands in history (F12)"
+            >
+              <Checkbox
+                checked={draft.incognito}
+                onChange={(incognito) => patch({ incognito })}
+              />
+              Incognito
+            </label>
             <label className="hosteditor-toggle">
               <Checkbox
                 checked={draft.reachability}

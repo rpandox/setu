@@ -1,0 +1,126 @@
+/* The F12 shell-integration installer. Same register as the secret and
+   trust dialogs: calm chrome, the diff is the centerpiece, the writing
+   action explicit. */
+
+.shellint-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--bg-0) 55%, transparent);
+}
+
+.shellint {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pad);
+  width: 640px;
+  max-width: 92vw;
+  max-height: 88vh;
+  padding: calc(var(--pad) * 2);
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-2);
+}
+
+.shellint-title {
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.shellint-detail,
+.shellint-status,
+.shellint-hint {
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading);
+}
+
+.shellint-hint {
+  font-size: var(--text-small);
+}
+
+.shellint-error {
+  color: var(--err);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+}
+
+.shellint-row {
+  display: flex;
+  align-items: center;
+  gap: var(--pad);
+  flex-wrap: wrap;
+}
+
+.shellint-label {
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  min-width: 48px;
+}
+
+.shellint-preview {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--pad) / 2);
+  min-height: 0;
+}
+
+.shellint-preview-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--pad);
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  color: var(--ink-2);
+}
+
+.shellint-diff {
+  margin: 0;
+  padding: var(--pad);
+  max-height: 40vh;
+  overflow: auto;
+  background: var(--bg-0);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  line-height: var(--leading);
+  color: var(--ink-2);
+  white-space: pre;
+}
+
+.shellint-diff-line--add {
+  color: var(--ok);
+}
+
+.shellint-diff-line--del {
+  color: var(--err);
+}
+
+.shellint-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--pad);
+}
+
+.shellint-confirm {
+  color: var(--bg-0);
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+.shellint-confirm--remove {
+  background: var(--err);
+  border-color: var(--err);
+}
+
+.shellint-confirm:disabled {
+  opacity: 0.5;
+}

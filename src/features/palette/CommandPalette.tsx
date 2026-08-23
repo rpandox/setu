@@ -2,7 +2,7 @@ import "./CommandPalette.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Fuse from "fuse.js";
 import { HostLed, ReachChip } from "../../components/HostLed";
-import type { Host, Snippet } from "../../ipc/contract";
+import type { HistoryEntry, Host, Snippet } from "../../ipc/contract";
 import { paletteEntries, type PaletteActionEntry } from "../../state/actions";
 import { actionSubject, hostSubject, snippetSubject } from "../../state/frecency";
 import { rankHosts, sshCommandOf, useHosts } from "../../state/hosts";
@@ -17,6 +17,10 @@ import { useToast } from "../../state/toast";
 import { rankSnippets, useSnippets } from "../../state/snippets";
 import { findLeafBySession } from "../../state/splits";
 import { useSessions } from "../../state/sessions";
+import { pasteIntoPane, useHistory } from "../../state/history";
+import { relativeTime } from "../../state/history";
+import { semanticEnabled } from "../../state/semantic";
+import { activeSessionOf } from "../../state/sessions";
 import { useUiChrome } from "../../state/ui";
 import { useUiPrefs } from "../../state/uiState";
 
@@ -30,12 +34,14 @@ const MAX_SNIPPETS = 8;
 type PaletteItem =
   | { kind: "action"; entry: PaletteActionEntry }
   | { kind: "host"; host: Host }
-  | { kind: "snippet"; snippet: Snippet };
+  | { kind: "snippet"; snippet: Snippet }
+  | { kind: "history"; entry: HistoryEntry };
 
 /**
  * The F11 command palette. One component, two surfaces from the chrome
  * store: ⌘K (`"commands"`) lists Actions — every implemented §8 command
- * with its shortcut — above Hosts and Snippets (F6); ⌘T (`"hosts"`) is the
+ * with its shortcut — above Hosts, Snippets (F6), and History (F12, while
+ * the semantic flag is on); ⌘T (`"hosts"`) is the
  * same palette pre-filtered to hosts (quick connect). Renders nothing
  * while closed.
  *
@@ -62,6 +68,11 @@ export function CommandPalette() {
   const tabs = useSessions((s) => s.tabs);
   const openSshTab = useSessions((s) => s.openSshTab);
   const activateByIndex = useSessions((s) => s.activateByIndex);
+  const focusedSession = useSessions(activeSessionOf);
+  const historyRows = useHistory((s) => s.rows);
+  const searchHistory = useHistory((s) => s.search);
+  const resetHistory = useHistory((s) => s.reset);
+  const historyOn = mode === "commands" && semanticEnabled();
 
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
@@ -114,13 +125,24 @@ export function CommandPalette() {
     [mode, snippets, query, frecency],
   );
 
+  // History (F12): searched core-side, debounced per keystroke; off with
+  // the flag, and cleared when the palette closes.
+  useEffect(() => {
+    if (historyOn) searchHistory(query);
+    else resetHistory();
+  }, [historyOn, query, searchHistory, resetHistory]);
+
   const items = useMemo<PaletteItem[]>(
     () => [
       ...actionRows.map((entry): PaletteItem => ({ kind: "action", entry })),
       ...hostRows.map((host): PaletteItem => ({ kind: "host", host })),
       ...snippetRows.map((snippet): PaletteItem => ({ kind: "snippet", snippet })),
+      ...(historyOn ? historyRows : []).map((entry): PaletteItem => ({
+        kind: "history",
+        entry,
+      })),
     ],
-    [actionRows, hostRows, snippetRows],
+    [actionRows, hostRows, snippetRows, historyRows, historyOn],
   );
   const clamped = Math.min(selected, Math.max(items.length - 1, 0));
 
@@ -184,6 +206,13 @@ export function CommandPalette() {
       closePalette();
       // Variables and the target choice live in the run dialog (F6).
       requestRun(item.snippet);
+      return;
+    }
+    if (item.kind === "history") {
+      // Insert only — the user presses Enter themselves (F12).
+      closePalette();
+      if (focusedSession) pasteIntoPane(focusedSession.sessionId, item.entry.cmd);
+      else useToast.getState().show("Open a terminal to paste into", "info");
       return;
     }
     connectHost(item.host, event?.metaKey ?? false);
@@ -336,6 +365,37 @@ export function CommandPalette() {
               </li>
             );
           })}
+          {historyOn && historyRows.length > 0 && (
+            <li className="palette-eyebrow">History</li>
+          )}
+          {historyOn &&
+            historyRows.map((entry) => {
+              const index = items.findIndex(
+                (i) => i.kind === "history" && i.entry.id === entry.id,
+              );
+              return (
+                <li key={`history:${entry.id}`}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={index === clamped}
+                    className={`palette-row${index === clamped ? " palette-row--selected" : ""}`}
+                    onMouseEnter={() => setSelected(index)}
+                    onClick={() => runItem({ kind: "history", entry })}
+                  >
+                    <span className="palette-title palette-title--mono">{entry.cmd}</span>
+                    <span className="palette-detail">
+                      {entry.host}
+                      {entry.cwd !== "" ? ` · ${entry.cwd}` : ""}
+                      {` · ${relativeTime(entry.ts)}`}
+                      {entry.exit !== null && entry.exit !== 0
+                        ? ` · exit ${entry.exit}`
+                        : ""}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
           {items.length === 0 && (
             <li className="palette-none">
               {mode === "hosts" ? "No matching hosts" : "No matching commands or hosts"}
@@ -353,6 +413,11 @@ export function CommandPalette() {
         {selectedItem?.kind === "snippet" && (
           <footer className="palette-hints">
             <span>⏎ run…</span>
+          </footer>
+        )}
+        {selectedItem?.kind === "history" && (
+          <footer className="palette-hints">
+            <span>⏎ paste into pane (never runs)</span>
           </footer>
         )}
       </div>

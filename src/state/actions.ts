@@ -6,16 +6,24 @@
  * lists {@link paletteEntries}, so bindings and the palette can never
  * drift apart (a completeness test locks it).
  *
- * §8 rows whose features haven't landed (⇧⌘S SFTP → Phase 5, prompt jumps
- * → Phase 10, the quake hotkey and ⌘, settings → later phases) join the
- * registry in their phases; ⌘C/⌘V stay native to the terminal (PLAN.md §5,
+ * §8 rows whose features haven't landed (the quake hotkey → a later phase)
+ * join the registry in their phases; the F12 rows (⌘↑/⌘↓ prompt jumps,
+ * ⇧⌘C copy-last-output, ⌥⌘R re-run) are listed only while
+ * `flags.semantic_terminal` is on, so the keys pass through to the
+ * terminal untouched when the feature is off; ⌘C/⌘V stay native to the terminal (PLAN.md §5,
  * Phase 4 row). The plain-⏎ reconnect (F3) is contextual, not a command —
  * it lives in the App handler.
  */
 
+import {
+  copyLastOutput,
+  jumpToPrompt,
+  rerunLastCommand,
+} from "../features/terminal/semanticAttach";
 import { useBroadcast } from "./broadcast";
 import { useHosts } from "./hosts";
 import { useKeys } from "./keys";
+import { semanticEnabled, useSemantic } from "./semantic";
 import { activeSessionOf, tabSessionOf, useSessions } from "./sessions";
 import { openSettingsWindow } from "./settings";
 import { useSftp } from "./sftp";
@@ -96,6 +104,17 @@ function focusPaneAction(direction: FocusDirection, key: string): AppAction {
       event.metaKey && event.altKey && !event.ctrlKey && event.key === key,
     perform: () => useSessions.getState().movePaneFocus(direction),
   };
+}
+
+/**
+ * Runs `fn` with the focused pane's session id, if any (F12 actions act
+ * on the focused terminal only).
+ *
+ * @param fn - The action body.
+ */
+function withFocusedSession(fn: (sessionId: string) => unknown): void {
+  const focused = activeSessionOf(useSessions.getState());
+  if (focused) fn(focused.sessionId);
 }
 
 /**
@@ -244,6 +263,70 @@ export function actionRegistry(): AppAction[] {
       title: "Manage SSH keys",
       perform: () => useKeys.getState().openPanel(),
     },
+    ...(semanticEnabled()
+      ? [
+          {
+            id: "jump-prompt-up",
+            title: "Jump to previous prompt",
+            shortcut: "⌘↑",
+            matches: (event: KeyboardEvent) =>
+              event.metaKey &&
+              !event.altKey &&
+              !event.ctrlKey &&
+              !event.shiftKey &&
+              event.key === "ArrowUp",
+            perform: () => withFocusedSession((id) => jumpToPrompt(id, "up")),
+          },
+          {
+            id: "jump-prompt-down",
+            title: "Jump to next prompt",
+            shortcut: "⌘↓",
+            matches: (event: KeyboardEvent) =>
+              event.metaKey &&
+              !event.altKey &&
+              !event.ctrlKey &&
+              !event.shiftKey &&
+              event.key === "ArrowDown",
+            perform: () => withFocusedSession((id) => jumpToPrompt(id, "down")),
+          },
+          {
+            id: "copy-last-output",
+            title: "Copy last command output",
+            shortcut: "⇧⌘C",
+            matches: (event: KeyboardEvent) => cmd(event, "c", true),
+            perform: () => withFocusedSession((id) => copyLastOutput(id)),
+          },
+          {
+            id: "rerun-last-command",
+            title: "Re-run last command",
+            shortcut: "⌥⌘R",
+            matches: (event: KeyboardEvent) =>
+              event.metaKey &&
+              event.altKey &&
+              !event.ctrlKey &&
+              event.key.toLowerCase() === "r",
+            perform: () => withFocusedSession((id) => rerunLastCommand(id)),
+          },
+          {
+            // Palette-only (F12): the installer has no §8 key; it also
+            // opens from the status bar's cwd chip and the Settings window.
+            id: "shell-integration",
+            title: "Shell integration…",
+            perform: () => {
+              const focused = activeSessionOf(useSessions.getState());
+              useSemantic.getState().openInstaller(
+                focused?.kind === "ssh" && focused.hostId !== undefined
+                  ? {
+                      kind: "remote",
+                      hostId: focused.hostId,
+                      hostLabel: focused.hostLabel ?? focused.title,
+                    }
+                  : { kind: "local" },
+              );
+            },
+          },
+        ]
+      : []),
     {
       id: "toggle-sidebar",
       title: "Toggle sidebar",
