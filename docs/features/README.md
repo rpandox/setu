@@ -24,3 +24,4 @@ Pages so far:
 - [F09 · Tailscale awareness](F09-tailscale.md) — the tailnet as a host source, adopt, ping-to-wake (Phase 7)
 - [F10 · Sync & backup](F10-sync-backup.md) — git sync, secrets lint, snapshots, the Settings window (Phase 8)
 - [F11 · Command palette & quick connect](F11-command-palette.md) — ⌘T (Phase 2)
+- [F12 · Semantic terminal](F12-semantic-terminal.md) — shell integration, marks, prompt jumps, history, done-notifications (Phase 10, behind a flag)

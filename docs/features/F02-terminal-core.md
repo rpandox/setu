@@ -25,6 +25,9 @@ shell process — no orphans.
 | ⇧⌘F          | Find in terminal (Enter next, ⇧Enter previous, Esc close) |
 | ⌘C / ⌘V      | Copy selection / paste (guarded — see below)              |
 | ⌘-click      | Open a URL from the terminal in your browser              |
+| ⌘↑ / ⌘↓      | Jump to previous / next prompt (F12, flag on)             |
+| ⇧⌘C          | Copy the last command's output (F12, flag on)             |
+| ⌥⌘R          | Re-run the last command (F12, flag on)                    |
 
 - The `+` button in the tab bar is ⌘N with a mouse; the `×` on each tab
   closes the whole tab — every pane in it, since tabs can split

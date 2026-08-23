@@ -51,6 +51,9 @@ both machines just use Sync now; divergent edits are rebased.
 
 ### The Settings window (⌘,)
 
+Three doors: ⌘, · the gear at the bottom of the sidebar (next to the sync
+dot) · the app menu's **Settings…** item · ⌘K → _Open settings_.
+
 | Section      | What's in it                                                                                                         |
 | ------------ | -------------------------------------------------------------------------------------------------------------------- |
 | Terminal     | `[terminal] font_size` (8–32 px) · `scrollback_lines` — **hot-applied** to every open terminal on save               |

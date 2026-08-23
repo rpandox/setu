@@ -50,19 +50,20 @@ launch. Any one of these clears it:
 
 ## What's inside
 
-| Feature                                                     | Keys           | In short                                                                                                          |
-| ----------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------- |
-| [Hosts & the LED board](docs/features/F01-hosts.md)         | ⌘T             | Every host is a live LED — green means reachable _right now_; fuzzy quick-connect, `~/.ssh/config` import         |
-| [Terminal](docs/features/F02-terminal-core.md)              | ⇧⌘F · ⌘+/−     | xterm.js on WebGL, a paste guard that previews multi-line and dangerous pastes byte-for-byte                      |
-| [Sessions](docs/features/F03-sessions.md)                   | ⏎ to reconnect | The system `ssh` in a PTY — your config, agent, ProxyJump, and known_hosts just work; per-host mosh               |
-| [Splits & broadcast](docs/features/F04-splits-broadcast.md) | ⌘D · ⇧⌘D · ⇧⌘B | Pane grids with drag borders; type once, land in every armed session                                              |
-| [SFTP](docs/features/F05-sftp.md)                           | ⇧⌘S            | Dual-pane browser over any session — drag-drop both ways, transfer queue, chmod, host-key trust                   |
-| [Snippets](docs/features/F06-snippets.md)                   | ⌘J             | Command templates whose `{{variables}}` prompt at run; current pane, broadcast, or a tab per host; TOML packs     |
-| [Port forwards](docs/features/F07-port-forwards.md)         | status bar     | `L`/`R`/`D` tunnels as toggles — health dots, auto-start, a port-conflict helper that names the owner             |
-| [Keys & vault](docs/features/F08-keys-vault.md)             | —              | Keychain-backed SFTP secrets, ed25519 generation, a visible ssh-copy-id, age-encrypted config export              |
-| [Tailscale](docs/features/F09-tailscale.md)                 | —              | Live tailnet peers in the sidebar with Tailscale's own online state; one-click connect, adopt-as-host             |
-| [Sync & backup](docs/features/F10-sync-backup.md)           | ⌘,             | `~/.config/setu` as a git repo you push anywhere; a secrets lint that refuses credential-looking lines; snapshots |
-| [Command palette](docs/features/F11-command-palette.md)     | ⌘K             | Every action two keystrokes away, frecency-ranked                                                                 |
+| Feature                                                     | Keys           | In short                                                                                                                           |
+| ----------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| [Hosts & the LED board](docs/features/F01-hosts.md)         | ⌘T             | Every host is a live LED — green means reachable _right now_; fuzzy quick-connect, `~/.ssh/config` import                          |
+| [Terminal](docs/features/F02-terminal-core.md)              | ⇧⌘F · ⌘+/−     | xterm.js on WebGL, a paste guard that previews multi-line and dangerous pastes byte-for-byte                                       |
+| [Sessions](docs/features/F03-sessions.md)                   | ⏎ to reconnect | The system `ssh` in a PTY — your config, agent, ProxyJump, and known_hosts just work; per-host mosh                                |
+| [Splits & broadcast](docs/features/F04-splits-broadcast.md) | ⌘D · ⇧⌘D · ⇧⌘B | Pane grids with drag borders; type once, land in every armed session                                                               |
+| [SFTP](docs/features/F05-sftp.md)                           | ⇧⌘S            | Dual-pane browser over any session — drag-drop both ways, transfer queue, chmod, host-key trust                                    |
+| [Snippets](docs/features/F06-snippets.md)                   | ⌘J             | Command templates whose `{{variables}}` prompt at run; current pane, broadcast, or a tab per host; TOML packs                      |
+| [Port forwards](docs/features/F07-port-forwards.md)         | status bar     | `L`/`R`/`D` tunnels as toggles — health dots, auto-start, a port-conflict helper that names the owner                              |
+| [Keys & vault](docs/features/F08-keys-vault.md)             | —              | Keychain-backed SFTP secrets, ed25519 generation, a visible ssh-copy-id, age-encrypted config export                               |
+| [Tailscale](docs/features/F09-tailscale.md)                 | —              | Live tailnet peers in the sidebar with Tailscale's own online state; one-click connect, adopt-as-host                              |
+| [Sync & backup](docs/features/F10-sync-backup.md)           | ⌘,             | `~/.config/setu` as a git repo you push anywhere; a secrets lint that refuses credential-looking lines; snapshots                  |
+| [Command palette](docs/features/F11-command-palette.md)     | ⌘K             | Every action two keystrokes away, frecency-ranked                                                                                  |
+| [Semantic terminal](docs/features/F12-semantic-terminal.md) | ⌘↑ ⌘↓ ⇧⌘C ⌥⌘R  | Shell integration: gutter marks, prompt jumps, copy-last-output, live cwd, done-notifications, searchable history (flag, Phase 10) |
 
 ## Why
 
