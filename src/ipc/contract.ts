@@ -177,6 +177,11 @@ export interface Host {
   notes: string;
   /** Pinned to the Favorites section at the top of the sidebar. */
   favorite: boolean;
+  /**
+   * Incognito (F12, Phase 10): commands on this host are never written to
+   * `history.sqlite`, whatever the global `[history] enabled` toggle says.
+   */
+  incognito: boolean;
   /** Where this record came from; only `"setu"` rows persist. */
   source: HostSource;
 }
@@ -903,6 +908,17 @@ export interface TerminalSettings {
   font_size: number;
   /** Scrollback lines kept per terminal (≤ 1 000 000). */
   scrollback_lines: number;
+  /**
+   * Honor OSC 52 clipboard writes from the shell (F12). Off by default:
+   * a remote program writing the local clipboard is opt-in.
+   */
+  osc52_clipboard: boolean;
+}
+
+/** The `[history]` table (F12): the global command log's privacy switch. */
+export interface HistorySettings {
+  /** Record completed commands to `history.sqlite`. */
+  enabled: boolean;
 }
 
 /**
@@ -944,6 +960,8 @@ export interface SettingsDocument {
   sync: SyncSettings;
   /** The `[snapshots]` table. */
   snapshots: SnapshotSettings;
+  /** The `[history]` table (F12). */
+  history: HistorySettings;
   /**
    * Advanced-track feature flags (`[flags]`, default-off). Keys are
    * defined by the phases that ship the features; the Settings window
@@ -1051,6 +1069,144 @@ export interface SnapshotNowResult {
   path: string;
 }
 
+// ---------------------------------------------------------------------------
+// Semantic terminal (F12, Phase 10): history + shell integration
+// ---------------------------------------------------------------------------
+
+/** One recorded command in `history.sqlite` (F12). */
+export interface HistoryEntry {
+  /** Row id. */
+  id: number;
+  /** Completion time, Unix milliseconds. */
+  ts: number;
+  /** Host label (`"local"` for local shells). */
+  host: string;
+  /** Working directory from OSC 7; empty when unknown. */
+  cwd: string;
+  /** The command line as the shell reported it (OSC 633;E). */
+  cmd: string;
+  /** Exit status from OSC 133 D, when present. */
+  exit: number | null;
+  /** Wall-clock duration, milliseconds. */
+  durationMs: number;
+}
+
+/** Payload of `history_add`. */
+export interface HistoryAddPayload {
+  /** The host the command ran on (`Host.id`); omit for a local shell. */
+  hostId?: string;
+  /** Display label recorded in the row (`"local"` for local shells). */
+  hostLabel: string;
+  /** Working directory from OSC 7 (empty when unknown). */
+  cwd: string;
+  /** The command line. */
+  cmd: string;
+  /** Exit status, when the shell reported one. */
+  exit: number | null;
+  /** Wall-clock duration, milliseconds. */
+  durationMs: number;
+  /** Completion time, Unix milliseconds. */
+  ts: number;
+}
+
+/** Result of `history_add`. */
+export interface HistoryAddResult {
+  /**
+   * Whether a row was written — `false` when history is off globally or
+   * the host is incognito (both normal, silent outcomes).
+   */
+  recorded: boolean;
+}
+
+/** Payload of `history_query`. */
+export interface HistoryQueryPayload {
+  /**
+   * Search text; every whitespace token must match `cmd`, `host`, or
+   * `cwd`. Empty lists the newest rows.
+   */
+  query: string;
+  /** Maximum rows (capped at 1000 core-side). */
+  limit: number;
+}
+
+/** Result of `history_query`. */
+export interface HistoryQueryResult {
+  /** Matching rows, newest first. */
+  entries: HistoryEntry[];
+}
+
+/** Result of `history_count`. */
+export interface HistoryCountResult {
+  /** Total rows in the database. */
+  count: number;
+  /** Where the database lives (shown in Settings). */
+  path: string;
+}
+
+/** The shells the F12 installer knows. */
+export type IntegrationShell = "zsh" | "bash" | "fish";
+
+/**
+ * Where a shell-integration command operates: this Mac, or a remote host
+ * through a live SFTP session from `sftp_connect` (PLAN.md §5,
+ * remote-installer row).
+ */
+export type ShellIntegrationTarget =
+  | { kind: "local" }
+  | {
+      kind: "remote";
+      /** A connected session id. */
+      sftpSessionId: string;
+    };
+
+/** Result of `shell_integration_status`. */
+export interface ShellIntegrationStatus {
+  /** The detected shell (`$SHELL` locally; by rc presence remotely). */
+  shell: IntegrationShell | null;
+  /** Shells whose rc file exists on the target — the picker's options. */
+  candidates: IntegrationShell[];
+  /** The home directory the rc paths are relative to. */
+  home: string;
+  /** Whether the detected shell's rc already carries the fenced block. */
+  installed: boolean;
+}
+
+/** Payload of `shell_integration_preview` / `shell_integration_apply`. */
+export interface ShellIntegrationChangePayload {
+  /** Where to operate. */
+  target: ShellIntegrationTarget;
+  /** Which shell's snippet and rc file. */
+  shell: IntegrationShell;
+  /** What to do. */
+  action: "install" | "uninstall";
+}
+
+/** One line of the rc diff shown before an install/uninstall. */
+export interface DiffLine {
+  /** `"+"` added, `"-"` removed, `" "` context. */
+  kind: "+" | "-" | " ";
+  /** The line text. */
+  text: string;
+}
+
+/** Result of `shell_integration_preview`. */
+export interface ShellIntegrationPreview {
+  /** The rc file that would change (absolute). */
+  rcPath: string;
+  /** Whether the file exists today (a missing rc is created on install). */
+  exists: boolean;
+  /** The exact line diff; empty when nothing would change. */
+  diff: DiffLine[];
+}
+
+/** Result of `shell_integration_apply`. */
+export interface ShellIntegrationApplied {
+  /** The rc file written. */
+  rcPath: string;
+  /** Whether the block is present after the write (re-read, not assumed). */
+  installed: boolean;
+}
+
 /**
  * Invokable commands, keyed by command name.
  *
@@ -1061,7 +1217,9 @@ export interface SnapshotNowResult {
  * (dual-pane browser + transfers) and the `hostkey_trust` half of the
  * fingerprint trust flow; Phase 6 adds the `snippet_*` family over
  * `snippets.toml` (CRUD + TOML packs); Phase 7 adds the `keychain_*`
- * family (set / delete / has — never get, F8).
+ * family (set / delete / has — never get, F8); Phase 10 adds the
+ * `history_*` family over `history.sqlite` and the `shell_integration_*`
+ * triplet (status / preview / apply) behind the F12 installer.
  */
 export interface IpcCommands {
   /** Spawn a new PTY session — a local login shell or `ssh` to a host. */
@@ -1232,6 +1390,29 @@ export interface IpcCommands {
   sync_open_dir: { payload: Record<string, never>; result: null };
   /** Take a config-dir snapshot right now (tar.gz into the state dir). */
   snapshot_now: { payload: Record<string, never>; result: SnapshotNowResult };
+  /** Record one completed command (F12); gated by `[history]` + incognito. */
+  history_add: { payload: { entry: HistoryAddPayload }; result: HistoryAddResult };
+  /** Search history for the palette's History section (F12). */
+  history_query: { payload: { params: HistoryQueryPayload }; result: HistoryQueryResult };
+  /** Row count + database path (F12; Settings privacy note). */
+  history_count: { payload: Record<string, never>; result: HistoryCountResult };
+  /** Delete every history row (F12). */
+  history_clear: { payload: Record<string, never>; result: null };
+  /** Detect the target's shell and whether the snippet is installed (F12). */
+  shell_integration_status: {
+    payload: { target: ShellIntegrationTarget };
+    result: ShellIntegrationStatus;
+  };
+  /** The exact rc diff an install/uninstall would make (F12). */
+  shell_integration_preview: {
+    payload: { change: ShellIntegrationChangePayload };
+    result: ShellIntegrationPreview;
+  };
+  /** Apply a confirmed install/uninstall, temp + rename (F12). */
+  shell_integration_apply: {
+    payload: { change: ShellIntegrationChangePayload };
+    result: ShellIntegrationApplied;
+  };
 }
 
 /**

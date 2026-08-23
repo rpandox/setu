@@ -2166,3 +2166,476 @@ pub async fn snapshot_now(
         path: path.display().to_string(),
     })
 }
+
+// ---------------------------------------------------------------------------
+// Semantic terminal (F12, Phase 10): history + shell integration
+// ---------------------------------------------------------------------------
+
+/// Payload of [`history_add`] (mirrors `HistoryAddPayload`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryAddPayload {
+    /// The host the command ran on (`Host.id`), or `None` for a local shell.
+    pub host_id: Option<String>,
+    /// Display label recorded in the row (`"local"` for local shells).
+    pub host_label: String,
+    /// Working directory from OSC 7 (empty when unknown).
+    pub cwd: String,
+    /// The command line (OSC 633;E).
+    pub cmd: String,
+    /// Exit status from OSC 133 D, when present.
+    pub exit: Option<i32>,
+    /// Wall-clock duration, milliseconds.
+    pub duration_ms: i64,
+    /// Completion time, Unix milliseconds.
+    pub ts: i64,
+}
+
+/// Result of [`history_add`] (mirrors `HistoryAddResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryAddResult {
+    /// Whether a row was written — `false` when history is off globally
+    /// or the host is incognito (both are normal, silent outcomes).
+    pub recorded: bool,
+}
+
+/// Records one completed command in `history.sqlite` (F12).
+///
+/// **Payload:** `{ entry: { hostId?, hostLabel, cwd, cmd, exit?, durationMs, ts } }` ·
+/// **Result:** `{ recorded }` · **Emits:** nothing.
+///
+/// Privacy gates, core-side: nothing is written while `[history] enabled`
+/// is false, and nothing is written for a host whose `incognito` flag is
+/// set — the frontend also skips these, but the store is the last word.
+/// Alt-screen output never reaches here (it is never a completed
+/// prompt-to-prompt command).
+///
+/// # Errors
+///
+/// Fails when settings can't be read or the insert fails (disk full,
+/// corrupt database).
+#[tauri::command]
+pub async fn history_add(
+    history: State<'_, crate::history::HistoryStore>,
+    hosts: State<'_, HostsStore>,
+    settings: State<'_, SettingsStore>,
+    entry: HistoryAddPayload,
+) -> Result<HistoryAddResult, String> {
+    let enabled = settings.document()?.history.enabled;
+    if !enabled {
+        return Ok(HistoryAddResult { recorded: false });
+    }
+    if let Some(host_id) = entry.host_id.as_deref() {
+        // Imported (`sshcfg:`/`ts:`) rows can't carry the flag; only saved
+        // hosts can be incognito. Unknown ids record under their label.
+        if let Some(host) = hosts.list()?.into_iter().find(|h| h.id == host_id) {
+            if host.incognito {
+                return Ok(HistoryAddResult { recorded: false });
+            }
+        }
+    }
+    let row = crate::history::HistoryEntry {
+        id: 0,
+        ts: entry.ts,
+        host: entry.host_label,
+        cwd: entry.cwd,
+        cmd: entry.cmd,
+        exit: entry.exit,
+        duration_ms: entry.duration_ms,
+    };
+    let recorded = history.add(&row, true)?.is_some();
+    Ok(HistoryAddResult { recorded })
+}
+
+/// Payload of [`history_query`] (mirrors `HistoryQueryPayload`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryQueryPayload {
+    /// Search text; every whitespace token must match `cmd`, `host`, or
+    /// `cwd`. Empty lists the newest rows.
+    pub query: String,
+    /// Maximum rows (capped at 1000).
+    pub limit: usize,
+}
+
+/// Result of [`history_query`] (mirrors `HistoryQueryResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryQueryResult {
+    /// Matching rows, newest first.
+    pub entries: Vec<crate::history::HistoryEntry>,
+}
+
+/// Searches `history.sqlite` for the palette's History section (F12).
+///
+/// **Payload:** `{ params: { query, limit } }` · **Result:** `{ entries: [{ id, ts,
+/// host, cwd, cmd, exit?, durationMs }] }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the query can't run (corrupt database).
+#[tauri::command]
+pub async fn history_query(
+    history: State<'_, crate::history::HistoryStore>,
+    params: HistoryQueryPayload,
+) -> Result<HistoryQueryResult, String> {
+    Ok(HistoryQueryResult {
+        entries: history.query(&params.query, params.limit)?,
+    })
+}
+
+/// Result of [`history_count`] (mirrors `HistoryCountResult`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryCountResult {
+    /// Total rows in the database.
+    pub count: i64,
+    /// Where the database lives, for the Settings window's privacy note.
+    pub path: String,
+}
+
+/// Counts history rows (F12) — the Settings window shows it, and it is the
+/// "DB row count proves it" evidence for the incognito acceptance item.
+///
+/// **Payload:** `{}` · **Result:** `{ count, path }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the count can't run.
+#[tauri::command]
+pub async fn history_count(
+    history: State<'_, crate::history::HistoryStore>,
+) -> Result<HistoryCountResult, String> {
+    Ok(HistoryCountResult {
+        count: history.count()?,
+        path: history.path().display().to_string(),
+    })
+}
+
+/// Deletes every history row (F12, the Settings window's "Clear history").
+///
+/// **Payload:** `{}` · **Result:** `null` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the delete can't run.
+#[tauri::command]
+pub async fn history_clear(history: State<'_, crate::history::HistoryStore>) -> Result<(), String> {
+    history.clear()
+}
+
+/// Where a shell-integration command operates (mirrors
+/// `ShellIntegrationTarget`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ShellIntegrationTarget {
+    /// This Mac: `$HOME` and `$SHELL`.
+    Local,
+    /// A remote host, through a live SFTP session from [`sftp_connect`]
+    /// (PLAN.md §5, remote-installer row).
+    Remote {
+        /// The session id.
+        #[serde(rename = "sftpSessionId")]
+        sftp_session_id: String,
+    },
+}
+
+/// Result of [`shell_integration_status`] (mirrors
+/// `ShellIntegrationStatus`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellIntegrationStatus {
+    /// The detected shell, when one could be determined.
+    pub shell: Option<crate::shell_integration::Shell>,
+    /// Shells whose rc file exists on the target (the picker's options).
+    pub candidates: Vec<crate::shell_integration::Shell>,
+    /// The home directory the rc paths are relative to.
+    pub home: String,
+    /// Whether the detected shell's rc carries the fenced block.
+    pub installed: bool,
+}
+
+/// Payload of [`shell_integration_preview`] / [`shell_integration_apply`]
+/// (mirrors `ShellIntegrationChangePayload`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellIntegrationChangePayload {
+    /// Where to operate.
+    pub target: ShellIntegrationTarget,
+    /// Which shell's snippet and rc file.
+    pub shell: crate::shell_integration::Shell,
+    /// `"install"` or `"uninstall"`.
+    pub action: String,
+}
+
+/// Result of [`shell_integration_preview`] (mirrors
+/// `ShellIntegrationPreview`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellIntegrationPreview {
+    /// The rc file that would change (absolute).
+    pub rc_path: String,
+    /// Whether the file exists today (a missing rc is created on install).
+    pub exists: bool,
+    /// The exact line diff the apply would make; empty when nothing
+    /// would change (already installed / already absent).
+    pub diff: Vec<crate::shell_integration::DiffLine>,
+}
+
+/// Result of [`shell_integration_apply`] (mirrors
+/// `ShellIntegrationApplied`).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellIntegrationApplied {
+    /// The rc file written.
+    pub rc_path: String,
+    /// Whether the block is present after the write (re-read, not assumed).
+    pub installed: bool,
+}
+
+/// Reads and writes rc files on either side of the SFTP boundary.
+struct RcFile<'a> {
+    target: &'a ShellIntegrationTarget,
+    manager: &'a SftpManager,
+}
+
+impl RcFile<'_> {
+    async fn home(&self) -> Result<String, String> {
+        match self.target {
+            ShellIntegrationTarget::Local => dirs::home_dir()
+                .map(|p| p.display().to_string())
+                .ok_or_else(|| "cannot determine the home directory".to_string()),
+            ShellIntegrationTarget::Remote { sftp_session_id } => {
+                let session = self.manager.session(sftp_session_id).await?;
+                session
+                    .canonicalize(".")
+                    .await
+                    .map_err(|e| format!("remote home: {e}"))
+            }
+        }
+    }
+
+    /// Which of the known rc files exist under `home`.
+    async fn existing(&self, home: &str) -> Result<Vec<crate::shell_integration::Shell>, String> {
+        use crate::shell_integration::Shell;
+        let mut out = Vec::new();
+        for shell in [Shell::Fish, Shell::Zsh, Shell::Bash] {
+            if self.read(&rc_path(home, shell)).await?.is_some() {
+                out.push(shell);
+            }
+        }
+        Ok(out)
+    }
+
+    /// The file's contents, or `None` when it doesn't exist.
+    async fn read(&self, path: &str) -> Result<Option<String>, String> {
+        match self.target {
+            ShellIntegrationTarget::Local => match std::fs::read(path) {
+                Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(format!("read {path}: {e}")),
+            },
+            ShellIntegrationTarget::Remote { sftp_session_id } => {
+                let session = self.manager.session(sftp_session_id).await?;
+                match session.try_exists(path).await {
+                    Ok(false) => return Ok(None),
+                    Ok(true) => {}
+                    Err(e) => return Err(format!("stat {path}: {e}")),
+                }
+                let bytes = session
+                    .read(path)
+                    .await
+                    .map_err(|e| format!("read {path}: {e}"))?;
+                Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+            }
+        }
+    }
+
+    /// Writes atomically: a sibling temp file, then rename over the target.
+    async fn write(&self, path: &str, contents: &str) -> Result<(), String> {
+        let tmp = format!("{path}.setu-tmp");
+        match self.target {
+            ShellIntegrationTarget::Local => {
+                if let Some(parent) = std::path::Path::new(path).parent() {
+                    std::fs::create_dir_all(parent)
+                        .map_err(|e| format!("mkdir {parent:?}: {e}"))?;
+                }
+                std::fs::write(&tmp, contents).map_err(|e| format!("write {tmp}: {e}"))?;
+                std::fs::rename(&tmp, path).map_err(|e| format!("rename {tmp}: {e}"))
+            }
+            ShellIntegrationTarget::Remote { sftp_session_id } => {
+                let session = self.manager.session(sftp_session_id).await?;
+                if let Some(parent) = std::path::Path::new(path).parent() {
+                    let parent = parent.to_string_lossy();
+                    if !parent.is_empty() && !session.try_exists(&*parent).await.unwrap_or(false) {
+                        session
+                            .create_dir(&*parent)
+                            .await
+                            .map_err(|e| format!("mkdir {parent}: {e}"))?;
+                    }
+                }
+                session
+                    .write(&tmp, contents.as_bytes())
+                    .await
+                    .map_err(|e| format!("write {tmp}: {e}"))?;
+                // SFTP rename refuses to overwrite on many servers: drop
+                // the target first (the temp file already holds the bytes).
+                if session.try_exists(path).await.unwrap_or(false) {
+                    session
+                        .remove_file(path)
+                        .await
+                        .map_err(|e| format!("replace {path}: {e}"))?;
+                }
+                session
+                    .rename(&tmp, path)
+                    .await
+                    .map_err(|e| format!("rename {tmp}: {e}"))
+            }
+        }
+    }
+}
+
+/// The absolute rc path for `shell` under `home`.
+fn rc_path(home: &str, shell: crate::shell_integration::Shell) -> String {
+    format!(
+        "{}/{}",
+        home.trim_end_matches('/'),
+        shell.rc_relative_path()
+    )
+}
+
+/// Reports the shell-integration state of a target (F12).
+///
+/// **Payload:** `{ target: { kind: "local" } | { kind: "remote",
+/// sftpSessionId } }` · **Result:** `{ shell?, candidates, home,
+/// installed }` · **Emits:** nothing.
+///
+/// Locally the shell is `$SHELL`; remotely SFTP can't ask, so it is
+/// inferred from which rc files exist (fish → zsh → bash; PLAN.md §5) and
+/// `candidates` feeds the dialog's picker.
+///
+/// # Errors
+///
+/// Fails when the home directory can't be resolved, the session is gone,
+/// or an rc file exists but can't be read.
+#[tauri::command]
+pub async fn shell_integration_status(
+    manager: State<'_, SftpManager>,
+    target: ShellIntegrationTarget,
+) -> Result<ShellIntegrationStatus, String> {
+    use crate::shell_integration::{detect_by_rc, is_installed, Shell};
+    let rc = RcFile {
+        target: &target,
+        manager: &manager,
+    };
+    let home = rc.home().await?;
+    let candidates = rc.existing(&home).await?;
+    let shell = match target {
+        ShellIntegrationTarget::Local => std::env::var("SHELL")
+            .ok()
+            .and_then(|s| Shell::from_name(&s))
+            .or_else(|| {
+                let names: Vec<&str> = candidates.iter().map(|s| s.rc_relative_path()).collect();
+                detect_by_rc(&names)
+            }),
+        ShellIntegrationTarget::Remote { .. } => {
+            let names: Vec<&str> = candidates.iter().map(|s| s.rc_relative_path()).collect();
+            detect_by_rc(&names)
+        }
+    };
+    let installed = match shell {
+        Some(shell) => rc
+            .read(&rc_path(&home, shell))
+            .await?
+            .is_some_and(|c| is_installed(&c)),
+        None => false,
+    };
+    Ok(ShellIntegrationStatus {
+        shell,
+        candidates,
+        home,
+        installed,
+    })
+}
+
+/// Computes the new rc contents for a change without writing anything.
+async fn plan_change(
+    rc: &RcFile<'_>,
+    payload: &ShellIntegrationChangePayload,
+) -> Result<(String, Option<String>, String), String> {
+    use crate::shell_integration::{install, uninstall};
+    let home = rc.home().await?;
+    let path = rc_path(&home, payload.shell);
+    let before = rc.read(&path).await?;
+    let current = before.clone().unwrap_or_default();
+    let after = match payload.action.as_str() {
+        "install" => install(&current, payload.shell),
+        "uninstall" => uninstall(&current),
+        other => return Err(format!("unknown action {other:?}")),
+    };
+    Ok((path, before, after))
+}
+
+/// Renders the exact diff an install/uninstall would make (F12: the user
+/// sees the rc change before confirming).
+///
+/// **Payload:** `{ change: { target, shell, action } }` · **Result:** `{ rcPath,
+/// exists, diff: [{ kind, text }] }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the target can't be read or `action` is unknown.
+#[tauri::command]
+pub async fn shell_integration_preview(
+    manager: State<'_, SftpManager>,
+    change: ShellIntegrationChangePayload,
+) -> Result<ShellIntegrationPreview, String> {
+    let rc = RcFile {
+        target: &change.target,
+        manager: &manager,
+    };
+    let (rc_path, before, after) = plan_change(&rc, &change).await?;
+    let current = before.clone().unwrap_or_default();
+    let diff = if current == after {
+        Vec::new()
+    } else {
+        crate::shell_integration::diff_lines(&current, &after)
+    };
+    Ok(ShellIntegrationPreview {
+        rc_path,
+        exists: before.is_some(),
+        diff,
+    })
+}
+
+/// Applies an install/uninstall the user confirmed (F12). Writes temp +
+/// rename, then re-reads the file to report the real state.
+///
+/// **Payload:** `{ change: { target, shell, action } }` · **Result:** `{ rcPath,
+/// installed }` · **Emits:** nothing.
+///
+/// # Errors
+///
+/// Fails when the target can't be read or written, or `action` is unknown.
+/// A failed write leaves the original file untouched (the temp file may
+/// remain beside it).
+#[tauri::command]
+pub async fn shell_integration_apply(
+    manager: State<'_, SftpManager>,
+    change: ShellIntegrationChangePayload,
+) -> Result<ShellIntegrationApplied, String> {
+    let rc = RcFile {
+        target: &change.target,
+        manager: &manager,
+    };
+    let (rc_path, before, after) = plan_change(&rc, &change).await?;
+    if before.as_deref() != Some(after.as_str()) {
+        rc.write(&rc_path, &after).await?;
+    }
+    let installed = rc
+        .read(&rc_path)
+        .await?
+        .is_some_and(|c| crate::shell_integration::is_installed(&c));
+    Ok(ShellIntegrationApplied { rc_path, installed })
+}
