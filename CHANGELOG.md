@@ -7,6 +7,19 @@ one entry.
 
 ## [Unreleased]
 
+### Fixed
+
+- Imported `~/.ssh/config` hosts now appear in the main **Hosts** list with
+  a `cfg` badge instead of a separate bottom section that was easy to miss,
+  and the list re-reads the file on window focus (plus a ⌘K → _Reload
+  hosts_ action) so aliases added while Setu is open show up without a
+  restart. Previously the file was read only at startup, which made present
+  hosts look absent. ([F1](docs/features/F01-hosts.md))
+- The focus reload no longer triggers a full reachability sweep on every
+  window activation: `hosts_list` results that match the current list keep
+  the existing array reference, so the sweep only runs when the host set
+  actually changes.
+
 ## [1.0.0] - 2026-08-14
 
 The first release: the core track of the build plan (Phases 0–9), a
