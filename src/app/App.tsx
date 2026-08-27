@@ -70,6 +70,16 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    // Imported ~/.ssh/config rows are read at list time, not watched: a
+    // config edited while Setu is open shows up on the next focus (F1).
+    const onFocus = (): void => {
+      void useHosts.getState().load();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+
+  useEffect(() => {
     /**
      * Dispatches the §8 keyboard map through the action registry, then the
      * contextual plain-⏎ reconnect (F3).

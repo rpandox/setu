@@ -250,6 +250,14 @@ export function Sidebar({ collapsed }: SidebarProps) {
                                 ts
                               </span>
                             )}
+                            {host.source === "ssh_config" && (
+                              <span
+                                className="tailnet-badge"
+                                title="Imported from ~/.ssh/config (read-only until adopted)"
+                              >
+                                cfg
+                              </span>
+                            )}
                             <ReachChip led={led} />
                           </button>
                           <span className="host-actions">
