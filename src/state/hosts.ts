@@ -367,7 +367,7 @@ export interface SidebarSection {
  * Builds the sidebar sections (F1): while searching, one flat ranked
  * "Results" section; otherwise Favorites first, then each named group
  * (alphabetical), then the "Hosts" list. Imported `~/.ssh/config` rows are
- * *not* split into a separate bottom section — they sit in the main list
+ * never split into a separate bottom section — they sit in the main list
  * alongside saved hosts (grouped by their `group`, or "Hosts" when
  * ungrouped), each carrying a `cfg` badge so it stays identifiable. A
  * dedicated bottom section was too easy to scroll past and miss (HIVE-165).
@@ -383,7 +383,9 @@ export function sidebarSections(hosts: Host[], query: string): SidebarSection[] 
   }
   const favorites = hosts.filter((h) => h.favorite);
   const rest = hosts.filter((h) => !h.favorite);
-  const groupNames = [...new Set(rest.map((h) => h.group).filter((g) => g !== ""))].sort();
+  const groupNames = [
+    ...new Set(rest.map((h) => h.group).filter((g) => g !== "")),
+  ].sort();
 
   const sections: SidebarSection[] = [
     { key: "favorites", title: "Favorites", hosts: favorites },
