@@ -245,6 +245,17 @@ describe("store actions", () => {
     expect(useHosts.getState().hosts).toEqual([hermes, atlas]);
   });
 
+  it("load swaps in a new array when a host FIELD changed at the same length", async () => {
+    // Guards against comparing ids only: an edited host (same id, changed
+    // hostname) must still yield a new reference so the reach sweep re-runs.
+    useHosts.setState({ hosts: [hermes] });
+    const before = useHosts.getState().hosts;
+    ipcInvoke.mockResolvedValueOnce([{ ...hermes, hostname: "hermes.new.ts.net" }]);
+    await useHosts.getState().load();
+    expect(useHosts.getState().hosts).not.toBe(before);
+    expect(useHosts.getState().hosts[0].hostname).toBe("hermes.new.ts.net");
+  });
+
   it("load keeps the old list and records the error on failure", async () => {
     useHosts.setState({ hosts: [hermes] });
     ipcInvoke.mockRejectedValueOnce("failed to parse hosts.toml");
