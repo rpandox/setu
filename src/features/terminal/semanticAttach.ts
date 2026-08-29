@@ -25,6 +25,7 @@ import { followCwdFromSession } from "../../state/sftp";
 import { useSettings } from "../../state/settings";
 import { useToast } from "../../state/toast";
 import {
+  applyMarkClasses,
   createSemanticMachine,
   formatDuration,
   nextPromptLine,
@@ -82,7 +83,7 @@ export function attachSemantic(sessionId: string, term: Terminal): () => void {
           : mark.exit === null
             ? "run"
             : "err";
-      element.className = `semantic-mark semantic-mark--${state}`;
+      applyMarkClasses(element, state);
       element.title =
         mark.durationMs !== undefined
           ? `${mark.cmd ?? "command"} · ${formatDuration(mark.durationMs)} · exit ${mark.exit ?? "?"}`

@@ -126,10 +126,16 @@ export async function createSessionTerminal(sessionId: string): Promise<Terminal
       term.open(container);
       try {
         const webgl = new WebglAddon();
-        webgl.onContextLoss(() => webgl.dispose());
+        webgl.onContextLoss(() => {
+          webgl.dispose();
+          console.info("[terminal] renderer: dom (webgl context lost)");
+        });
         term.loadAddon(webgl);
+        console.info("[terminal] renderer: webgl");
       } catch {
         // No usable WebGL context — xterm's DOM renderer carries on (§3).
+        // Logged so "WebGL installed" and "WebGL active" stay distinguishable.
+        console.info("[terminal] renderer: dom (webgl unavailable)");
       }
       fit.fit();
       // Focus after layout settles: a synchronous focus() during the mount

@@ -43,6 +43,11 @@ osc52_clipboard` (default off) and `[history] enabled`.
   actually changes.
 - Settings had no mouse-reachable door (only ⌘, and the palette): the
   sidebar footer gains a gear and the app menu a **Settings… ⌘,** item.
+- Semantic gutter marks were invisible whenever the WebGL renderer was
+  active: the mark overwrote xterm's own `xterm-decoration` class and lost
+  its z-index, painting under the canvas. Classes are now added, not
+  replaced, and the mark sits above the canvas. The terminal also logs
+  which renderer is active (`[terminal] renderer: webgl|dom`).
 
 ## [1.0.0] - 2026-08-14
 

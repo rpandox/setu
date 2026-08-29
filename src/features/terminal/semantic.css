@@ -11,6 +11,10 @@
   border-radius: 1px;
   pointer-events: auto;
   opacity: 0.9;
+  /* xterm's canvas/helper layers sit at z-index 5 and its own
+     `.xterm-decoration` class carries z-index 6; keep the mark above the
+     WebGL canvas even if that class is ever lost. */
+  z-index: 7;
 }
 
 .semantic-mark--ok {

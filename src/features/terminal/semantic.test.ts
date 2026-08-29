@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyMarkClasses,
   createSemanticMachine,
   formatDuration,
   nextPromptLine,
@@ -219,5 +220,41 @@ describe("helpers", () => {
     expect(formatDuration(4200)).toBe("4.2 s");
     expect(formatDuration(65_000)).toBe("1m 05s");
     expect(formatDuration(2 * 3_600_000 + 3 * 60_000)).toBe("2h 03m");
+  });
+});
+
+describe("applyMarkClasses", () => {
+  /**
+   * Minimal ordered class list standing in for a DOMTokenList (no jsdom here).
+   *
+   * @param initial - Classes present before the helper runs.
+   * @returns The stub element plus the live class-name array for assertions.
+   */
+  function fakeElement(initial: string[]) {
+    const names = [...initial];
+    const classList = {
+      add: (...cls: string[]) => {
+        for (const c of cls) if (!names.includes(c)) names.push(c);
+      },
+      remove: (...cls: string[]) => {
+        for (const c of cls) {
+          const i = names.indexOf(c);
+          if (i >= 0) names.splice(i, 1);
+        }
+      },
+      contains: (c: string) => names.includes(c),
+    };
+    // why: only add/remove/contains are exercised; the rest of DOMTokenList
+    // is irrelevant to the helper under test.
+    return { el: { classList: classList as unknown as DOMTokenList }, names };
+  }
+
+  it("keeps xterm's own classes (the z-index carrier) and swaps only the state", () => {
+    const { el, names } = fakeElement(["xterm-decoration"]);
+    applyMarkClasses(el, "ok");
+    expect(names).toEqual(["xterm-decoration", "semantic-mark", "semantic-mark--ok"]);
+    applyMarkClasses(el, "err");
+    expect(names).toEqual(["xterm-decoration", "semantic-mark", "semantic-mark--err"]);
+    expect(el.classList.contains("semantic-mark--ok")).toBe(false);
   });
 });

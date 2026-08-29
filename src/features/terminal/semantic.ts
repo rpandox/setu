@@ -439,3 +439,36 @@ export function formatDuration(ms: number): string {
   const hours = Math.floor(minutes / 60);
   return `${hours}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
+
+/** Visual state of one gutter mark. */
+export type MarkState = "ok" | "err" | "run";
+
+/**
+ * Applies the gutter-mark classes to a decoration element **without
+ * discarding the classes xterm put there**. xterm's own `xterm-decoration`
+ * class carries the `z-index` that keeps the element above the WebGL canvas;
+ * an earlier `element.className = …` overwrite dropped it, so marks painted
+ * underneath the canvas whenever the WebGL renderer was active (and only
+ * showed under the DOM-renderer fallback).
+ *
+ * Idempotent: re-applying with a new state swaps only the state class.
+ *
+ * @param element - The decoration's DOM element from `onRender`.
+ * @param state - The mark's visual state.
+ * @example
+ * ```ts
+ * applyMarkClasses(el, "ok");  // el.classList: xterm-decoration semantic-mark semantic-mark--ok
+ * applyMarkClasses(el, "err"); // …semantic-mark semantic-mark--err (ok removed)
+ * ```
+ */
+export function applyMarkClasses(
+  element: Pick<Element, "classList">,
+  state: MarkState,
+): void {
+  element.classList.remove(
+    "semantic-mark--ok",
+    "semantic-mark--err",
+    "semantic-mark--run",
+  );
+  element.classList.add("semantic-mark", `semantic-mark--${state}`);
+}
