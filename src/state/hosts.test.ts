@@ -20,6 +20,7 @@ import {
   rankHosts,
   searchHosts,
   sidebarSections,
+  SSH_CONFIG_SECTION_KEY,
   sshCommandOf,
   useHosts,
 } from "./hosts";
@@ -147,27 +148,40 @@ describe("rankHosts", () => {
 });
 
 describe("sidebarSections", () => {
-  it("orders favorites, named groups, then Hosts — imported rows join the main list (HIVE-165)", () => {
+  it("orders favorites, named groups, Hosts, then an SSH config heading (HIVE-236)", () => {
     const ungrouped = host({ id: "4", label: "solo" });
     const sections = sidebarSections([ungrouped, imported, atlas, hermes, ganymede], "");
-    // No separate bottom "ssh-config" section any more: the imported row
-    // sits in the ungrouped "Hosts" list next to saved hosts.
-    expect(sections.map((s) => s.key)).toEqual(["favorites", "group:fleet", "ungrouped"]);
+    expect(sections.map((s) => s.key)).toEqual([
+      "favorites",
+      "group:fleet",
+      "ungrouped",
+      SSH_CONFIG_SECTION_KEY,
+    ]);
     expect(sections[0].hosts).toEqual([hermes]);
     expect(sections[1].hosts).toEqual([atlas, ganymede]);
-    expect(sections[2].hosts).toEqual([ungrouped, imported]);
+    expect(sections[2].hosts).toEqual([ungrouped]);
+    expect(sections[3].title).toBe("SSH config (1)");
+    expect(sections[3].hosts).toEqual([imported]);
   });
 
-  it("keeps a grouped imported row in its named group", () => {
+  it("puts every imported row under the SSH config heading, even a grouped one", () => {
     const groupedImport = host({
       id: "sshcfg:fleet-box",
       label: "fleet-box",
       source: "ssh_config",
       group: "fleet",
     });
-    const sections = sidebarSections([groupedImport, atlas], "");
-    expect(sections.map((s) => s.key)).toEqual(["group:fleet"]);
-    expect(sections[0].hosts).toEqual([groupedImport, atlas]);
+    const sections = sidebarSections([groupedImport, imported, atlas], "");
+    expect(sections.map((s) => s.key)).toEqual(["group:fleet", SSH_CONFIG_SECTION_KEY]);
+    expect(sections[0].hosts).toEqual([atlas]);
+    expect(sections[1].title).toBe("SSH config (2)");
+    expect(sections[1].hosts).toEqual([groupedImport, imported]);
+  });
+
+  it("shows the SSH config heading alone when hosts.toml is empty (the HIVE-165 owner case)", () => {
+    const sections = sidebarSections([imported], "");
+    expect(sections.map((s) => s.key)).toEqual([SSH_CONFIG_SECTION_KEY]);
+    expect(SSH_CONFIG_SECTION_KEY).not.toBe("ssh-config");
   });
 
   it("drops empty sections and never duplicates favorites into groups", () => {

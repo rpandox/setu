@@ -354,6 +354,13 @@ export function duplicatesOf(hosts: Host[], draft: Host): Host[] {
   return hosts.filter((h) => h.id !== draft.id && key(h) === key(draft));
 }
 
+/**
+ * Collapse-state key of the `~/.ssh/config` section. Deliberately not the
+ * old `ssh-config` key: a collapse saved for the pre-HIVE-165 bottom
+ * section must not carry over and hide the new heading.
+ */
+export const SSH_CONFIG_SECTION_KEY = "ssh-config-heading";
+
 /** One sidebar section: a stable key, its eyebrow title, and its hosts. */
 export interface SidebarSection {
   /** Stable key for collapse-state persistence. */
@@ -367,11 +374,11 @@ export interface SidebarSection {
 /**
  * Builds the sidebar sections (F1): while searching, one flat ranked
  * "Results" section; otherwise Favorites first, then each named group
- * (alphabetical), then the "Hosts" list. Imported `~/.ssh/config` rows are
- * never split into a separate bottom section — they sit in the main list
- * alongside saved hosts (grouped by their `group`, or "Hosts" when
- * ungrouped), each carrying a `cfg` badge so it stays identifiable. A
- * dedicated bottom section was too easy to scroll past and miss (HIVE-165).
+ * (alphabetical), then the "Hosts" list, then **"SSH config (n)"** — every
+ * row imported from `~/.ssh/config`, directly beneath your own hosts and
+ * expanded by default (HIVE-236). The section key is new so a collapse
+ * remembered for the pre-HIVE-165 bottom section can never hide it again.
+ * Imported rows keep their `cfg` badge and are never mixed into groups.
  * Favorites appear only in Favorites — no duplication.
  *
  * @param hosts - All hosts, as returned by `hosts_list`.
@@ -383,7 +390,8 @@ export function sidebarSections(hosts: Host[], query: string): SidebarSection[] 
     return [{ key: "results", title: "Results", hosts: searchHosts(hosts, query) }];
   }
   const favorites = hosts.filter((h) => h.favorite);
-  const rest = hosts.filter((h) => !h.favorite);
+  const imported = hosts.filter((h) => !h.favorite && h.source === "ssh_config");
+  const rest = hosts.filter((h) => !h.favorite && h.source !== "ssh_config");
   const groupNames = [
     ...new Set(rest.map((h) => h.group).filter((g) => g !== "")),
   ].sort();
@@ -396,6 +404,11 @@ export function sidebarSections(hosts: Host[], query: string): SidebarSection[] 
       hosts: rest.filter((h) => h.group === name),
     })),
     { key: "ungrouped", title: "Hosts", hosts: rest.filter((h) => h.group === "") },
+    {
+      key: SSH_CONFIG_SECTION_KEY,
+      title: `SSH config (${imported.length})`,
+      hosts: imported,
+    },
   ];
   return sections.filter((section) => section.hosts.length > 0);
 }
