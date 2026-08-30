@@ -16,6 +16,7 @@ import { useEffect, useRef } from "react";
 import { Checkbox } from "../../components/controls";
 import { onOsFileDrop } from "../../ipc/client";
 import { useHosts } from "../../state/hosts";
+import { useSettings } from "../../state/settings";
 import { useSftp } from "../../state/sftp";
 import { FingerprintDialog } from "../ssh/FingerprintDialog";
 import { SecretPromptDialog } from "../ssh/SecretPromptDialog";
@@ -99,6 +100,8 @@ export function SftpPanel() {
   if (!open) return null;
 
   const duckUrl = hostId !== null ? cyberduckUrl(hostId, remotePath) : null;
+  const followCwd = useSftp((s) => s.followCwd);
+  const semanticOn = useSettings((s) => s.doc.flags.semantic_terminal === true);
 
   return (
     <div
@@ -116,6 +119,15 @@ export function SftpPanel() {
             <Checkbox checked={showHidden} onChange={() => store.toggleHidden()} />
             Hidden files
           </label>
+          {semanticOn && (
+            <label
+              className="sftp-panel-hidden"
+              title="Remote pane follows the terminal’s working directory (F12)"
+            >
+              <Checkbox checked={followCwd} onChange={() => store.toggleFollow()} />
+              Follow cwd
+            </label>
+          )}
           {duckUrl !== null && (
             <button
               type="button"

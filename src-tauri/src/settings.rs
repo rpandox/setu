@@ -108,6 +108,10 @@ pub struct TerminalSettings {
     /// Scrollback lines kept per terminal (§3 default 10 000).
     #[serde(default = "default_scrollback_lines")]
     pub scrollback_lines: u32,
+    /// Honor OSC 52 clipboard writes from the shell (F12; off by default —
+    /// a remote program writing the local clipboard is opt-in).
+    #[serde(default)]
+    pub osc52_clipboard: bool,
 }
 
 impl Default for TerminalSettings {
@@ -115,6 +119,24 @@ impl Default for TerminalSettings {
         Self {
             font_size: default_font_size(),
             scrollback_lines: default_scrollback_lines(),
+            osc52_clipboard: false,
+        }
+    }
+}
+
+/// The `[history]` table — the F12 global command log's privacy switch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HistorySettings {
+    /// Record completed commands to `history.sqlite` (global toggle; the
+    /// per-host `incognito` flag overrides it per host).
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+impl Default for HistorySettings {
+    fn default() -> Self {
+        Self {
+            enabled: default_enabled(),
         }
     }
 }
@@ -196,6 +218,9 @@ pub struct SettingsDocument {
     /// The `[snapshots]` table; missing means defaults.
     #[serde(default)]
     pub snapshots: SnapshotSettings,
+    /// The `[history]` table (F12); missing means defaults.
+    #[serde(default)]
+    pub history: HistorySettings,
     /// Advanced-track feature flags (`[flags]`, default-off; §0.5). Keys
     /// are defined by the phases that ship the features — an open map, so
     /// flags from newer builds survive an older build's save.

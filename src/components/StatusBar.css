@@ -47,3 +47,12 @@
   outline: 1px solid var(--neon);
   box-shadow: var(--glow); /* focus ring — a legal --glow use (§7) */
 }
+
+/* F12 cwd chip: mono like the rest, truncated so a deep path never
+   pushes the forwards/sync chips off the bar. */
+.statusbar-chip--cwd {
+  max-width: 32ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

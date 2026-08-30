@@ -14,6 +14,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import "@xterm/xterm/css/xterm.css";
 import { phosphorTheme, terminalTypography } from "./theme";
 import { connectPtyStream } from "./stream";
+import { attachSemantic, detachSemantic, rebindSemantic } from "./semanticAttach";
 import { resolvePtyWriteTargets } from "../../state/broadcast";
 import { useSettings } from "../../state/settings";
 
@@ -52,8 +53,8 @@ const handles = new Map<string, TerminalHandle>();
 
 /**
  * Creates the terminal for a freshly spawned session, loads the Phase 1
- * addon set (fit, search, unicode11, web-links; WebGL at `open` time), and
- * connects its PTY stream.
+ * addon set (fit, search, unicode11, web-links; WebGL at `open` time),
+ * connects its PTY stream, and attaches the F12 semantic layer.
  *
  * WebGL is attempted per §3 with automatic fallback: WKWebView commonly
  * lacks usable WebGL2, so failures and context losses quietly fall back to
@@ -100,6 +101,9 @@ export async function createSessionTerminal(sessionId: string): Promise<Terminal
   // and the current id keeps dispose() deleting the right map entry.
   let disconnect = await connectPtyStream(sessionId, term, resolvePtyWriteTargets);
   let currentId = sessionId;
+  // The semantic layer (F12) listens on the parser from the first byte so
+  // a shell that greets with OSC 133 is never missed.
+  attachSemantic(sessionId, term);
 
   let opened = false;
   const handle: TerminalHandle = {
@@ -122,10 +126,16 @@ export async function createSessionTerminal(sessionId: string): Promise<Terminal
       term.open(container);
       try {
         const webgl = new WebglAddon();
-        webgl.onContextLoss(() => webgl.dispose());
+        webgl.onContextLoss(() => {
+          webgl.dispose();
+          console.info("[terminal] renderer: dom (webgl context lost)");
+        });
         term.loadAddon(webgl);
+        console.info("[terminal] renderer: webgl");
       } catch {
         // No usable WebGL context — xterm's DOM renderer carries on (§3).
+        // Logged so "WebGL installed" and "WebGL active" stay distinguishable.
+        console.info("[terminal] renderer: dom (webgl unavailable)");
       }
       fit.fit();
       // Focus after layout settles: a synchronous focus() during the mount
@@ -136,10 +146,12 @@ export async function createSessionTerminal(sessionId: string): Promise<Terminal
     async rebind(newSessionId: string): Promise<void> {
       disconnect();
       disconnect = await connectPtyStream(newSessionId, term, resolvePtyWriteTargets);
+      rebindSemantic(currentId, newSessionId);
       currentId = newSessionId;
     },
     dispose(): void {
       disconnect();
+      detachSemantic(currentId);
       term.dispose();
       handles.delete(currentId);
     },

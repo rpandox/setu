@@ -32,6 +32,7 @@ Frecency lives in this machine's `state.json`
 | ⌘⏎    | Connect in a new tab (even if one is open) |
 | ⌘E    | Edit the selected host                     |
 | ⌘C    | Copy the selected host's ssh command       |
+| ⏎     | On a History row: paste into the pane      |
 | Esc   | Dismiss                                    |
 
 - **⏎ on a host reuses a live tab** when one is already connected there;
@@ -44,6 +45,11 @@ Frecency lives in this machine's `state.json`
   pulse = session open ([F01](F01-hosts.md) has the full table).
 - ⌘E is disabled on imported `~/.ssh/config` rows (they're read-only
   until adopted).
+- **History (Phase 10, flag on):** a fourth section lists past commands
+  from every host — each word must match the command, host, or cwd;
+  newest first. ⏎ pastes the command into the focused pane and **never**
+  runs it. _Shell integration…_ opens the installer
+  ([F12](F12-semantic-terminal.md)).
 
 ## What can go wrong?
 
@@ -54,8 +60,9 @@ Frecency lives in this machine's `state.json`
   — frecency folds recent use into the ranking. If two hosts genuinely
   share a name, rename one; label matches always outrank the rest.
 - **An action you expect is missing.** The palette lists commands whose
-  features exist. SFTP, prompt jumps, the quake terminal, and settings
-  join it in their phases (PLAN.md §8 has the full future map).
+  features exist. The quake terminal joins in its phase; the F12 rows
+  (prompt jumps, copy-last-output, re-run) appear only while the
+  semantic flag is on (PLAN.md §8 has the full future map).
 - **⌘C copied the host command instead of my selected text.** ⌘C only
   copies the ssh command when nothing is selected in the search field;
   select text first to copy it normally.

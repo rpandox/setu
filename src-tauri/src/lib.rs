@@ -23,6 +23,8 @@
 //! - [`agent`] — ssh-agent introspection via `ssh-add -l` (F8).
 //! - [`binaries`] — locating optional tools (mosh, tailscale, claude).
 //! - [`tailscale`] — the tailnet as a host source: peers, ping, adopt (F9).
+//! - [`shell_integration`] — the OSC 133/7/633 rc snippet + fenced installer (F12).
+//! - [`history`] — the local `history.sqlite` command log (F12).
 //! - [`ipc`] — the Tauri command surface, mirrored by `src/ipc/contract.ts`.
 
 #![deny(missing_docs)]
@@ -31,6 +33,7 @@ pub mod agent;
 pub mod binaries;
 pub mod connect;
 pub mod forwards;
+pub mod history;
 pub mod ipc;
 pub mod keychain;
 pub mod keygen;
@@ -39,6 +42,7 @@ pub mod pty;
 pub mod reach;
 pub mod settings;
 pub mod sftp;
+pub mod shell_integration;
 pub mod snapshots;
 pub mod snippets;
 pub mod ssh_config;
@@ -75,6 +79,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .on_page_load(move |webview, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
                 && std::env::var_os("SETU_STARTUP_PROBE").is_some()
@@ -89,7 +94,35 @@ pub fn run() {
         .setup(|app| {
             // The standard macOS menu: without it the app has no ⌘Q, which
             // would leave users no way to reach the kill-all exit path.
-            app.set_menu(tauri::menu::Menu::default(app.handle())?)?;
+            // The app submenu also gets the platform-conventional
+            // "Settings… ⌘," row — the one Settings door a user finds
+            // without knowing a shortcut (with the sidebar footer gear).
+            let menu = tauri::menu::Menu::default(app.handle())?;
+            if let Some(tauri::menu::MenuItemKind::Submenu(app_menu)) =
+                menu.items()?.into_iter().next()
+            {
+                let settings = tauri::menu::MenuItem::with_id(
+                    app.handle(),
+                    "settings",
+                    "Settings…",
+                    true,
+                    Some("CmdOrCtrl+,"),
+                )?;
+                // After "About Setu" and its separator (positions 0, 1).
+                app_menu.insert(&settings, 2)?;
+                app_menu.insert(
+                    &tauri::menu::PredefinedMenuItem::separator(app.handle())?,
+                    3,
+                )?;
+            }
+            app.set_menu(menu)?;
+            app.on_menu_event(|handle, event| {
+                if event.id() == "settings" {
+                    if let Err(error) = ipc::settings_window_open(handle.clone()) {
+                        eprintln!("setu: {error}");
+                    }
+                }
+            });
             let events = Arc::new(ipc::TauriPtyEvents::new(app.handle().clone()));
             app.manage(pty::PtyManager::new(events));
             app.manage(store::HostsStore::new(store::HostsStore::default_path()?));
@@ -110,6 +143,11 @@ pub fn run() {
             app.manage(ui_state::UiStateStore::new(
                 app.path().app_data_dir()?.join("state.json"),
             ));
+            // history.sqlite (F12) sits beside state.json: device-local,
+            // outside the synced config dir by construction (PLAN.md §4).
+            app.manage(history::HistoryStore::open(
+                &app.path().app_data_dir()?.join("history.sqlite"),
+            )?);
             app.manage(sftp::SftpManager::new(Arc::new(ipc::TauriSftpEvents::new(
                 app.handle().clone(),
             ))));
@@ -184,6 +222,13 @@ pub fn run() {
             ipc::git_sync_abort,
             ipc::sync_open_dir,
             ipc::snapshot_now,
+            ipc::history_add,
+            ipc::history_query,
+            ipc::history_count,
+            ipc::history_clear,
+            ipc::shell_integration_status,
+            ipc::shell_integration_preview,
+            ipc::shell_integration_apply,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

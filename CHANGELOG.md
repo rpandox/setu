@@ -7,6 +7,28 @@ one entry.
 
 ## [Unreleased]
 
+### Added — Phase 10: semantic terminal (F12, behind `flags.semantic_terminal`)
+
+- Shell integration installer (⌘K → _Shell integration…_, or the status
+  bar's cwd chip): detects zsh/bash/fish, shows the **exact rc diff**,
+  writes a fenced, reversible block on confirm; remote hosts are
+  installed over the SFTP connection with the same prompts. The snippet
+  emits OSC 133 A/B/C/D, OSC 7, and `OSC 633;E` (command text).
+- Gutter marks per command (green/red/amber, duration on hover), ⌘↑/⌘↓
+  prompt jumps, ⇧⌘C copy-last-output, ⌥⌘R re-run-last, a live cwd chip
+  in the status bar, and SFTP _Follow cwd_.
+- Done-notifications: a command ≥ 30 s finishing in a background tab
+  fires one macOS notification with command, duration, exit status, and
+  tab number.
+- Global command history in `history.sqlite` (device-local, never
+  synced or exported) with a palette History section — ⏎ pastes, never
+  runs. Per-host **Incognito** and a global toggle; alt-screen commands
+  are never recorded; Settings shows the row count and _Clear history_.
+- Settings: the _Semantic terminal_ flag is live; `[terminal]
+osc52_clipboard` (default off) and `[history] enabled`.
+- IPC: `history_add/query/count/clear`,
+  `shell_integration_status/preview/apply`; `Host.incognito`.
+
 ### Fixed
 
 - Imported `~/.ssh/config` hosts now appear in the main **Hosts** list with
@@ -19,6 +41,13 @@ one entry.
   window activation: `hosts_list` results that match the current list keep
   the existing array reference, so the sweep only runs when the host set
   actually changes.
+- Settings had no mouse-reachable door (only ⌘, and the palette): the
+  sidebar footer gains a gear and the app menu a **Settings… ⌘,** item.
+- Semantic gutter marks were invisible whenever the WebGL renderer was
+  active: the mark overwrote xterm's own `xterm-decoration` class and lost
+  its z-index, painting under the canvas. Classes are now added, not
+  replaced, and the mark sits above the canvas. The terminal also logs
+  which renderer is active (`[terminal] renderer: webgl|dom`).
 
 ## [1.0.0] - 2026-08-14
 

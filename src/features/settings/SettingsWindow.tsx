@@ -43,7 +43,12 @@ const SECTIONS: SectionDef[] = [
  * feature-flags-presentation row: honest UI over dead toggles).
  */
 const FLAG_DEFS = [
-  { key: "semantic_terminal", label: "Semantic terminal (OSC 133/7)", phase: 10 },
+  {
+    key: "semantic_terminal",
+    label: "Semantic terminal (OSC 133/7)",
+    phase: 10,
+    live: true,
+  },
   { key: "instant_connections", label: "Instant connections (ControlMaster)", phase: 11 },
   { key: "fleet_health", label: "Fleet health sparklines", phase: 12 },
   { key: "output_triggers", label: "Output triggers & alerts", phase: 12 },
@@ -51,7 +56,12 @@ const FLAG_DEFS = [
   { key: "automation", label: "Automation & integrations", phase: 13 },
   { key: "ai_assist", label: "AI assist (claude CLI)", phase: 13 },
   { key: "themes", label: "User themes", phase: 13 },
-] as const;
+] as const satisfies readonly {
+  key: string;
+  label: string;
+  phase: number;
+  live?: boolean;
+}[];
 
 /**
  * The Settings window's root (Phase 8) — rendered in its own webview
@@ -164,7 +174,7 @@ export function SettingsWindow() {
               {active === "reachability" && (
                 <ReachabilitySection draft={draft} patch={patch} errorFor={errorFor} />
               )}
-              {active === "flags" && <FlagsSection />}
+              {active === "flags" && <FlagsSection draft={draft} patch={patch} />}
             </>
           )}
 
@@ -271,7 +281,86 @@ function TerminalSection({ draft, patch, errorFor }: SectionProps) {
           patch({ terminal: { ...draft.terminal, scrollback_lines } })
         }
       />
+      <label className="settings-field settings-field--toggle">
+        <Checkbox
+          checked={draft.terminal.osc52_clipboard}
+          onChange={(osc52_clipboard) =>
+            patch({ terminal: { ...draft.terminal, osc52_clipboard } })
+          }
+          aria-label="Allow OSC 52 clipboard writes"
+        />
+        <span>
+          Allow OSC 52 clipboard writes
+          <span className="settings-hint">
+            Lets a program on a remote host put text on this Mac’s clipboard (F12). Off by
+            default; needs the semantic terminal flag.
+          </span>
+        </span>
+      </label>
+      <HistoryFields draft={draft} patch={patch} />
     </section>
+  );
+}
+
+/**
+ * The F12 history controls inside the Terminal section: the global
+ * recording toggle, the row count with the database path (never synced),
+ * and Clear history.
+ *
+ * @param props - {@link SectionProps}
+ * @returns The fields.
+ */
+function HistoryFields({ draft, patch }: SectionProps) {
+  const [count, setCount] = useState<{ count: number; path: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const refresh = (): void => {
+    void ipcInvoke("history_count", {})
+      .then(setCount)
+      .catch(() => setCount(null));
+  };
+  useEffect(refresh, []);
+  return (
+    <>
+      <label className="settings-field settings-field--toggle">
+        <Checkbox
+          checked={draft.history.enabled}
+          onChange={(enabled) => patch({ history: { enabled } })}
+          aria-label="Record command history"
+        />
+        <span>
+          Record command history
+          <span className="settings-hint">
+            Every completed command (host, cwd, command, exit, duration) goes to a local
+            database the palette searches (F12). Per-host Incognito overrides this;
+            alt-screen apps are never recorded. Never synced, never exported.
+          </span>
+        </span>
+      </label>
+      <div className="settings-field">
+        <span className="settings-field-label">History database</span>
+        <span className="settings-field-control">
+          <span className="settings-hint">
+            {count === null ? "—" : `${count.count} rows · ${count.path}`}
+          </span>
+          <button
+            type="button"
+            className="settings-minor"
+            disabled={busy || count === null || count.count === 0}
+            onClick={() => {
+              setBusy(true);
+              void ipcInvoke("history_clear", {})
+                .catch(() => undefined)
+                .finally(() => {
+                  setBusy(false);
+                  refresh();
+                });
+            }}
+          >
+            Clear history
+          </button>
+        </span>
+      </div>
+    </>
   );
 }
 
@@ -522,30 +611,54 @@ function ReachabilitySection({ draft, patch, errorFor }: SectionProps) {
 }
 
 /**
- * The Flags section: the advanced track's kill switches, rendered
- * disabled until their phases ship (PLAN.md §5 — no dead toggles).
+ * The Flags section: the advanced track's kill switches. Rows whose phase
+ * has shipped are live toggles (Phase 10: the semantic terminal); the rest
+ * render disabled with their phase label (PLAN.md §5 — no dead toggles).
+ *
+ * @param props - {@link SectionProps}
+ * @returns The section element.
  */
-function FlagsSection() {
+function FlagsSection({ draft, patch }: SectionProps) {
   return (
     <section className="settings-section" aria-label="Feature flags">
       <p className="settings-note">
-        The advanced track ships behind these flags, default-off. Each one unlocks when
-        its phase lands — nothing here is live yet.
+        The advanced track ships behind these flags, default-off. Each one goes live when
+        its phase lands; the rest stay disabled until then.
       </p>
-      {FLAG_DEFS.map((flag) => (
-        <div key={flag.key} className="settings-field settings-field--toggle is-disabled">
-          <Checkbox
-            checked={false}
-            disabled
-            onChange={() => undefined}
-            aria-label={flag.label}
-          />
-          <span>
-            {flag.label}
-            <span className="settings-hint">arrives in Phase {flag.phase}</span>
-          </span>
-        </div>
-      ))}
+      {FLAG_DEFS.map((flag) => {
+        const live = "live" in flag && flag.live === true;
+        const checked = draft.flags[flag.key] === true;
+        const row = (
+          <>
+            <Checkbox
+              checked={live ? checked : false}
+              disabled={!live}
+              onChange={(on) => patch({ flags: { ...draft.flags, [flag.key]: on } })}
+              aria-label={flag.label}
+            />
+            <span>
+              {flag.label}
+              <span className="settings-hint">
+                {live
+                  ? `Phase ${flag.phase} — gutter marks, prompt jumps, history, cwd chip. Install the shell snippet from the palette (“Shell integration…”).`
+                  : `arrives in Phase ${flag.phase}`}
+              </span>
+            </span>
+          </>
+        );
+        return live ? (
+          <label key={flag.key} className="settings-field settings-field--toggle">
+            {row}
+          </label>
+        ) : (
+          <div
+            key={flag.key}
+            className="settings-field settings-field--toggle is-disabled"
+          >
+            {row}
+          </div>
+        );
+      })}
     </section>
   );
 }

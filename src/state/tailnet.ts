@@ -50,6 +50,7 @@ export function peerAsHost(peer: TailscalePeer, defaultUser: string): Host {
     health: { enabled: false, interval_s: 30 },
     notes: "",
     favorite: false,
+    incognito: false,
     source: "tailscale",
   };
 }

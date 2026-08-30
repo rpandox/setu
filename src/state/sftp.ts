@@ -114,6 +114,11 @@ export interface SftpState {
   connError: string | null;
   /** The hidden-file toggle (both panes). */
   showHidden: boolean;
+  /**
+   * Follow-mode (F12): the remote pane tracks the focused terminal's cwd
+   * on the same host (from OSC 7) whenever it changes.
+   */
+  followCwd: boolean;
   /** Per-pane sort state. */
   sorts: Record<PaneSide, SortSpec>;
   /** Per-pane listing state. */
@@ -131,6 +136,12 @@ export interface SftpState {
 
   /** ⇧⌘S: shows the panel for a host (connecting as needed) or hides it. */
   toggleForHost(hostId: string, hostLabel: string): void;
+  /**
+   * Makes sure a connection to `hostId` exists without changing whether
+   * the panel is shown — the F12 remote installer rides the SFTP engine
+   * (PLAN.md §5, remote-installer row) and only needs the session.
+   */
+  ensureConnected(hostId: string, hostLabel: string): void;
   /** Re-runs the connect flow after a failure (the error state's Retry). */
   retryConnect(): void;
   /** Hides the overlay; the connection and transfers keep running. */
@@ -157,6 +168,8 @@ export interface SftpState {
   setSort(pane: PaneSide, key: SortKey): void;
   /** Flips the hidden-file toggle. */
   toggleHidden(): void;
+  /** Flips follow-mode (F12). */
+  toggleFollow(): void;
   /** Replaces a pane's selection (the view computes modifier semantics). */
   setSelection(pane: PaneSide, selected: string[]): void;
   /** Creates a directory in a pane's cwd. */
@@ -589,6 +602,7 @@ export const useSftp = create<SftpState>((set, get) => {
     connState: "idle",
     connError: null,
     showHidden: false,
+    followCwd: false,
     sorts: { local: DEFAULT_SORT, remote: DEFAULT_SORT },
     panes: { local: emptyPane(), remote: emptyPane() },
     transfers: [],
@@ -609,6 +623,19 @@ export const useSftp = create<SftpState>((set, get) => {
       }
       // A different host (or a dead connection): tear down and reconnect.
       startConnection(hostId, hostLabel);
+    },
+
+    ensureConnected(hostId: string, hostLabel: string): void {
+      const state = get();
+      if (
+        state.hostId === hostId &&
+        (state.connState === "connected" || state.connState === "connecting")
+      ) {
+        return;
+      }
+      const wasOpen = state.open;
+      startConnection(hostId, hostLabel);
+      set({ open: wasOpen });
     },
 
     retryConnect(): void {
@@ -733,6 +760,10 @@ export const useSftp = create<SftpState>((set, get) => {
 
     toggleHidden(): void {
       set((state) => ({ showHidden: !state.showHidden }));
+    },
+
+    toggleFollow(): void {
+      set((state) => ({ followCwd: !state.followCwd }));
     },
 
     setSelection(pane: PaneSide, selected: string[]): void {
@@ -990,4 +1021,21 @@ export function resetSftpForTests(): void {
     drag: null,
     dragOver: null,
   });
+}
+
+/**
+ * Follow-mode entry point (F12): the semantic layer reports a session's
+ * new cwd here; when the panel is open, connected to that session's host,
+ * and following, the remote pane navigates there.
+ *
+ * @param hostId - The session's host (`undefined` for local shells — those
+ * never drive the remote pane).
+ * @param cwd - The new working directory.
+ */
+export function followCwdFromSession(hostId: string | undefined, cwd: string): void {
+  const state = useSftp.getState();
+  if (!state.open || !state.followCwd || state.connState !== "connected") return;
+  if (hostId === undefined || state.hostId !== hostId) return;
+  if (state.panes.remote.path === cwd) return;
+  void state.navigate("remote", cwd);
 }

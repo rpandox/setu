@@ -142,6 +142,10 @@ pub struct Host {
     /// Pinned to the Favorites section at the top of the sidebar.
     #[serde(default)]
     pub favorite: bool,
+    /// Incognito (F12): commands on this host are never written to
+    /// `history.sqlite`, whatever the global `[history] enabled` says.
+    #[serde(default)]
+    pub incognito: bool,
     /// Where this record came from; only `setu` rows persist here.
     #[serde(default)]
     pub source: HostSource,
@@ -167,6 +171,7 @@ impl Default for Host {
             health: Health::default(),
             notes: String::new(),
             favorite: false,
+            incognito: false,
             source: HostSource::Setu,
         }
     }

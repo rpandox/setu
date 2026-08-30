@@ -9,6 +9,7 @@ import { CommandPalette } from "../features/palette/CommandPalette";
 import { PasteGuardDialog } from "../features/broadcast/PasteGuardDialog";
 import { SnippetDrawer } from "../features/snippets/SnippetDrawer";
 import { SnippetRunDialog } from "../features/snippets/SnippetRunDialog";
+import { ShellIntegrationHost } from "../features/semantic/ShellIntegrationDialog";
 import { Toast } from "../components/Toast";
 import { dispatchShortcut } from "../state/actions";
 import { useBroadcast, wireBroadcastHousekeeping } from "../state/broadcast";
@@ -132,6 +133,7 @@ export function App() {
       <KeysPanel />
       <SnippetDrawer />
       <SnippetRunDialog />
+      <ShellIntegrationHost />
       <CommandPalette />
       <PasteGuardDialog />
       <Toast />

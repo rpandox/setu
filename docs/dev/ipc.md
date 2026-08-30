@@ -791,6 +791,109 @@ newest archive's mtime — there is no state file.
 | Emits      | nothing                                              |
 | Fails when | the config dir doesn't exist yet, or the write fails |
 
+### `history_add`
+
+Record one completed command in `history.sqlite` (F12, Phase 10). The
+frontend calls it from the semantic layer when OSC 133 `D` closes a
+command whose text arrived via `OSC 633;E`. Privacy gates are enforced
+core-side as well as in the UI: nothing is written while
+`[history] enabled` is false, and nothing for a host whose `incognito`
+flag is set — both answer `{ recorded: false }`, never an error.
+Alt-screen commands never reach this command (the frontend skips them).
+The database lives beside `state.json` in the app-support directory —
+outside the synced config dir by construction ([store.md](store.md)).
+
+|            |                                                                                                                                     |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Payload    | `{ entry: { hostId?: string, hostLabel: string, cwd: string, cmd: string, exit: number \| null, durationMs: number, ts: number } }` |
+| Result     | `{ recorded: boolean }`                                                                                                             |
+| Emits      | nothing                                                                                                                             |
+| Fails when | settings can't be read, or the insert fails (disk full, corrupt database)                                                           |
+
+### `history_query`
+
+Search history for the palette's History section (F12). Every whitespace
+token of `query` must appear (case-insensitively) in `cmd`, `host`, or
+`cwd`; an empty query lists the newest rows. Newest first, `limit` capped
+at 1000. Rows are reusable, never auto-run: the palette pastes the command
+into the focused pane without a carriage return.
+
+|            |                                                                               |
+| ---------- | ----------------------------------------------------------------------------- |
+| Payload    | `{ params: { query: string, limit: number } }`                                |
+| Result     | `{ entries: [{ id, ts, host, cwd, cmd, exit: number \| null, durationMs }] }` |
+| Emits      | nothing                                                                       |
+| Fails when | the query can't run (corrupt database)                                        |
+
+### `history_count`
+
+Row count plus the database path — shown in the Settings window's Terminal
+section, and the "DB row count proves it" evidence for the incognito
+acceptance item.
+
+|            |                                   |
+| ---------- | --------------------------------- |
+| Payload    | `{}`                              |
+| Result     | `{ count: number, path: string }` |
+| Emits      | nothing                           |
+| Fails when | the count can't run               |
+
+### `history_clear`
+
+Delete every history row (Settings → Clear history).
+
+|            |                      |
+| ---------- | -------------------- |
+| Payload    | `{}`                 |
+| Result     | `null`               |
+| Emits      | nothing              |
+| Fails when | the delete can't run |
+
+### `shell_integration_status`
+
+Detect a target's shell and whether the F12 snippet is installed. A
+target is `{ kind: "local" }` (this Mac: `$HOME`, `$SHELL`) or
+`{ kind: "remote", sftpSessionId }` — a live session from
+[`sftp_connect`](#sftp_connect), because the remote installer rides the
+Phase 5 SFTP engine (PLAN.md §5, remote-installer row). SFTP cannot run
+`$SHELL`, so remotely the shell is inferred from which rc files exist
+(fish → zsh → bash); `candidates` feeds the dialog's picker.
+
+|            |                                                                                                       |
+| ---------- | ----------------------------------------------------------------------------------------------------- |
+| Payload    | `{ target: { kind: "local" } \| { kind: "remote", sftpSessionId: string } }`                          |
+| Result     | `{ shell: "zsh" \| "bash" \| "fish" \| null, candidates: Shell[], home: string, installed: boolean }` |
+| Emits      | nothing                                                                                               |
+| Fails when | the home directory can't be resolved, the session is gone, or an rc file exists but can't be read     |
+
+### `shell_integration_preview`
+
+The exact line diff an install or uninstall would make to the rc file —
+shown before anything is written (F12). Empty `diff` means nothing would
+change (already installed / already absent). A missing rc is created on
+install (`exists: false`).
+
+|            |                                                                                              |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| Payload    | `{ change: { target, shell: "zsh" \| "bash" \| "fish", action: "install" \| "uninstall" } }` |
+| Result     | `{ rcPath: string, exists: boolean, diff: [{ kind: "+" \| "-" \| " ", text: string }] }`     |
+| Emits      | nothing                                                                                      |
+| Fails when | the target can't be read, or `action` is unknown                                             |
+
+### `shell_integration_apply`
+
+Apply a confirmed install/uninstall. Writes a sibling temp file then
+renames over the rc (remote: the existing file is removed first, since
+SFTP rename won't overwrite on many servers), then re-reads the file and
+reports the real state. A failed write leaves the original untouched.
+
+|            |                                                                              |
+| ---------- | ---------------------------------------------------------------------------- |
+| Payload    | `{ change: { target, shell, action } }` (as for `shell_integration_preview`) |
+| Result     | `{ rcPath: string, installed: boolean }`                                     |
+| Emits      | nothing                                                                      |
+| Fails when | the target can't be read or written, or `action` is unknown                  |
+
 ## Events
 
 ### `pty:data:{sessionId}`

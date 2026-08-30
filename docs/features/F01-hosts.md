@@ -81,6 +81,9 @@ its ssh port but would refuse your login still shows green.
   popover rendering a minimal markdown subset — `**bold**`, `*italic*`,
   backtick code, `[links](https://…)`, and `- ` bullets. Links open in
   your system browser.
+- **Incognito (Phase 10):** the editor's _Incognito_ toggle (`incognito =
+true`) keeps every command on that host out of the global history —
+  see [F12](F12-semantic-terminal.md).
 - **Turn probing off:** per host with `reachability = false` in the
   editor's TOML (or `hosts.toml`); globally in the Settings window
   (⌘, → Reachability, Phase 8) or by hand under `[reachability]` in

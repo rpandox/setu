@@ -115,3 +115,13 @@
   font-family: var(--font-mono);
   font-size: 11px;
 }
+
+/* F12 History rows: the command in mono, truncated — it is the row's
+   identity, the host/cwd/time detail trails it. */
+.palette-title--mono {
+  font-family: var(--font-mono);
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

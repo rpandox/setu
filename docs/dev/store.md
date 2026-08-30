@@ -39,6 +39,7 @@ port = 22
 identity = "agent"              # "agent" | path to a private key
 startup = "tmux new -A -s main" # optional; "" = none
 favorite = true
+incognito = false               # Phase 10 (F12): never record this host's commands
 source = "setu"                 # only "setu" rows live in this file
 ```
 
@@ -137,6 +138,7 @@ not an error.
 ```
 ~/Library/Application Support/dev.pandox.setu/
   state.json          # Phase 3 — window/session restore + UI prefs
+  history.sqlite      # Phase 10 — command history (F12); see below
 ```
 
 `state.json` describes **this machine's windows** — which sidebar groups
@@ -186,3 +188,31 @@ missing file is the default state, and **a corrupt file is never
 overwritten** — the app runs on defaults and stops persisting until the
 file is fixed or deleted. The frontend debounces changes (~500 ms) and
 writes the whole document via `ui_state_set` ([ipc.md](ipc.md#ui_state_set)).
+
+## history.sqlite (device-local, never synced, never exported)
+
+```
+~/Library/Application Support/dev.pandox.setu/
+  history.sqlite      # Phase 10 — the F12 global command history
+```
+
+One table, `commands (id, ts, host, cwd, cmd, exit, duration_ms)`, indexed
+on `ts`; written by the semantic terminal when a command completes
+(OSC 133 `D` after an `OSC 633;E` command line), read by the palette's
+History section. It lives in the app-support directory on purpose:
+`~/.config/setu` is the sync unit and the vault export's input, and a
+command log must never ride along with either (PLAN.md §4, §5
+command-history row; CLAUDE.md hard rules).
+
+Two switches keep it honest: the global `[history] enabled` toggle in
+`settings.toml` (Settings → Terminal) and the per-host `incognito` flag in
+`hosts.toml` — both enforced by the core in `history_add`, not only by the
+UI. Commands that used the alternate screen (editors, pagers, tmux) are
+never recorded. Settings → Terminal shows the row count and path and
+offers **Clear history**. The database is opened in WAL mode; deleting
+the file resets history.
+
+`settings.toml` gains two Phase 10 keys: `[terminal] osc52_clipboard`
+(default `false` — remote programs may write this Mac's clipboard only
+when opted in) and `[history] enabled` (default `true`). The
+`[flags] semantic_terminal` row is live from Phase 10 (default `false`).

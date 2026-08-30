@@ -59,6 +59,9 @@ completion. "Hidden files" in the panel header shows dotfiles. Symlinks
 display `⤷ name → target` and are followed on double-click, never during
 listing or delete.
 
+"Follow cwd" (Phase 10, shown while the semantic flag is on) makes the
+remote pane track the focused terminal's working directory on the same
+host as you `cd` ([F12](F12-semantic-terminal.md)).
 "Open in Cyberduck" hands the current remote directory to your `sftp://`
 handler (Cyberduck, if installed) — the escape hatch when you need
 something this browser doesn't do.
