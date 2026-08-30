@@ -100,7 +100,12 @@ describe("actionRegistry", () => {
     // Palette-only actions carry no §8 key — the sanctioned exceptions
     // (PLAN.md §5: Phase 7 Keys-panel row; Phase 8 sync — the footer is
     // its pointer home).
-    const paletteOnly = new Set(["manage-ssh-keys", "sync-now", "reload-hosts", "shell-integration"]);
+    const paletteOnly = new Set([
+      "manage-ssh-keys",
+      "sync-now",
+      "reload-hosts",
+      "shell-integration",
+    ]);
     const actions = actionRegistry();
     const ids = actions.map((a) => a.id);
     expect(new Set(ids).size).toBe(ids.length);
