@@ -6,9 +6,7 @@ rc file emits prompt marks, and Setu turns them into gutter marks, prompt
 jumps, copy-last-output, re-run, a live cwd chip, done-notifications, and a
 searchable command history.
 
-_Screenshot pending: the live walk found the gutter marks not yet rendering
-in the release build (see PLAN.md §5, "Live walk record"), so no frame has
-been landed for this page yet._
+![Gutter marks in a local shell: green for exit 0, red for a failed `grep`, and the OSC 7 cwd chip in the status bar](../assets/f12-semantic.png)
 
 ## What is it?
 
