@@ -11,10 +11,9 @@ the board: every LED shows, right now, whether its machine answers.
 ## What is it?
 
 The sidebar is the patch bay: Favorites on top, then your groups, then
-the **Hosts** list. Every concrete alias from `~/.ssh/config` is imported
-straight into that list — grouped like any other host, each marked with a
-small **cfg** badge — so an imported device sits next to your saved ones
-rather than in a separate section you have to scroll to find. When
+the **Hosts** list, then **SSH config (n)** — every concrete alias from
+`~/.ssh/config`, each marked with a small **cfg** badge, under its own
+heading directly beneath your saved hosts and expanded by default. When
 Tailscale is installed and logged in, a **Tailnet** section of live peers
 follows ([F9](F09-tailscale.md), Phase 7). Add and edit hosts in a drawer
 with inline validation; everything persists to `~/.config/setu/hosts.toml` —
@@ -64,8 +63,11 @@ its ssh port but would refuse your login still shows green.
 - **Hue:** each host picks one of 8 identity colors — it underlines the
   host's tabs so you always know where a terminal points.
 - **Import from `~/.ssh/config`:** automatic. Every concrete `Host` alias
-  (wildcards like `Host *` are skipped) appears in the main **Hosts** list
-  with a **cfg** badge, read-only. The list re-reads the file whenever the
+  (wildcards like `Host *` are skipped) appears under the **SSH config (n)**
+  heading right below **Hosts**, with a **cfg** badge, read-only — the
+  count in the title tells you at a glance how many were found. The
+  heading collapses like any other (click it); it starts expanded and the
+  collapse is remembered. The list re-reads the file whenever the
   window regains focus, and ⌘K → _Reload hosts_ forces it on demand — so a
   config you edit while Setu is open shows up without a restart. Connecting
   uses the bare alias, so ProxyJump, IdentityFile, and Match blocks behave
@@ -121,8 +123,10 @@ been hidden for a minute and sweeps immediately when you come back.
 - **Adopt fails with "identity file not found".** The config block names
   an `IdentityFile` that doesn't exist on disk; fix the path in
   `~/.ssh/config` (or create the key) and adopt again.
-- **I can't find my `~/.ssh/config` hosts.** They're in the main **Hosts**
-  list (each with a **cfg** badge), not a separate section. If you added
+- **I can't find my `~/.ssh/config` hosts.** They're under the **SSH
+  config (n)** heading directly beneath **Hosts** (each with a **cfg**
+  badge); if the heading shows a count but no rows, click it to expand.
+  If you added
   them while Setu was open, click back into the window or run ⌘K → _Reload
   hosts_ — older builds only read the file at startup.
 - **An imported alias vanished from the list.** A persisted host with the

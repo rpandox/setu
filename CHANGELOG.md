@@ -7,6 +7,13 @@ one entry.
 
 ## [Unreleased]
 
+### Changed
+
+- Hosts imported from `~/.ssh/config` now sit under their own **SSH config
+  (n)** heading directly beneath **Hosts** — visible and expanded by
+  default, count in the title, `cfg` badge kept — instead of being mixed
+  into the main list. (Owner ask, HIVE-236; [F1](docs/features/F01-hosts.md))
+
 ### Added — Phase 10: semantic terminal (F12, behind `flags.semantic_terminal`)
 
 - Shell integration installer (⌘K → _Shell integration…_, or the status
