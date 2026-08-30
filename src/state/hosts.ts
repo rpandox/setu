@@ -81,13 +81,21 @@ export const useHosts = create<HostsState>((set, get) => ({
   async load(): Promise<void> {
     try {
       const hosts = await ipcInvoke("hosts_list", {});
-      set((state) => ({
-        ...state,
-        hosts,
-        loadError: null,
-        // Drop selection entries whose hosts vanished (delete, config edit).
-        selectedIds: state.selectedIds.filter((id) => hosts.some((h) => h.id === id)),
-      }));
+      set((state) => {
+        // Keep the existing array reference when the list is unchanged, so
+        // identity-keyed subscribers don't fire on a no-op reload. The
+        // focus-reload (F1) runs on every window focus; without this, each
+        // alt-tab handed the reachability sweep a fresh array reference and
+        // it re-swept every host immediately, bypassing the poll interval.
+        const unchanged = sameHostList(hosts, state.hosts);
+        return {
+          ...state,
+          hosts: unchanged ? state.hosts : hosts,
+          loadError: null,
+          // Drop selection entries whose hosts vanished (delete, config edit).
+          selectedIds: state.selectedIds.filter((id) => hosts.some((h) => h.id === id)),
+        };
+      });
     } catch (error) {
       set((state) => ({ ...state, loadError: String(error) }));
     }
@@ -176,6 +184,29 @@ export const useHosts = create<HostsState>((set, get) => ({
     await get().load();
   },
 }));
+
+/**
+ * Element-wise equality for two host lists: same length, same order, and
+ * every field equal. Used by {@link useHosts.load} to keep the array
+ * reference stable across a no-op reload so identity-keyed subscribers
+ * (the reachability sweep) don't fire on every window focus.
+ *
+ * `Host` is a flat record of primitives plus small arrays (`forwards`,
+ * `tags`), so a per-element `JSON.stringify` compare is exact and cheap at
+ * host-list sizes (tens of rows).
+ *
+ * @param a - One host list.
+ * @param b - The other host list.
+ * @returns `true` when the lists are element-wise identical.
+ * @example
+ * ```ts
+ * sameHostList(hosts, hosts); // true
+ * ```
+ */
+export function sameHostList(a: Host[], b: Host[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((host, i) => JSON.stringify(host) === JSON.stringify(b[i]));
+}
 
 /**
  * A blank draft for the "new host" editor, matching the Rust defaults.
@@ -335,8 +366,12 @@ export interface SidebarSection {
 /**
  * Builds the sidebar sections (F1): while searching, one flat ranked
  * "Results" section; otherwise Favorites first, then each named group
- * (alphabetical), then ungrouped hosts, then the read-only "ssh config"
- * imports. Favorites appear only in Favorites — no duplication.
+ * (alphabetical), then the "Hosts" list. Imported `~/.ssh/config` rows are
+ * never split into a separate bottom section — they sit in the main list
+ * alongside saved hosts (grouped by their `group`, or "Hosts" when
+ * ungrouped), each carrying a `cfg` badge so it stays identifiable. A
+ * dedicated bottom section was too easy to scroll past and miss (HIVE-165).
+ * Favorites appear only in Favorites — no duplication.
  *
  * @param hosts - All hosts, as returned by `hosts_list`.
  * @param query - The live search query; empty means "not searching".
@@ -348,19 +383,18 @@ export function sidebarSections(hosts: Host[], query: string): SidebarSection[] 
   }
   const favorites = hosts.filter((h) => h.favorite);
   const rest = hosts.filter((h) => !h.favorite);
-  const imported = rest.filter((h) => h.source === "ssh_config");
-  const own = rest.filter((h) => h.source !== "ssh_config");
-  const groupNames = [...new Set(own.map((h) => h.group).filter((g) => g !== ""))].sort();
+  const groupNames = [
+    ...new Set(rest.map((h) => h.group).filter((g) => g !== "")),
+  ].sort();
 
   const sections: SidebarSection[] = [
     { key: "favorites", title: "Favorites", hosts: favorites },
     ...groupNames.map((name) => ({
       key: `group:${name}`,
       title: name,
-      hosts: own.filter((h) => h.group === name),
+      hosts: rest.filter((h) => h.group === name),
     })),
-    { key: "ungrouped", title: "Hosts", hosts: own.filter((h) => h.group === "") },
-    { key: "ssh-config", title: "ssh config", hosts: imported },
+    { key: "ungrouped", title: "Hosts", hosts: rest.filter((h) => h.group === "") },
   ];
   return sections.filter((section) => section.hosts.length > 0);
 }

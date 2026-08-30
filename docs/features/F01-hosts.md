@@ -11,11 +11,13 @@ the board: every LED shows, right now, whether its machine answers.
 ## What is it?
 
 The sidebar is the patch bay: Favorites on top, then your groups, then
-ungrouped hosts, then an **ssh config** section listing every concrete
-alias from `~/.ssh/config` — and, when Tailscale is installed and
-logged in, a **Tailnet** section of live peers
-([F9](F09-tailscale.md), Phase 7). Add and edit hosts in a drawer with
-inline validation; everything persists to `~/.config/setu/hosts.toml` —
+the **Hosts** list. Every concrete alias from `~/.ssh/config` is imported
+straight into that list — grouped like any other host, each marked with a
+small **cfg** badge — so an imported device sits next to your saved ones
+rather than in a separate section you have to scroll to find. When
+Tailscale is installed and logged in, a **Tailnet** section of live peers
+follows ([F9](F09-tailscale.md), Phase 7). Add and edit hosts in a drawer
+with inline validation; everything persists to `~/.config/setu/hosts.toml` —
 a human-diffable file that's safe to git-sync because it never holds
 secrets. A host that is also a tailnet peer (same MagicDNS name) wears
 a small `ts` badge instead of appearing twice.
@@ -62,10 +64,13 @@ its ssh port but would refuse your login still shows green.
 - **Hue:** each host picks one of 8 identity colors — it underlines the
   host's tabs so you always know where a terminal points.
 - **Import from `~/.ssh/config`:** automatic. Every concrete `Host` alias
-  (wildcards like `Host *` are skipped) shows in the **ssh config**
-  section, read-only, parsed live from the file. Connecting uses the bare
-  alias, so ProxyJump, IdentityFile, Match blocks, and Include files all
-  behave exactly as they do in your terminal.
+  (wildcards like `Host *` are skipped) appears in the main **Hosts** list
+  with a **cfg** badge, read-only. The list re-reads the file whenever the
+  window regains focus, and ⌘K → _Reload hosts_ forces it on demand — so a
+  config you edit while Setu is open shows up without a restart. Connecting
+  uses the bare alias, so ProxyJump, IdentityFile, and Match blocks behave
+  exactly as they do in your terminal. (`Include`d files are not yet parsed
+  — their hosts won't list.)
 - **Adopt** (hover an imported row): copies the alias into `hosts.toml`
   as an editable Setu host. The config file itself is never touched.
 - **Bulk actions:** ⌘-click rows (⇧-click for a range), then use the bar
@@ -113,9 +118,13 @@ been hidden for a minute and sweeps immediately when you come back.
 - **Adopt fails with "identity file not found".** The config block names
   an `IdentityFile` that doesn't exist on disk; fix the path in
   `~/.ssh/config` (or create the key) and adopt again.
-- **An imported alias vanished from the ssh config section.** A persisted
-  host with the same label hides it (that's what Adopt creates). Rename or
-  delete the Setu host to see the raw alias again.
+- **I can't find my `~/.ssh/config` hosts.** They're in the main **Hosts**
+  list (each with a **cfg** badge), not a separate section. If you added
+  them while Setu was open, click back into the window or run ⌘K → _Reload
+  hosts_ — older builds only read the file at startup.
+- **An imported alias vanished from the list.** A persisted host with the
+  same label hides it (that's what Adopt creates). Rename or delete the
+  Setu host to see the raw alias again.
 - **An imported alias's LED never lights.** Alias-only entries (no
   `HostName` in the config block) are never probed — Setu won't guess what
   the alias resolves to. The tooltip says so; adopt the host (or add a

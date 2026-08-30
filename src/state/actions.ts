@@ -14,6 +14,7 @@
  */
 
 import { useBroadcast } from "./broadcast";
+import { useHosts } from "./hosts";
 import { useKeys } from "./keys";
 import { activeSessionOf, tabSessionOf, useSessions } from "./sessions";
 import { openSettingsWindow } from "./settings";
@@ -257,6 +258,18 @@ export function actionRegistry(): AppAction[] {
       shortcut: "⌘,",
       matches: (event) => cmd(event, ",", false),
       perform: () => void openSettingsWindow(),
+    },
+    {
+      // Palette-only (F1): re-read hosts.toml and ~/.ssh/config now — the
+      // focus reload covers the common case; this is the explicit one.
+      id: "reload-hosts",
+      title: "Reload hosts (hosts.toml + ~/.ssh/config)",
+      perform: () => {
+        void useHosts
+          .getState()
+          .load()
+          .then(() => useToast.getState().show("Hosts reloaded", "info"));
+      },
     },
     {
       // Palette-only (F10): §8 assigns no key; the sidebar footer is the

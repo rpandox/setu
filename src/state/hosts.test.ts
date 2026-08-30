@@ -147,19 +147,27 @@ describe("rankHosts", () => {
 });
 
 describe("sidebarSections", () => {
-  it("orders favorites, named groups, ungrouped, then ssh config", () => {
+  it("orders favorites, named groups, then Hosts — imported rows join the main list (HIVE-165)", () => {
     const ungrouped = host({ id: "4", label: "solo" });
     const sections = sidebarSections([ungrouped, imported, atlas, hermes, ganymede], "");
-    expect(sections.map((s) => s.key)).toEqual([
-      "favorites",
-      "group:fleet",
-      "ungrouped",
-      "ssh-config",
-    ]);
+    // No separate bottom "ssh-config" section any more: the imported row
+    // sits in the ungrouped "Hosts" list next to saved hosts.
+    expect(sections.map((s) => s.key)).toEqual(["favorites", "group:fleet", "ungrouped"]);
     expect(sections[0].hosts).toEqual([hermes]);
     expect(sections[1].hosts).toEqual([atlas, ganymede]);
-    expect(sections[2].hosts).toEqual([ungrouped]);
-    expect(sections[3].hosts).toEqual([imported]);
+    expect(sections[2].hosts).toEqual([ungrouped, imported]);
+  });
+
+  it("keeps a grouped imported row in its named group", () => {
+    const groupedImport = host({
+      id: "sshcfg:fleet-box",
+      label: "fleet-box",
+      source: "ssh_config",
+      group: "fleet",
+    });
+    const sections = sidebarSections([groupedImport, atlas], "");
+    expect(sections.map((s) => s.key)).toEqual(["group:fleet"]);
+    expect(sections[0].hosts).toEqual([groupedImport, atlas]);
   });
 
   it("drops empty sections and never duplicates favorites into groups", () => {
@@ -215,6 +223,37 @@ describe("store actions", () => {
     expect(ipcInvoke).toHaveBeenCalledWith("hosts_list", {});
     expect(useHosts.getState().hosts).toEqual([hermes]);
     expect(useHosts.getState().loadError).toBeNull();
+  });
+
+  it("load keeps the SAME array reference when nothing changed (no-op focus reload)", async () => {
+    useHosts.setState({ hosts: [hermes, atlas] });
+    const before = useHosts.getState().hosts;
+    // hosts_list returns equal contents in fresh objects, as it would on a
+    // window-focus reload with an unchanged config.
+    ipcInvoke.mockResolvedValueOnce([{ ...hermes }, { ...atlas }]);
+    await useHosts.getState().load();
+    // Same reference → the reachability sweep subscriber does not re-fire.
+    expect(useHosts.getState().hosts).toBe(before);
+  });
+
+  it("load swaps in a new array when the list actually changed", async () => {
+    useHosts.setState({ hosts: [hermes] });
+    const before = useHosts.getState().hosts;
+    ipcInvoke.mockResolvedValueOnce([hermes, atlas]);
+    await useHosts.getState().load();
+    expect(useHosts.getState().hosts).not.toBe(before);
+    expect(useHosts.getState().hosts).toEqual([hermes, atlas]);
+  });
+
+  it("load swaps in a new array when a host FIELD changed at the same length", async () => {
+    // Guards against comparing ids only: an edited host (same id, changed
+    // hostname) must still yield a new reference so the reach sweep re-runs.
+    useHosts.setState({ hosts: [hermes] });
+    const before = useHosts.getState().hosts;
+    ipcInvoke.mockResolvedValueOnce([{ ...hermes, hostname: "hermes.new.ts.net" }]);
+    await useHosts.getState().load();
+    expect(useHosts.getState().hosts).not.toBe(before);
+    expect(useHosts.getState().hosts[0].hostname).toBe("hermes.new.ts.net");
   });
 
   it("load keeps the old list and records the error on failure", async () => {
